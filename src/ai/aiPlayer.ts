@@ -225,6 +225,16 @@ const REPAIR_HALL_CREW = REPAIR_MAX;
  *  point restored, off the target's own `goldRep`/`lumberRep` (`SimWorld.repairRates`) — and a
  *  computer down to its last hundred gold needs it for a worker, not for a Farm's paintwork. */
 const REPAIR_GOLD = 100;
+/**
+ * …and the floor under even the hall: a worker is only sent at a building the bank can pay to
+ * mend for this many SECONDS (gold and lumber both, at the worker's own `repairRates`).
+ * `tickRepair` charges per tick and stands the worker down the tick the bank cannot cover, so a
+ * hire the bank cannot fund is a worker that kneels for ONE frame and stands up again — and
+ * this pass, which runs every couple of seconds, hired it again every time. That was the
+ * Computer+ Acolyte "jittering" at its hall: a computer spends every coin it has, its bank sits
+ * at a few gold, and the hall alone was exempt from `REPAIR_GOLD`. OURS, like the rest.
+ */
+const REPAIR_FUND_SECS = 3;
 
 export class AiPlayer {
   /** `hero_id`/`hero_id2`/`hero_id3` — PickMeleeHero's three picks, in order. */
@@ -1920,12 +1930,23 @@ export class AiPlayer {
       for (const u of pool) {
         if (on >= want || working >= REPAIR_MAX) break;
         if (world.repairRefusal(u.id, h.b.id) !== null) continue; // wrong worker for this building
+        if (!this.canFundRepair(u, h.b)) continue; // a hire the bank cannot pay for — see REPAIR_FUND_SECS
         if (!this.host.execute(this.player, { c: "repair", unitId: u.id, buildingId: h.b.id, queued: false })) continue;
         taken.add(u.id);
         on++;
         working++;
       }
     }
+  }
+
+  /** Can the bank pay for `REPAIR_FUND_SECS` of `worker` mending `building`? Asked of the sim's
+   *  own rates, so the price is the one `tickRepair` will charge. A world that cannot quote a
+   *  rate (no ability registry) is not second-guessed. */
+  private canFundRepair(worker: SimUnit, building: SimUnit): boolean {
+    const rates = this.host.world.repairRates?.(worker.id, building.id);
+    if (!rates) return true;
+    const hp = rates.hpPerSec * REPAIR_FUND_SECS;
+    return this.gold() >= hp * rates.goldPerHp && this.wood() >= hp * rates.lumberPerHp;
   }
 
   /** Is this worker's trip a GOLD trip — kneeling in a haunted mine's ring, or walking a load of

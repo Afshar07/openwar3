@@ -1270,7 +1270,7 @@ function siegeLine(c: PlusCtx): void {
  *  Tree of Ages. OURS. */
 const SIEGE_TIER = 2;
 /** …and the army food it waits for on top: the siege is added to an army, never in place of
- *  one. OURS — a Normal computer's army is 30 food at most, so this is about half of it. */
+ *  one. OURS — a Normal computer's army is 26 food at most, so this is well over half of it. */
 const SIEGE_AFTER = 16;
 
 /**

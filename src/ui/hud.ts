@@ -25,7 +25,7 @@ import { setGameTip } from "./gameTip";
 import { HERO_LEVEL_FX_OVERHANG, HeroLevelFx } from "./heroLevelFx";
 import { MODAL_FX_OVERHANG, ModalButtonFx } from "./modalButtonFx";
 import { anyModalOpen } from "./modal";
-import { ObserverHud, type ObserverSeat } from "./observerHud";
+import { ObserverHud, OBS, clock as matchClockText, type ObserverSeat } from "./observerHud";
 import { gridCommandKey, gridCommandSlot, gridHotkeys, gridInventoryKey, gridInventorySlot, hotkeyMode, hotkeysOnButtons } from "../data/hotkeys";
 
 /** Which upkeep band a food count falls in: 0 none, 1 low, 2 high — at the bands of this match
@@ -272,8 +272,12 @@ export interface HudDriver {
   /** The observer HUD (issue #168, ui/observerHud.ts): every watched seat — its bank, food,
    *  APM, heroes, production, army and upgrades — in seat order. Empty for a player. */
   observerSeats(): ObserverSeat[];
-  /** Seconds of match played, for the observer's clock under the medallion. */
+  /** Seconds of match played, for the clock under the medallion (the observer's, and a
+   *  player's outside a campaign). */
   matchSeconds(): number;
+  /** This match is a campaign CHAPTER (MeleeConfig.campaign) — the one kind of game that gets
+   *  no match clock under the medallion. */
+  isCampaign(): boolean;
   /** The observer HUD's Menu and Chat buttons — the same doors F10 and F12 open. */
   openConsolePanel(panel: "menu" | "chat"): void;
   /** Select this unit (any player's — a watcher may look at anything) and centre on it. */
@@ -1505,6 +1509,16 @@ export class GameHud {
           autoCamera: this.autoCamBox.root,
         });
       }
+    } else {
+      // A PLAYER gets the observer's match clock too, in the same place under the medallion —
+      // in every game but a campaign chapter (a mission is not a match against the clock).
+      // The clock is ours, not the 1.30.4 console's: the observer HUD's (issue #168), shared.
+      this.matchClock = document.createElement("div");
+      this.matchClock.className = "hud-match-clock";
+      this.matchClock.style.top = uiPx(OBS.time);
+      this.matchClock.style.fontSize = uiPx(OBS.score.font);
+      this.matchClock.hidden = true;
+      this.root.appendChild(this.matchClock);
     }
     // A console button is PRESSED, never FOCUSED. The browser hands keyboard focus to any
     // button on mousedown and then answers Enter by clicking the focused one — so the Allies
@@ -1695,6 +1709,12 @@ export class GameHud {
     this.refreshHeroBar();
     this.refreshAutoCameraBox();
     this.observerHud?.frame(dtMs);
+    if (this.matchClock) {
+      const off = this.driver.isCampaign();
+      if (this.matchClock.hidden !== off) this.matchClock.hidden = off;
+      const time = off ? "" : matchClockText(this.driver.matchSeconds());
+      if (this.matchClock.textContent !== time) this.matchClock.textContent = time;
+    }
     this.updateIdleWorkers();
     // Last: the two refreshes above are what say which buttons are lit, and the effect is
     // simulated once for all of them (see ModalButtonFx).
@@ -2842,6 +2862,8 @@ export class GameHud {
    */
   /** The observer HUD, for a watcher only (issue #168). */
   private observerHud: ObserverHud | null = null;
+  /** The match clock under the medallion, for a player (a watcher's is the observer HUD's). */
+  private matchClock: HTMLDivElement | null = null;
   private autoCamBox: { root: HTMLElement; box: HTMLElement; check: HTMLElement; paint: (pressed: boolean) => void } | null = null;
   private buildAutoCameraBox(): HTMLElement {
     const root = document.createElement("div");

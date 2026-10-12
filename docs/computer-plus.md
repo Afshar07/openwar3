@@ -385,7 +385,7 @@ Blizzard's unless a comment says otherwise) every value here is ours.
 | waits this long into a fight before casting | 2.5 s | 1 s | 0 |
 | workers per town | 8 | 11 | 14 |
 | expansions | **never** | 1, after 10 min | 3, after 5 min |
-| **army food ceiling** | **12** | 30 | 80 (`UPKEEP_TIER2`) |
+| **army food ceiling** | **12** | 26 (was 30 — "one or two units fewer") | 80 (`UPKEEP_TIER2`) |
 | towers | **0** | 2 | 4 |
 | heroes | 1 | 2 | 3 |
 | hall tier | **1** | 3 | 3 |
@@ -2021,6 +2021,12 @@ belongs (`AiPlayer.applyRepairs`) and is described in
 hall first (off `UnitBalance`'s own `TownHall` class, not a race list), **two workers ever**, and
 an idle worker before a lumberjack before a miner, because gold is what every other row on the
 ladder above is bought with.
+
+…and nobody is sent at a building the bank cannot pay to mend (`REPAIR_FUND_SECS`, three seconds
+of it at the worker's own `repairRates`) — **the hall included**. `tickRepair` charges per tick and
+stands the worker down the tick the bank runs dry, and a computer spends every coin it has, so a
+hall-exempt hire with nothing in the bank was an Acolyte that knelt for ONE frame, stood up, and
+was hired again on the next pass: the repair crew "jittering" at the hall.
 
 ### A second Barracks is bought with the BANK, not with army food
 

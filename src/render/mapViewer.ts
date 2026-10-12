@@ -53,7 +53,7 @@ import { loadUberSplatRegistry, type UberSplatDef, type UberSplatRegistry } from
 import { loadLightningRegistry } from "../data/lightning";
 import { specialFxPhaseAt, type SpecialFxClips } from "./specialFxClock";
 import { pickEffectSequence, yawPitchRollQuat } from "./effectAnim";
-import { loadAbilityRegistry, mdlPath, type AbilityRegistry, type AbilityDef, type BuffFx, isRepairCode, KNOWN_ABILITIES, TREE_UPGRADE_ABILITY, requiredHeroLevel, aoeCursorRadius, morphFlags, MORPH_FLAG_PERMANENT, MORPH_FLAG_REQUIRES_PAYMENT, type AbilityLevel, iconAt } from "../data/abilities";
+import { loadAbilityRegistry, mdlPath, type AbilityRegistry, type AbilityDef, type BuffFx, isRepairCode, KNOWN_ABILITIES, TREE_UPGRADE_ABILITY, requiredHeroLevel, aoeCursorRadius, morphFlags, MORPH_FLAG_PERMANENT, MORPH_FLAG_REQUIRES_PAYMENT, type AbilityLevel, iconAt, isStance } from "../data/abilities";
 import { isDesktopApp } from "../assets/nativeInstall";
 import { loadCommandStrings, disabledIconPath, placeholderIcon, type CommandStrings } from "../data/commandStrings";
 import { resolveTipRefs } from "../data/tipRefs";
@@ -6199,10 +6199,21 @@ export class MapViewerScene {
       const stations = world.mineRingStations(u);
       for (let i = 0; i < stations.length; i++) {
         const key = `minering|${u.id}|${i}`;
+        const [sx, sy] = stations[i];
+        // NOT THROUGH THE FOG. The mine keeps its image once explored, like any building, but
+        // the marks are an EFFECT on the ground and nothing in the fog's memory draws one —
+        // they read, from across the map, that an enemy has haunted this mine (and the
+        // catch-all sweep, `fogSpawnedInstances`, only hides what stands on UNEXPLORED
+        // ground). Live sight of the station, as the Moon Well's water asks it; hidden rather
+        // than dropped once it exists, so looking away and back does not replay the Birth
+        // bloom, and never spawned unseen.
+        const seen = this.pointVisible(sx, sy);
+        if (!seen && !this.buffFx.has(key)) continue;
         this.trackBuffFx(active, key, MINE_CIRCLE_FX, u.id, undefined, true);
         const inst = this.buffFx.get(key);
         if (!inst) continue;
-        const [sx, sy] = stations[i];
+        if (seen) inst.show();
+        else inst.hide();
         this.loc3[0] = sx;
         this.loc3[1] = sy;
         this.loc3[2] = this.rts!.groundHeightAt(sx, sy);
@@ -9096,6 +9107,7 @@ export class MapViewerScene {
         }));
       },
       matchSeconds: () => this.rts?.matchSeconds() ?? 0,
+      isCampaign: () => this.campaign,
       openConsolePanel: (panel) => this.togglePanelByKey(panel),
       // A watcher's click on a hero, a unit type or a building at work in the observer HUD:
       // select it and put the camera on it, the portrait's own click (focusSelected) without
@@ -11753,7 +11765,7 @@ export class MapViewerScene {
     if (code === "Aroo") return !su.uprooted;
     if (code === "AEim") return !!su.immolation;
     if (code === "ANms") return su.buffs.some((b) => b.kind === "manaShield");
-    if (def.autocast && def.unOrder) return su.abilities.some((a) => a.code === code && a.autocastOn);
+    if (isStance(def)) return su.abilities.some((a) => a.code === code && a.autocastOn);
     if (def.autocast) return false;
     const lvl = def.levelData[0];
     const alt = lvl ? lvl.summon || lvl.dataStr[1] || "" : "";
@@ -12025,7 +12037,7 @@ export class MapViewerScene {
         // sim agrees from the other side — tickAutocast skips it (and issueCast refuses it).
         // …and none on a STANCE either: Defend switched on is shown by its `Unart`
         // (BTNDefendStop, via toggleIsOn) — the border would be claiming an autocast it has not got.
-        modal: def.autocast && !def.unOrder && ab.autocastOn && techMet,
+        modal: def.autocast && !isStance(def) && ab.autocastOn && techMet,
         cooldownLeft: onCd ? ready.ab.cooldownLeft : 0,
         cooldownFrac: onCd && ready.lvl.cooldown > 0 ? Math.max(0, Math.min(1, ready.ab.cooldownLeft / ready.lvl.cooldown)) : 0,
       }));
@@ -12164,7 +12176,8 @@ export class MapViewerScene {
       // its own DefendCaster.wav instead (SimWorld.toggleAutocast), at the Footman.
       const su = this.rts.selectedSimUnit();
       const ab = su?.abilities.find((a) => a.code === code && a.autocastOn);
-      if (ab && !(ab.def ?? this.abilities.get(ab.id))?.unOrder) this.sounds?.playUi("AutoCastButtonClick");
+      const abDef = ab ? ab.def ?? this.abilities.get(ab.id) : undefined;
+      if (ab && !(abDef && isStance(abDef))) this.sounds?.playUi("AutoCastButtonClick");
       return;
     }
     if (id === "learnpage") {

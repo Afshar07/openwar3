@@ -168,6 +168,10 @@ Two things it deliberately does not decide for itself:
 - **When to stop.** The sim ends the job itself at full health or an empty bank, and the worker
   falls back to idle — where the next harvest pass picks it up. A worker already on a repair job
   is never re-tasked here, or the walk would restart every pass.
+  Which is also why it never STARTS one the bank cannot fund: a worker is hired only if the bank
+  covers `REPAIR_FUND_SECS` (3 s) of mending at the sim's own `repairRates`, gold and lumber both,
+  the hall included. Without it a computer at a few gold re-hired the same Acolyte at its hall
+  every pass, and it knelt for one frame and stood up again each time.
 
 It runs BEFORE the harvest split in both AIs' build passes, so a worker sent to mend something is
 already spoken for when the slices are filled (`applyHarvest` skips a worker on a repair job) and

@@ -370,7 +370,7 @@ export const PLUS_EASY: PlusProfile = {
  * again, NO unit massing".
  *
  * Two heroes, the whole tech tree, one expansion, a couple of towers, and an army it will
- * actually pull out of a lost fight. Thirty food is a real army and still half of what the map
+ * actually pull out of a lost fight. Twenty-six food is a real army and well under half of what the map
  * can feed, which is the line the brief draws — and it is the FOOD ceiling, not the tech
  * ceiling, that carries "no unit massing". It counters, but late and half-heartedly (see
  * `counterWeight`), it upgrades only two ranks deep, and it is three minutes later to expand.
@@ -393,7 +393,10 @@ export const PLUS_NORMAL: PlusProfile = {
   // no Tauren — and left it playing two or three openings for ever. A Normal player reaches
   // tier 3; they just take longer over it and stop short of the whole tree, which is what
   // `upgradeRank` and the clocks above already say.
-  armyFood: 30, towers: 2, siegeUnits: 2, heroes: 2, techTier: 3, upgradeRank: 2,
+  // 26 food, not the 30 it was: the developer's call — "reduce the target army size of
+  // Computer+ AI (Normal difficulty) by 1-2 units" — which is two Footmen or Archers, or a
+  // Grunt and change, off the ceiling `armyBudget` trains to.
+  armyFood: 26, towers: 2, siegeUnits: 2, heroes: 2, techTier: 3, upgradeRank: 2,
   firstAttack: 300, firstAttackSpread: 0, waveGap: 90, attackFood: 14, retreatHp: 0.35, refill: false,
   // Creeps from two and a half minutes with the hero and ten food behind it — about a hero, a
   // couple of soldiers and whatever else is standing around, which is what clears a green camp.

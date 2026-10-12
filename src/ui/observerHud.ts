@@ -51,7 +51,7 @@ const uiPx = (v: number): string => `calc(var(--stage-h) * ${v / UI_HEIGHT})`;
  * `label` is `ObserverPanelStringTemplate`'s MasterFont 0.008. Everything else is OURS — the
  * install has no observer HUD to measure — and was sized off the issue's 1280×720 reference.
  */
-const OBS = {
+export const OBS = {
   edge: 0.004, // clear of the screen's edge
   gap: 0.003, // between two panels
   pull: { h: 0.024, corner: 0.0125, inset: 0.004, button: 0.01, font: 0.011, item: 0.012, border: 0.01, arrow: 0.011 },
@@ -86,8 +86,9 @@ type ProdView = "production" | "army" | "upgrades";
 
 const RACE_ICON = (race: string): string => `UI\\Glues\\ScoreScreen\\scorescreen-player-${race}.blp`;
 
-/** "m:ss", or "h:mm:ss" past the hour — the match clock under the medallion. */
-function clock(seconds: number): string {
+/** "m:ss", or "h:mm:ss" past the hour — the match clock under the medallion (the observer's,
+ *  and a player's too outside a campaign: hud.ts `matchClock`). */
+export function clock(seconds: number): string {
   const s = Math.max(0, Math.floor(seconds));
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), r = s % 60;
   const two = (n: number): string => String(n).padStart(2, "0");

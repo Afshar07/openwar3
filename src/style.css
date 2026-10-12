@@ -1355,6 +1355,17 @@ body:not(.hud-tooltip-skinned) .obs-panel { outline: 1px solid rgba(200, 160, 50
 .obs-score-race { width: calc(var(--obs-score-icon) * 2); height: var(--obs-score-icon); background: center / 100% 200% no-repeat; }
 .obs-score-name { overflow: hidden; text-overflow: ellipsis; }
 .obs-score-apm { color: rgb(252, 211, 18); font-size: 0.7em; }
+/* The player's copy of the observer's match clock (hud.ts `matchClock`); top and size are set
+   inline off the observer HUD's own OBS numbers, so the two cannot drift apart. */
+.hud-match-clock {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  color: rgb(252, 211, 18);
+  pointer-events: none;
+  z-index: 2;
+}
+.hud-match-clock[hidden] { display: none; }
 .obs-time {
   position: absolute;
   left: 50%;

@@ -4,7 +4,7 @@ import { targsKindError } from "./targeting";
 import { corpseAdmits, corpseMissingError, corpseNeed, corpseReach, spawnsFromCorpse, type CorpseNeed, type CorpseOrder } from "./corpses";
 import { footprintBuildable, footprintRadius, stampFootprint, unstampFootprint, type Footprint } from "./destructibles";
 import { BlightGrid } from "./blight";
-import { type AbilityRegistry, type AbilityDef, type AbilityLevel, type BuffFx, emptyAbilityLevel, isCriticalStrikeCode, isRepairCode, targetFlagSet, requiredHeroLevel, KNOWN_ABILITIES, morphFlags, MORPH_FLAG_PERMANENT, MORPH_FLAG_REQUIRES_PAYMENT } from "../data/abilities";
+import { type AbilityRegistry, type AbilityDef, type AbilityLevel, type BuffFx, emptyAbilityLevel, isCriticalStrikeCode, isRepairCode, targetFlagSet, requiredHeroLevel, KNOWN_ABILITIES, morphFlags, MORPH_FLAG_PERMANENT, MORPH_FLAG_REQUIRES_PAYMENT, isStance } from "../data/abilities";
 import { type ItemRegistry, type ItemDef } from "../data/items";
 import { cloneAbilityDef, readAbilityField, writeAbilityField } from "../data/objectData";
 import { ATTACK_TYPES, defenseTypeCode, defenseTypeFrom, targetedAsCode, targetedAsFrom } from "../data/unitFieldCodes";
@@ -17001,7 +17001,7 @@ export class SimWorld {
     // ON before its research is in (`[Adef] Requires=Rhde`) — defendStance ignores it then, but
     // the Footman would still stand behind a shield that does nothing.
     const def = this.abilityDefOf(ab);
-    const stance = !!def?.autocast && !!def.unOrder;
+    const stance = !!def && isStance(def);
     if (stance && !ab.autocastOn && this.tech && !this.tech.meets(u.owner, ab.id)) return false;
     ab.autocastOn = !ab.autocastOn;
     if (ab.autocastOn) for (const other of u.abilities) if (other !== ab) other.autocastOn = false;
@@ -19055,6 +19055,19 @@ export class SimWorld {
       this.reacquireOrStop(u);
       return;
     }
+    // It went into the FOG: a fight the unit picked up itself (auto-acquired, a creep's aggro,
+    // a call for help) is only ever about an enemy its side can SEE — canSee is the rule it was
+    // picked up by, and this is that rule still holding while the chase runs. Without it a
+    // target that BLINKED away, read a Town Portal or simply outran everybody's sight was
+    // followed straight across the map by every unit it had ever drawn, steering on a
+    // position nobody on their side could know. The team's vision (allies' shared sight
+    // included), not the chaser's own radius: a body its army is still watching is a body it
+    // may keep chasing. An ORDERED attack is the player's (or a trigger's) and is left alone,
+    // exactly as canSee never gates one.
+    if (!u.attackOrdered && !this.visibleToTeam(u.team, t.x, t.y)) {
+      this.reacquireOrStop(u);
+      return;
+    }
     // It went UNTOUCHABLE mid-fight — a Divine Shield, a Big Bad Voodoo, a trigger's
     // SetUnitInvulnerable — and the same thing happens: lose it. An attack on an invulnerable
     // unit is one `issueAttack` refuses outright (issue #26), so an order aimed at one cannot
@@ -19641,8 +19654,9 @@ export class SimWorld {
     if (acq > 0) {
       const hadTarget = u.targetId !== null;
       let t = hadTarget ? this.units.get(u.targetId!) : undefined;
-      // Drop the target if it died, turned friendly, went invulnerable (Divine Shield resets aggro), or fled past the leash.
-      if (t && (!this.hostile(u, t) || t.invulnerable || Math.hypot(t.x - u.x, t.y - u.y) - u.radius - t.radius > acq)) t = undefined;
+      // Drop the target if it died, turned friendly, went invulnerable (Divine Shield resets aggro), fled past the leash
+      // or went into the fog (teleported away — see the same rule in tickAttack).
+      if (t && (!this.hostile(u, t) || t.invulnerable || Math.hypot(t.x - u.x, t.y - u.y) - u.radius - t.radius > acq || !this.visibleToTeam(u.team, t.x, t.y))) t = undefined;
       // Holding something the ladder ranks BELOW the army — the Farm that was in range
       // before its defenders were, the Peasant standing in front of the Grunt. Ranking the
       // pick is worth nothing unless it is re-asked, because on the way into a base the

@@ -1059,6 +1059,20 @@ export const KNOWN_ABILITIES: Record<string, { target: TargetType; autocast?: bo
 };
 
 /**
+ * The two STANCES that ride the autocast flag (Defend, and 1.32.9's Prioritize): on/off is the
+ * unit's STATE, worn as the row's `Unart`, not a setting the unit casts by — so no autocast
+ * sparkle and no AutoCastButtonClick. Keyed on the BASE code (the engine knows a stance by its
+ * class), because the data shape alone cannot say it: 1.30.4's `[AHfa]` Searing Arrows is a
+ * real autocast that still carries the legacy `Order=flamingarrows` / `Unorder=unflamingarrows`
+ * pair instead of the `Orderon`/`Orderoff` every other autocast has, and reading "has an
+ * Unorder" as "is a stance" took its sparkle away and flipped its button to the Off art.
+ */
+const STANCE_CODES: ReadonlySet<string> = new Set(["Adef", "Aatp"]);
+export function isStance(def: Pick<AbilityDef, "autocast" | "unOrder" | "code">): boolean {
+  return def.autocast && !!def.unOrder && STANCE_CODES.has(def.code);
+}
+
+/**
  * Aiming overrides keyed by the ability's own ROW ID rather than by its base `code`.
  *
  * Almost nothing needs this: an ability's aim is a property of what it does, and what it does

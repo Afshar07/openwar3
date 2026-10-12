@@ -87,6 +87,7 @@ function seat(units, opts = {}) {
       stashOf: () => ({ gold: opts.gold ?? 1000, lumber: opts.lumber ?? 1000 }),
       pendingTrained: () => [],
       repairRefusal: (w, b) => (opts.refuse ? opts.refuse(w, b) : null),
+      ...(opts.rates ? { repairRates: () => opts.rates } : {}),
     },
     registry: { get: (id) => DEFS[id] },
     tech: { get: () => ({ upgrade: [] }), trains: () => [], builds: () => ["hhou", "hbar", "htow"] },
@@ -262,6 +263,21 @@ console.log("\n-- what is worth mending ----------------------------------------
   const poor = seat([hall, w2], { gold: 40 });
   poor.ai.applyRepairs();
   check("…and mends the hall anyway", poor.asked.length, 1);
+
+  // …but never with a bank that cannot pay for the mending at all. `tickRepair` charges per tick
+  // and stands the worker down the tick the bank runs dry, so a hire like that knelt for one
+  // frame and stood up, and this pass hired it again every time it ran — the Computer+ Acolyte
+  // "jittering" at its hall. A Town Hall's own rates: 1500 hp over 108 s, 0.35 × 385 gold.
+  const rates = { hpPerSec: 1500 / 108, goldPerHp: (385 * 0.35) / 1500, lumberPerHp: (205 * 0.35) / 1500 };
+  const broke = seat([building("htow", 30), worker("idle")], { gold: 0, rates });
+  broke.ai.applyRepairs();
+  check("a bank with nothing in it sends nobody, not even to the hall", broke.asked.length, 0);
+  const noWood = seat([building("htow", 30), worker("idle")], { gold: 500, lumber: 0, rates });
+  noWood.ai.applyRepairs();
+  check("…and neither does one with gold but no lumber the repair needs", noWood.asked.length, 0);
+  const funded = seat([building("htow", 30), worker("idle")], { gold: 40, lumber: 40, rates });
+  funded.ai.applyRepairs();
+  check("…while forty of each pays for a few seconds of it, and that is a hire", funded.asked.length, 1);
 }
 {
   // The SIM's question, not ours: a worker whose repair row does not list this target is passed
