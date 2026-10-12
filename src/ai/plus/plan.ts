@@ -28,7 +28,7 @@ import type { PlusRaceTable, PlusStrategy } from "./races";
 //     the upgrades it takes (whichever its buildings can research) fall out of that. A strategy
 //     therefore cannot ask for a unit it has not built the producer for — see plus/races.ts.
 //  3. **The army has a ceiling, and it is enforced here.** `PlusProfile.armyFood` is a food
-//     budget spent down the race's mix; an easy computer asks for eight food of soldiers and
+//     budget spent down the race's mix; an easy computer asks for twelve food of soldiers and
 //     then stops asking. That is issue #124's "must NOT mass armies at all (must have
 //     constraints for this)", and it has to be at PRODUCTION — an AI that builds twenty Grunts
 //     and attacks with six still owns twenty Grunts when you walk into its base.
@@ -769,32 +769,52 @@ function tierTwoHero(c: PlusCtx): void {
  * by whatever the first bought, so the two never double-order.
  */
 function army(c: PlusCtx, budget: number): void {
-  const { ai, profile } = c;
-  const spend = Math.min(budget, profile.armyFood);
+  // `SetBuildNext` for the same reason the workers use it (above): a row that reserved its
+  // whole shortfall would hold the entire ladder under it — the tier-up, the tech, the
+  // upgrades — until the army was full. One more at a time per row keeps production
+  // continuous and lets the rest of the plan breathe.
+  for (const r of armyRows(c, budget)) c.ai.setBuildNext(r.want, r.unit);
+}
+
+/**
+ * The army `army` asks for, row by row: each buildable unit's share of `budget`, as a count.
+ *
+ * Its own function because the ARMY MANAGER has to know the same number — an Easy computer that
+ * fell back waits until it has its whole army again before the next wave (`PlusProfile.refill`),
+ * and "its whole army" is exactly what these rows ask for. Measured any other way the two would
+ * disagree: the shares ROUND DOWN (a seven-food share of a three-food unit is two of them, six
+ * food), so a wave waiting for the profile's raw `armyFood` would wait for food the plan is
+ * never going to train.
+ */
+function armyRows(c: PlusCtx, budget: number): Array<{ unit: string; want: number }> {
+  const spend = Math.min(budget, c.profile.armyFood);
   const rows = buildableMix(c);
   const total = rows.reduce((n, r) => n + r.weight, 0);
-  if (total <= 0) return;
-  let asked = 0;
+  if (total <= 0) return [];
+  const out: Array<{ unit: string; want: number }> = [];
   let heaviest = rows[0];
   for (const r of rows) {
     if (r.weight > heaviest.weight) heaviest = r;
     const food = Math.max(1, c.foodOf(r.unit));
     const want = Math.floor((spend * r.weight) / total / food);
-    // `SetBuildNext` for the same reason the workers use it (above): a row that reserved its
-    // whole shortfall would hold the entire ladder under it — the tier-up, the tech, the
-    // upgrades — until the army was full. One more at a time per row keeps production
-    // continuous and lets the rest of the plan breathe.
-    if (want > 0) {
-      ai.setBuildNext(want, r.unit);
-      asked++;
-    }
+    if (want > 0) out.push({ unit: r.unit, want });
   }
   // A budget spread thinly enough rounds EVERY share to nothing — a wide mix of expensive
-  // units under an Easy computer's eight food, say — and then a pass that can plainly build
+  // units under an Easy computer's ceiling, say — and then a pass that can plainly build
   // something asks for nothing at all. That is the same empty field `buildableMix`'s fallback
   // exists to prevent, arrived at from the other side, and it feeds the same food gates. So
   // the heaviest share of the build order gets one body whatever the arithmetic says.
-  if (asked === 0) ai.setBuildNext(1, heaviest.unit);
+  if (out.length === 0) out.push({ unit: heaviest.unit, want: 1 });
+  return out;
+}
+
+/**
+ * The FOOD of the whole army the plan is building toward — `army(c, profile.armyFood)`'s rows,
+ * priced. Soldiers only: the heroes are their own rows. See `armyRows` for why this is not
+ * simply `profile.armyFood`.
+ */
+export function armyTarget(c: PlusCtx): number {
+  return armyRows(c, c.profile.armyFood).reduce((n, r) => n + r.want * Math.max(1, c.foodOf(r.unit)), 0);
 }
 
 /**

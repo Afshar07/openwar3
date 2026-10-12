@@ -394,6 +394,7 @@ Blizzard's unless a comment says otherwise) every value here is ours.
 | stutter-steps its ranged units | no | no | **yes** |
 | first attack | 7–10 min, rolled per seat | 5 min | 2½ min |
 | army food that makes a wave | 10 | 14 | 16 |
+| **after falling back, waits for the whole army** | **yes** (`refill`) | no | no |
 | **first creep camp** | **never** | 2½ min | 1½ min |
 | army food that makes a creeping party | — | 10 | 8 |
 | retreats a broken army | **no** | at 35 % | at 40 % |
@@ -1340,7 +1341,51 @@ rather than merely ending the wave: `endWave` drops it into `massing`, whose ral
 skipped for anything already fighting (`u.order === "attack"`), so the soldiers stayed in the
 camp and died in it one by one.
 
-Read the Easy column as a description of a player: it makes eight workers and six food of
+**Easy was raised by two bodies** (army 8 → 12, wave 6 → 10) after real games found the bottom
+rung too easy to beat. Both numbers include what they always did: `armyFood` is soldiers the plan
+trains, `attackFood` is the wave *with* its hero (`squadFood` counts the hero's five), so the wave
+is a hero and about three soldiers.
+
+### A beaten army does not come straight back (`refill`)
+
+Reported: *"the Computer+ AI on Easy re-attacks immediately after falling back"*. Nothing stopped
+it. The only bar on a wave is `attackFood` (plus `waveGap`), and the survivors of a lost fight —
+a hero and two soldiers who walked or teleported home — very often still clear it, so the same
+broken party healed up and walked back into the fight that broke it. That reads as a computer
+that has not noticed it lost.
+
+`PlusProfile.refill` (Easy only) latches `Brain.refill` whenever the army **falls back** —
+`retreat` from a player or a camp (a `"stuck"` retreat lost nothing and does not count), or a
+wave wiped out to the last body — and while it is set `waveReady` also asks `refilled`: are the
+SOLDIERS mustered at the rally point the whole army the plan is training? The next wave to leave
+clears it. Two details keep the bar reachable, and each is a way it could have been a computer
+that never attacks again:
+
+* **The bar is the PLAN's number, not `armyFood`.** `army` turns a food budget into unit counts
+  and the shares round DOWN — a seven-food share of a three-food unit is two of them, six food — so the bar is those same rows priced (`plus/plan.ts` `armyTarget`, which `army` itself
+  now reads its rows from). A razed Hunter's Hall takes the Huntresses out of the plan and the
+  bar together.
+* **Less what the economy keeps.** The rows are absolute counts, so a Ghoul held in the trees
+  (`lumberCrew`) is one of the Ghouls the army row asked for and is never trained twice.
+
+The rungs above Easy already price a fight before they take it and leave one at `retreatHp`, so
+the wave they send back out has been judged; the easy computer's had not.
+
+### A builder that stops short is sent again, then refunded
+
+The one sim bug in this family, and the actual cause of *"a night elf Computer+ on Easy trained no
+army, just the hero"*: the Ancient of War was razed, a Wisp was sent to put up another, and it
+**stopped 3 units outside the arrival radius** — the walk is to the site's EDGE mark
+(`SimWorld.buildApproach`), the pathfinder parks as near that mark as it can, and the corner of a
+12×12 site is further from its centre than the circle `tickPendingBuild` draws. A worker holding a
+PAID build is re-tasked by nothing, and a pending build counts as one under way, so the AI never
+placed another: hero alone, 8000 gold banked, for the rest of the match. `tickPendingBuild` now
+treats a builder that is `idle`, not moving and outside the reach as STRANDED: it is walked once to
+the site's centre (open ground until the foundation rises), and a second strand cancels the build
+with a refund so whoever ordered it can place it again. It is the renderer's, like the rest of the
+raise, so it covers a player's own Peasant as much as a computer's Wisp.
+
+Read the Easy column as a description of a player: it makes eight workers and twelve food of
 tier-1 soldiers, never expands, never towers, never leaves its Town Hall, comes to find you
 after seven to ten minutes (each seat rolls its own — `firstAttackSpread` — so a table of Easy
 computers does not all leave home on one tick), feeds its army in one piece, and takes fifteen seconds to notice you are in
@@ -1386,7 +1431,7 @@ or Dread Lord opening that flipped the Lich into second fielded a tier-2 army wi
 
 `armyFood` is the single most load-bearing number, and *where* it is applied is the whole point.
 It is a budget spent down the race's unit mix inside `buildPlan`, so an easy computer **asks for
-eight food of soldiers and then stops asking**. Capping the size of the *wave* instead would
+twelve food of soldiers and then stops asking**. Capping the size of the *wave* instead would
 have produced an AI that builds twenty Grunts, attacks with six, and still has twenty Grunts
 standing when you walk into its base — which is exactly what "must NOT mass armies at all" rules
 out.

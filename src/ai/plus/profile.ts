@@ -179,6 +179,23 @@ export interface PlusProfile {
   /** Group hit-point fraction that sends a wave home. 0 = it never retreats, which is what
    *  makes an easy computer's army feedable one clump at a time. */
   readonly retreatHp: number;
+  /**
+   * After the army FALLS BACK — a lost fight it walked or teleported out of, or a wave wiped
+   * out to the last body — does the next wave wait for the WHOLE army again?
+   *
+   * Without it the only bar on the next wave is `attackFood`, and that is a bar the survivors
+   * often already clear: the hero and two soldiers walk home, heal, `waveGap` runs out, and the
+   * same broken party walks straight back into the fight that broke it. That is the developer's
+   * report of the easy computer — "it re-attacks immediately after falling back" — and it reads
+   * as a computer that has not noticed it lost. With this on, the latch set by the fall-back
+   * holds every wave until the soldiers mustered at the rally point are the whole army the plan
+   * is building (plus/plan.ts `armyTarget`), and the next wave to leave clears it.
+   *
+   * Easy only. The rungs above it already price a fight before they take it (`contactPass`,
+   * `canClearCamp`) and pull out of one at `retreatHp`, so a wave they send back out has been
+   * judged; the easy computer's is the one that has not.
+   */
+  readonly refill: boolean;
   /** Does the whole group pick ONE target and kill it? The clearest "this AI micros" tell. */
   readonly focusFire: boolean;
   /**
@@ -306,9 +323,10 @@ export interface PlusProfile {
  *
  * The shape of it: it builds one barracks' worth of tier-1 soldiers, never expands, never puts
  * up a tower, never teches past its Town Hall, and takes seven minutes to come and find you
- * with six food of army. It reacts to an attack on its base fifteen seconds late, it never
- * pulls a broken army out of a fight, and it never notices what you are building. It is a
- * player who knows the buttons and nothing else.
+ * with its hero and about three soldiers — and once it has been beaten back it does not come
+ * again until it has its whole army again (`refill`). It reacts to an attack on its base
+ * fifteen seconds late, it never pulls a broken army out of a fight, and it never notices what
+ * you are building. It is a player who knows the buttons and nothing else.
  *
  * `techTier` 1 also decides which BUILDS it can roll: a strategy that aims higher than the
  * difficulty can reach is not offered to it (`rollStrategy`), so an easy computer only ever
@@ -325,15 +343,16 @@ export const PLUS_EASY: PlusProfile = {
   // It does not counter at all: an easy computer builds what it opened with, whatever walks
   // into its base. This is the single biggest thing the top two difficulties do that it doesn't.
   counterWeight: 0, counterSample: Infinity, counterShare: 1, counterMemory: 0,
-  // Eight food of soldiers, and a wave of six. It was twelve and ten, and reported as "builds
-  // kinda big armies for beginner players" — the ceiling is spent PER ROW of the mix, so the
-  // opening Footmen a rifle build falls back on stay standing when the Riflemen come online
-  // beside them, and twelve food of each was a two-dozen-food army facing somebody's first
-  // game. Eight is four Footmen or two Riflemen, and still clears the Blacksmith's `after` (6).
-  armyFood: 8, towers: 0, siegeUnits: 0, heroes: 1, techTier: 1, upgradeRank: 1,
+  // Twelve food of soldiers, and a wave of ten. It was twelve and ten, then eight and six after
+  // "builds kinda big armies for beginner players" — the ceiling is spent PER ROW of the mix, so
+  // the opening Footmen a rifle build falls back on stay standing when the Riflemen come online
+  // beside them. Eight then proved TOO easy to beat ("about 2 units more"), so it is back to two
+  // more bodies than that: twelve is six Footmen or three Riflemen, and the wave (`squadFood`
+  // counts the hero's five) is the hero and about three soldiers.
+  armyFood: 12, towers: 0, siegeUnits: 0, heroes: 1, techTier: 1, upgradeRank: 1,
   // Seven minutes at the EARLIEST, and each seat somewhere in the three after it
   // (`firstAttackSpread`) — so a table of Easy computers does not all leave home on one tick.
-  firstAttack: 420, firstAttackSpread: 180, waveGap: 150, attackFood: 6, retreatHp: 0,
+  firstAttack: 420, firstAttackSpread: 180, waveGap: 150, attackFood: 10, retreatHp: 0, refill: true,
   // It never creeps and never shops, so neither clock nor purse below ever matters — the two
   // booleans are the switch. They are still stated rather than left to a default, because a
   // profile that only half-describes a difficulty is how one of them ends up playing another's
@@ -375,7 +394,7 @@ export const PLUS_NORMAL: PlusProfile = {
   // tier 3; they just take longer over it and stop short of the whole tree, which is what
   // `upgradeRank` and the clocks above already say.
   armyFood: 30, towers: 2, siegeUnits: 2, heroes: 2, techTier: 3, upgradeRank: 2,
-  firstAttack: 300, firstAttackSpread: 0, waveGap: 90, attackFood: 14, retreatHp: 0.35,
+  firstAttack: 300, firstAttackSpread: 0, waveGap: 90, attackFood: 14, retreatHp: 0.35, refill: false,
   // Creeps from two and a half minutes with the hero and ten food behind it — about a hero, a
   // couple of soldiers and whatever else is standing around, which is what clears a green camp.
   // It does not focus-fire, but it DOES pull a soldier out of the line at a quarter health —
@@ -418,7 +437,7 @@ export const PLUS_INSANE: PlusProfile = {
   // type is enough to start shifting, and it remembers what it saw four minutes ago.
   counterWeight: 1, counterSample: 6, counterShare: 0.25, counterMemory: 240,
   armyFood: UPKEEP_TIER2, towers: 4, siegeUnits: 2, heroes: 3, techTier: 3, upgradeRank: 3,
-  firstAttack: 150, firstAttackSpread: 0, waveGap: 30, attackFood: 16, retreatHp: 0.4,
+  firstAttack: 150, firstAttackSpread: 0, waveGap: 30, attackFood: 16, retreatHp: 0.4, refill: false,
   // Creeping starts at ninety seconds with the hero and eight food — the ladder's own answer,
   // which is "as soon as the hero walks out of the altar".
   focusFire: true, pullOutHp: 0.25, stutterStep: true, creeps: true, creepAt: 90, creepFood: 8,

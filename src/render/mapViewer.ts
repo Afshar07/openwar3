@@ -1595,6 +1595,9 @@ export class MapViewerScene {
   private buildSpawning = new Set<number>();
   // Workers waiting for their build site to clear of units → seconds waited so far.
   private buildWait = new Map<number, number>();
+  // Workers that STOPPED short of their build site and have been re-sent to its centre once
+  // (see tickPendingBuild's stranded branch). A second strand cancels the build.
+  private buildStrand = new Set<number>();
   private meleeTeams = new Map<number, number>(); // owner slot → team
   /** The seats an observer watches, in seat order (see beginMatch). */
   private watchedSeats: Array<{ id: number; race: string; team: number }> = [];
@@ -4989,7 +4992,10 @@ export class MapViewerScene {
       // the foundation never rising (playtest bug 6's true root, the localPlayer disease
       // bug 4 had). Single-player is unchanged: only the local player ever has one. A
       // frozen client never runs this at all (advanceSim's gate).
-      if (!pb) continue;
+      if (!pb) {
+        if (this.buildStrand.size) this.buildStrand.delete(w.id);
+        continue;
+      }
       const def = this.registry.get(pb.defId);
       if (!def) { world.cancelPendingBuild(w.id); this.buildWait.delete(w.id); continue; }
       // "There yet" is measured against the site's EDGE, not a fixed 160 from its centre —
@@ -5001,7 +5007,30 @@ export class MapViewerScene {
       const siteFp = def.pathTex ? this.footprintFor(def.pathTex) : null;
       const half = siteFp ? (Math.max(siteFp.w, siteFp.h) * PATHING_CELL) / 2 : 0;
       const reach = Math.max(160, half + (w.radius || 16) + 2 * PATHING_CELL);
-      if (Math.hypot(w.x - pb.x, w.y - pb.y) >= reach || w.moving) { this.buildWait.delete(w.id); continue; } // not there yet
+      if (Math.hypot(w.x - pb.x, w.y - pb.y) >= reach || w.moving) { // not there yet
+        this.buildWait.delete(w.id);
+        // …or NEVER going to be: STRANDED. The walk ended (`idle`, not moving) outside the
+        // reach — the pathfinder parked it as near the edge mark as it could get, a body or a
+        // tree on the mark, and the corner of a 12×12 site is further from its centre than the
+        // circle this reach draws. Nothing re-tasks a worker that holds a PAID build, so it
+        // stood there for the rest of the match with the money spent — and because a pending
+        // build counts as one under way, a computer never placed another: a night elf whose
+        // Ancient of War was razed stood with its hero alone on 8000 gold. One retry walks it
+        // to the site's CENTRE (open ground until the foundation rises, and arriving there is
+        // the old behaviour this edge-walk replaced); a second strand gives the build up with
+        // a refund, so whoever ordered it can place it again.
+        if (!w.moving && w.order === "idle" && Math.hypot(w.x - pb.x, w.y - pb.y) >= reach) {
+          if (this.buildStrand.has(w.id)) {
+            this.buildStrand.delete(w.id);
+            world.cancelPendingBuild(w.id);
+            if (w.owner === this.localPlayer) this.refuse("Cantplace");
+          } else {
+            this.buildStrand.add(w.id);
+            world.issueMove(w.id, pb.x, pb.y);
+          }
+        }
+        continue;
+      }
       // The worker is standing on the site, so this is the moment a shift-queued build is
       // asked for its money (it was queued without being asked — see Authority's `build`).
       // Short of it, the build is off: the order goes, every unpaid one queued behind it goes

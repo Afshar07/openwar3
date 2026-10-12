@@ -17,7 +17,7 @@ import {
 } from "./chatter";
 import { PlusItems, type ItemCtx } from "./items";
 import {
-  LUMBER_FLOOR, buildPlan, buildableMix, expansionOpen, harvestPlan, openingUnit, type PlusCtx,
+  LUMBER_FLOOR, armyTarget, buildPlan, buildableMix, expansionOpen, harvestPlan, openingUnit, type PlusCtx,
 } from "./plan";
 import {
   ATTACK_TELL_GAP, BUSY_LINES, COLOUR_NAMES, COMING_LINES, COUNTER_TELL, HELP_ANSWER_GAP,
@@ -1100,7 +1100,7 @@ const EARLY_HERO_LEVEL = 3;
  * `contactPass`'s, and it is symmetric there because both armies are in the open.
  *
  * `UNDEAD_CEILING` is what stops the bar being a bar nobody can clear: every difficulty caps its
- * own production (`PlusProfile.armyFood` is 8 on Easy), so 1.75 × `attackFood` is above what an
+ * own production (`PlusProfile.armyFood` is 12 on Easy), so 1.75 × `attackFood` is above what an
  * easy computer may ever own and would read as "never attack the undead at all". Four fifths of
  * the ceiling is the most that can be asked of a difficulty without asking for the impossible —
  * a wave is measured in the food that would actually LEAVE, and the wounded are not in it.
@@ -2106,6 +2106,10 @@ interface Brain {
    *  `firstAttackSpread`. Every reading of "may the first wave leave yet" asks this, never the
    *  profile's number, or the seats go back to keeping one clock. */
   firstAttackAt: number;
+  /** The army FELL BACK and has not been rebuilt since — the next wave waits for the whole of
+   *  it (`PlusProfile.refill`, `refilled`). Set by `retreat` and by a wave wiped out to the
+   *  last body; cleared by the next wave that leaves. */
+  refill: boolean;
   /** When something hostile first appeared in one of our towns (-1 = nothing there). The
    *  difficulty's `defendDelay` is measured off this: an easy computer lets you kill four
    *  workers before it looks up. */
@@ -2463,6 +2467,7 @@ export class ComputerPlusAi {
       lastWaveEnd: 0,
       // Whole seconds off the seat's own stream (`PlusProfile.firstAttackSpread`).
       firstAttackAt: profile.firstAttack + (profile.firstAttackSpread > 0 ? ai.randomInt(0, profile.firstAttackSpread) : 0),
+      refill: false,
       threatSince: -1,
       recall: null,
       recallNext: 0,
@@ -4487,6 +4492,7 @@ export class ComputerPlusAi {
     // their say, so nothing that could have been doing something else is held back by it.
     if (!this.mayAssault(b, target)) return;
     b.target = target;
+    b.refill = false; // the army is whole again, and this is the wave it was rebuilt for
     this.setMode(b, "attacking");
     this.commit(b, target.x, target.y);
   }
@@ -4506,7 +4512,45 @@ export class ComputerPlusAi {
       if (!captain || captain.level < EARLY_HERO_LEVEL) return false;
     }
     // …measured at the MUSTER POINT — see `mustered`. A wave is what sets off, not what exists.
-    return this.squadFood(b, this.mustered(b)) >= profile.attackFood;
+    const at = this.mustered(b);
+    if (this.squadFood(b, at) < profile.attackFood) return false;
+    // …and after a FALL-BACK, the WHOLE army, not merely a wave's worth of it — see
+    // `PlusProfile.refill`. Asked last because it is the one gate that prices the plan.
+    return this.refilled(b, at);
+  }
+
+  /**
+   * Has an army that FELL BACK been rebuilt — are the SOLDIERS standing at the muster point the
+   * whole army the plan is training (plus/plan.ts `armyTarget`)?
+   *
+   * The soldiers alone, because the plan's number is: the heroes are their own rows, and a
+   * revived hero walking back into the rally point is not the four Archers that died. And the
+   * plan's number rather than `PlusProfile.armyFood`, because that one is a budget the shares
+   * ROUND DOWN under — a bar above what will ever be trained is a computer that never attacks
+   * again. Read live, so a razed Hunter's Hall takes the Huntresses out of both the plan and
+   * the bar at once.
+   *
+   * Less whatever the economy keeps out of the squad: the plan's rows are ABSOLUTE counts, so a
+   * Ghoul in the trees (`lumberCrew`) is one of the Ghouls the army row asked for and will not
+   * be trained twice — measured against the squad alone, an undead army that fell back could
+   * never be whole again.
+   */
+  private refilled(b: Brain, at: { x: number; y: number }): boolean {
+    if (!b.refill || !b.profile.refill) return true;
+    const foodOf = (u: SimUnit): number => this.host.registry.get(u.typeId)?.foodUsed ?? 0;
+    let food = 0;
+    for (const u of this.squadUnits(b)) {
+      if (u.isHero || isCopy(u) || this.recovering(u) || pulledOut(b.pulls.get(u.id), b.clock)) continue;
+      if (Math.hypot(u.x - at.x, u.y - at.y) > GATHER_RADIUS) continue;
+      food += foodOf(u);
+    }
+    let kept = 0;
+    for (const u of this.host.world.units.values()) {
+      if (u.owner !== b.ai.player || u.hp <= 0 || b.squad.has(u.id)) continue;
+      if (u.building || u.isPeon || u.isHero || isCopy(u)) continue;
+      kept += foodOf(u);
+    }
+    return food >= armyTarget(this.ctx(b)) - kept;
   }
 
   /**
@@ -4907,12 +4951,19 @@ export class ComputerPlusAi {
     b.resume = null;
     b.retreatFrom = from;
     b.retreatSince = b.clock;
+    // A FALL-BACK, unless all it is walking away from is ground it could not cross — a stall
+    // lost nothing, and its army is the one it set out with. See `PlusProfile.refill`.
+    if (from !== "stuck") b.refill = true;
     this.setMode(b, "retreating");
   }
 
   /** On the way, and once there. */
   private attacking(b: Brain): void {
-    if (!b.squad.size) return void this.endWave(b);
+    // Nobody left to call back is the hardest fall-back there is — see `PlusProfile.refill`.
+    if (!b.squad.size) {
+      b.refill = true;
+      return void this.endWave(b);
+    }
     // A creep run is FOR the hero, so it is over the moment the hero is not in it — dead, or
     // pulled home by something else. Carrying on would be trading soldiers for experience
     // nobody is left to collect.
@@ -7489,6 +7540,7 @@ export class ComputerPlusAi {
     // base a beat later in this player's own words.
     b.attackSaid = foe;
     b.attackSaidAt = b.clock;
+    b.refill = false; // `waveReady` above has already asked for the whole army
     this.setMode(b, "attacking");
     this.tell(b, ask ? RALLY_ACCEPT_LINES : JOIN_LINES);
     this.commit(b, spot.x, spot.y);
