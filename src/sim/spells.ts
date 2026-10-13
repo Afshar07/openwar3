@@ -2191,8 +2191,9 @@ export const SPELL_HANDLERS: Record<string, Handler> = {
 
   // --- disables / debuffs ---
 
-  // Entangling Roots (Keeper) — root a target in place (can still attack) and
-  // deal dataA damage per second for the duration.
+  // Entangling Roots (Keeper) — root a target in place, DISARM it, and deal dataA damage per
+  // second for the duration. The disarm rides the `root` buff's group ("roots"): world.ts
+  // derives SimUnit.disarmed from it, which is what sets this net apart from Ensnare and Web.
   AEer: (api, caster, def, rank, ctx) => {
     const t = api.getUnit(ctx.targetId);
     if (!t || t.flying) return;

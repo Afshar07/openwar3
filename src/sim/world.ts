@@ -577,7 +577,8 @@ export type BuffKind =
   | "hex" // Hex / Polymorph: the holder is a CRITTER — no attack, no spells, and it walks at
   //       exactly HEX_MOVE_SPEED. The body it wears is `SimUnit.hexForm`; see hexUnit.
   | "manaShield" // absorb incoming damage into mana instead of hp; value = mana spent per hp
-  | "root" // value = move-slow fraction (Entangling Roots pins to 1.0); can still attack
+  | "root" // value = move-slow fraction (every net pins to 1.0). Ensnare and Web can still
+  //        attack; Entangling Roots (group "roots") DISARMS as well — see SimUnit.disarmed
   | "vuln" // value = fraction of EXTRA damage the holder takes (Berserk +50%)
   | "miss" // value = chance this unit's attacks simply MISS (Drunken Haze's `Nsi2 "Chance To
   //         Miss (%)"`). Not a slow and not a damage cut — the blow is rolled and thrown away,
@@ -1903,6 +1904,14 @@ export interface SimUnit {
   /** Derived from a `hex` buff (Hex, Polymorph): a critter — no attack, no spells, walks at
    *  HEX_MOVE_SPEED. */
   hexed: boolean;
+  /** Derived from an Entangling Roots `root` buff (group "roots"): the unit cannot attack at
+   *  all — "Immobilizes, disarms, and deals 10 damage/sec" (warcraft.wiki.gg, Poison Treant
+   *  and Tree of Life (Warcraft III) pages: "Entangled Units are unable to attack, though
+   *  they can still cast spells"). Ensnare and Web hold a unit just as still and leave it
+   *  its weapon, which is the whole difference between the nets. Unlike Banish, the ORDER
+   *  survives it: the unit stands with its target named and takes it up again the moment the
+   *  roots let go — a rooted unit was going nowhere anyway. */
+  disarmed: boolean;
   /** The CRITTER unit type a Hex or Polymorph has this unit wearing, "" when it wears its own
    *  body. A SKIN and nothing more: `typeId` stays the unit's own, so its name, its hit points,
    *  its pathing radius and its click volume are all still the original's — only the model
@@ -9019,6 +9028,7 @@ export class SimWorld {
       | "paused"
       | "silenced"
       | "hexed"
+      | "disarmed"
       | "hexForm"
       | "ethereal"
       | "webbed"
@@ -9307,6 +9317,7 @@ export class SimWorld {
       paused: false,
       silenced: false,
       hexed: false,
+      disarmed: false,
       hexForm: "",
       ethereal: false,
       webbed: false,
@@ -10293,6 +10304,11 @@ export class SimWorld {
       this.stop(u.id);
       return;
     }
+    if (u.disarmed) { // rooted: hold the order, swing nothing (SimUnit.disarmed)
+      this.cancelSwing(u);
+      if (u.moving) this.settle(u);
+      return;
+    }
     // Committed to a swing: stand through the wind-up, exactly as engage does.
     if (u.swingLeft >= 0) {
       if (u.moving) this.settle(u);
@@ -10421,6 +10437,11 @@ export class SimWorld {
     const w = g ? this.groundWeapon(u) : null;
     if (!g || !w || u.ethereal || u.hexed || (g.treeId && !this.trees.has(g.treeId))) {
       this.stop(u.id);
+      return;
+    }
+    if (u.disarmed) { // rooted: hold the order, fire nothing (SimUnit.disarmed)
+      this.cancelSwing(u);
+      if (u.moving) this.settle(u);
       return;
     }
     // Committed to a shot: stand through the wind-up, exactly as engage does.
@@ -12566,6 +12587,7 @@ export class SimWorld {
     let stun = false;
     let silence = false;
     let hexed = false;
+    let disarmed = false;
     let ethereal = false;
     let webbed = false;
     let invisible = false;
@@ -12595,7 +12617,9 @@ export class SimWorld {
         hasteMove = Math.max(hasteMove, b.value);
         hasteAttack = Math.max(hasteAttack, b.value2);
       } else if (b.kind === "root") {
-        slowMove = Math.max(slowMove, b.value); // pins movement (can still attack)
+        slowMove = Math.max(slowMove, b.value); // pins movement
+        // ENTANGLING ROOTS is the one net that also takes the weapon away (SimUnit.disarmed).
+        if (b.group === "roots") disarmed = true;
         // WEB is Ensnare with one extra clause, and the group is what tells them apart: the
         // target is not merely held, it is pulled DOWN. See SimUnit.webbed.
         if (b.group === "web") webbed = true;
@@ -12827,6 +12851,7 @@ export class SimWorld {
     u.stunned = stun;
     u.silenced = silence || hexed;
     u.hexed = hexed;
+    u.disarmed = disarmed;
     // The critter's clock ran out, or somebody dispelled it: give the unit its own body back,
     // with the poof it went in with played the other way (HEX_DONE_ART). One place for every
     // way a hex can end, because every one of them ends up recomputing stats.
@@ -15273,6 +15298,8 @@ export class SimWorld {
 
   /** Is `u` held where it stands by a ROOT buff — Ensnare, Web, Entangling Roots? Every one
    *  of them pins at value 1 (see spells.ts), so the buff's presence is the whole answer.
+   *  (Entangling Roots also disarms, so its holder never reaches the stand-in below at all —
+   *  tickAttack stands it down first; see SimUnit.disarmed.)
    *
    *  A pinned unit is not a tower: it keeps its move orders for when the net comes off, which
    *  is why this is not `canPursue`. What it shares with a tower is the FIGHT — it can strike
@@ -18992,6 +19019,7 @@ export class SimWorld {
     if (u.cloaked) return 0;
     if (u.hidden) return 0; // a hidden unit picks no fights of its own — see SimUnit.hidden
     if (u.hexed) return 0; // a critter has no attack to pick a fight with (see tickAttack)
+    if (u.disarmed) return 0; // nor does a unit in Entangling Roots (SimUnit.disarmed)
     if (u.isPeon || this.harvesting(u)) return 0;
     if (u.scriptAcquire >= 0) return u.scriptAcquire; // SetUnitAcquireRange
     if (u.isCreep) return u.aggroRange;
@@ -19005,6 +19033,15 @@ export class SimWorld {
     if (u.ethereal || u.hexed) {
       this.cancelSwing(u);
       this.stop(u.id);
+      return;
+    }
+    // ROOTED (Entangling Roots disarms — SimUnit.disarmed): no swing, and a blow already
+    // winding up is thrown away, but the order is KEPT — the unit stands aimed at its target
+    // and the roots letting go puts it straight back on it.
+    if (u.disarmed) {
+      this.cancelSwing(u);
+      u.inCombat = false;
+      if (u.moving) this.settle(u);
       return;
     }
     // A COMMITTED SWING IS NEVER RE-DECIDED. Everything below this line may re-target the
@@ -19196,7 +19233,8 @@ export class SimWorld {
         }
       }
     }
-    // NETTED, AND THE TARGET IS OUT OF REACH (Ensnare, Web, Entangling Roots — `pinned`). The
+    // NETTED, AND THE TARGET IS OUT OF REACH (Ensnare, Web — `pinned`; Entangling Roots
+    // disarms and was stood down at the top of tickAttack). The
     // unit cannot take a step toward it, so standing there aimed at it is standing there doing
     // nothing while whatever is beside it chops away. It swings at a STAND-IN instead: an enemy
     // it can strike from where it is held, picked the way Hold Position picks (strike reach
@@ -19510,8 +19548,9 @@ export class SimWorld {
   private engage(u: SimUnit, t: SimUnit, noChase = false): void {
     // Ethereal (Banished) units can't swing — cancel any pending strike and hold,
     // never chase (issue #49). Covers the Hold / attack-move callers of engage; the
-    // plain "attack" order is stood down in tickAttack. The same for a hexed critter.
-    if (u.ethereal || u.hexed) {
+    // plain "attack" order is stood down in tickAttack. The same for a hexed critter, and
+    // for a unit in Entangling Roots (whose order tickAttack keeps — see SimUnit.disarmed).
+    if (u.ethereal || u.hexed || u.disarmed) {
       this.cancelSwing(u);
       u.inCombat = false;
       this.settle(u);
@@ -20037,6 +20076,7 @@ export class SimWorld {
     if (t.aggroDropped) return 0; // turned on its own side: not a threat (SimUnit.aggroDropped)
     if (this.lowPriorityTarget(t)) return 0; // workers and wards dead last
     if (t.weapon && !t.weapon.ranged && t.buffs.some((b) => b.kind === "root")) return 0; // a snared swordsman is nobody's threat
+    if (t.disarmed) return 0; // …and nor is anybody in Entangling Roots, which takes the weapon too
     if (t.isSummon && t.weapon) return 5; // a summon, fighting or not
     if (this.attackingCreeps(t)) return 4; // fighting the camp
     if (t.building) return 1; // structures next

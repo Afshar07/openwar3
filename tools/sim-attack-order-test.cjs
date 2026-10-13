@@ -591,7 +591,7 @@ console.log("a melee blow does not cross a cliff");
 }
 
 // ── A netted unit fights what is beside it ──────────────────────────────────────────────
-// Ensnare / Web / Entangling Roots pin the unit where it stands. Its own target out of reach,
+// Ensnare / Web pin the unit where it stands. Its own target out of reach,
 // it must not stand there idle while an enemy chops at it: it swings at what it CAN strike,
 // and the order it was given is still the order (the net comes off, it goes back to it).
 console.log("a pinned unit falls back on an enemy in reach");
@@ -633,6 +633,36 @@ console.log("a webbed flyer shoots what is in reach");
   check(`webbed (${u.webbed})`, u.webbed);
   check(`shot the enemy in reach (hp ${beside.hp}/${beside.maxHp})`, beside.hp < beside.maxHp);
   check("the order still names its target", u.targetId === far.id);
+}
+
+// …but ENTANGLING ROOTS disarms as well as pins ("Immobilizes, disarms, and deals 10
+// damage/sec" — warcraft.wiki.gg). The rooted unit strikes nothing, picks nothing up, and
+// keeps its order: the roots let go and it is back on its target.
+console.log("a unit in Entangling Roots cannot attack");
+{
+  const w = new SimWorld(grid(), 1);
+  const u = addUnit(w, 1, 0, 500, 500);
+  const beside = addUnit(w, 2, 1, 560, 500, { weapons: [] }); // in reach, harmless
+  w.issueOrder(1, { kind: "attack", targetId: beside.id, force: false });
+  w.applyBuffInternal(u, { kind: "root", group: "roots", timeLeft: 3, sourceId: 0, value: 1 });
+  w.recomputeStats(u);
+  run(w, 2.5);
+  check(`disarmed (${u.disarmed})`, u.disarmed);
+  check(`struck nothing while rooted (hp ${beside.hp}/${beside.maxHp})`, beside.hp === beside.maxHp);
+  check("the order still names its target", u.targetId === beside.id);
+  run(w, 2.5); // the roots let go
+  check(`roots off, no longer disarmed (${u.disarmed})`, !u.disarmed);
+  check(`roots off, it strikes its target (hp ${beside.hp}/${beside.maxHp})`, beside.hp < beside.maxHp);
+}
+// …and an IDLE rooted unit does not auto-acquire the enemy beside it.
+{
+  const w = new SimWorld(grid(), 1);
+  const u = addUnit(w, 1, 0, 500, 500);
+  const beside = addUnit(w, 2, 1, 560, 500, { weapons: [] });
+  w.applyBuffInternal(u, { kind: "root", group: "roots", timeLeft: 3, sourceId: 0, value: 1 });
+  w.recomputeStats(u);
+  run(w, 2.5);
+  check(`idle and rooted, it picks no fight (hp ${beside.hp}/${beside.maxHp})`, beside.hp === beside.maxHp);
 }
 
 console.log(failures === 0 ? "\nattack-order: all checks passed" : `\nattack-order: ${failures} FAILED`);
