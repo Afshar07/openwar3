@@ -364,5 +364,25 @@ const casts = (log) => log.filter((c) => c.c === "cast").map((c) => [c.code, c.t
   check("a forest out of `Rng1` is not a spot", log.filter((o) => o.c === "cast"), []);
 }
 
+{
+  // …and the WORLD refuses it as well, whoever asks: a circle with no trunk in it is
+  // "Must target a tree." (`Units\CommandStrings.txt` [Errors] `Targettree`) at the click, and
+  // a refused order at the door — never 100 mana and a cooldown spent raising nothing.
+  const w = world();
+  const keeper = caster(w, ["AEfn"], { x: 0, y: 0, isHero: true });
+  w.trees.set(1, { id: 1, x: 400, y: 0, lumber: 200, hp: 50, blockRadius: 64 });
+  check("bare ground: castError is Targettree", w.castError(keeper.id, "AEfn", 0, -400, 0), "Targettree");
+  check("bare ground: the order is refused", w.issueCast(keeper.id, "AEfn", 0, -400, 0), false);
+  check("a trunk just outside Area1 is not in the circle", w.castError(keeper.id, "AEfn", 0, 400 - 160, 0), "Targettree");
+  check("a trunk inside Area1: castable", w.castError(keeper.id, "AEfn", 0, 400 - 100, 0), null);
+  check("a trunk inside Area1: the order is taken", w.issueCast(keeper.id, "AEfn", 0, 400 - 100, 0), true);
+  // The trunk goes while the Keeper is winding up: the cast is refused unpaid at the commit.
+  const mana = keeper.mana;
+  w.trees.delete(1);
+  for (let i = 0; i < 60; i++) w.tick(1 / 30);
+  check("trees gone before the effect: no mana spent", keeper.mana >= mana, true);
+  check("…and the Keeper stood down", keeper.order !== "cast", true);
+}
+
 console.log(failed ? `\n${failed} FAILED` : "\nall ok");
 process.exit(failed ? 1 : 0);

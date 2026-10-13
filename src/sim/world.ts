@@ -14504,6 +14504,25 @@ export class SimWorld {
   }
 
   /**
+   * "Must target a tree." — Force of Nature (`AEfn`) aimed at a circle with no tree in it, or
+   * null when there is one.
+   *
+   * The spell turns TREES into Treants (its `targs1` is the single flag `tree`), so a circle
+   * with none in it is no target at all — and without this the cast fired anyway, paid its
+   * mana and its cooldown, and raised nothing. The line is the game's own
+   * (`Units\CommandStrings.txt` [Errors] `Targettree`), the one the engine keeps for an
+   * ability that wants a tree and was given something else. The LOOK is the handler's own
+   * (`fellTreesInternal`: `nearestTrees` inside `Area1`, falling back on 150 as the handler
+   * does), so the refusal and the effect cannot disagree about what is in the circle.
+   */
+  private treeRefusal(def: AbilityDef, lvl: AbilityLevel | undefined, x: number, y: number): string | null {
+    if (def.code !== "AEfn" || !lvl) return null;
+    const radius = lvl.area || 150;
+    const [t] = this.nearestTrees(x, y, radius, 1);
+    return t && Math.hypot(t.x - x, t.y - y) <= radius ? null : "Targettree";
+  }
+
+  /**
    * The body a CANNIBALIZE press walks to: the nearest one the unit can SEE work at.
    *
    * `Rng1` = 50 is where it EATS, not how far it looks — a Ghoul told to cannibalize beside a
@@ -14561,7 +14580,9 @@ export class SimWorld {
       // is the first moment it can be answered at all (castUseError took the other five, whose
       // sweep is centred on the caster). Silent for every other point spell.
       const lvl = def.levelData[Math.min(ab.level, def.levelData.length) - 1];
-      return this.corpseRefusal(u, def, lvl, x, y);
+      // …and Force of Nature's circle with no tree in it (treeRefusal), which is aimed in
+      // the same way and so is answerable at the same moment.
+      return this.corpseRefusal(u, def, lvl, x, y) ?? this.treeRefusal(def, lvl, x, y);
     }
     if (def.target !== "unit") return null;
     const t = this.units.get(targetId);
@@ -14623,6 +14644,9 @@ export class SimWorld {
     // The same door for a replenish with nobody to restore (see replenishRefusal) — the button
     // is told why in castUseError; everything else, the autocast included, simply doesn't fire.
     if (replenishRefusal(this.spellApi, u, def, ab.level)) return false;
+    // …and a Force of Nature with no tree to turn (treeRefusal): the click was told why in
+    // castError; a trigger, a computer or an order off the wire is simply refused here.
+    if (def.target === "point" && this.treeRefusal(def, lvl, x, y)) return false;
     // Immediate abilities (see IMMEDIATE) fire here and now: pay, run the effect, done.
     // They take no order and touch none of the unit's state below, so they neither need
     // the castLocked gate nor interrupt a swing, a walk, or another spell's wind-up.
@@ -15027,6 +15051,13 @@ export class SimWorld {
     // (PRECAST_WARNING) already paid, so skip the charge and fire regardless.
     if (!pc.committed) {
       if (u.mana < lvl.cost || ab.cooldownLeft > 0) {
+        this.stop(u.id);
+        return;
+      }
+      // The trees a Force of Nature was aimed at can go while the Keeper walks in — felled by
+      // another Keeper's cast, chopped by a lumberjack — and a cast with nothing left to turn
+      // is refused here unpaid, as it is at the click (treeRefusal).
+      if (pc.code === "AEfn" && this.treeRefusal(def, lvl, tx, ty)) {
         this.stop(u.id);
         return;
       }
