@@ -712,7 +712,10 @@ export const KNOWN_ABILITIES: Record<string, { target: TargetType; autocast?: bo
   // -- Firelord --
   ANia: { target: "unit", autocast: true }, // Incinerate — bonus fire damage on attack
   ANso: { target: "unit" }, // Soul Burn — DoT + silence
-  ANlm: { target: "point" }, // Summon Lava Spawn
+  // Summon Lava Spawn — NO target, exactly like Summon Water Elemental: `[ANlm]` order
+  // `slimemonster` is an instant order and the Ubertip says only "Summons a Lava Spawn"; the
+  // spawn appears beside the Firelord.
+  ANlm: { target: "none" },
   ANvc: { target: "point" }, // Volcano — point field
   // -- Goblin Alchemist --
   ANhs: { target: "point" }, // Healing Spray — area heal

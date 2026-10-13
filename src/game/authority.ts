@@ -924,9 +924,11 @@ export class Authority {
         // would say so outright and every stock hero leaves it empty, so the engine's default
         // is the rule, and it is two rules:
         //
-        //   · an ALTAR (`Revive=1`) takes its OWN race's heroes — expressed as the ones it
-        //     TRAINS, which for `[halt]` is exactly Hamg/Hmkg/Hpal/Hblm. A Human altar does
-        //     not raise the Naga Sea Witch you hired from a Tavern.
+        //   · an ALTAR (`Revive=1`) takes ANY fallen hero of yours — its own race's and the
+        //     ones you hired from a Tavern alike. It used to be "only the heroes it TRAINS",
+        //     which left a dead Firelord with nowhere to come back but the Tavern (reported
+        //     by a tester against the real client: a Tavern hero revives at your Altar). The
+        //     roster it reads is the one global `SimWorld.fallen`, never a per-altar list.
         //   · a TAVERN takes anything of yours. The classic manual is explicit that this is
         //     not limited to its own shelf: "you can also use it to instantly revive your
         //     Heroes (neutral and race specific ones)".
@@ -936,7 +938,7 @@ export class Authority {
         // the Tavern does it with an ABILITY, `Aawa` "Revive Hero Instantly"
         // (CommonAbilityStrings), which `ntav` carries (`Ane2,Avul,Aawa`) and every Mercenary
         // Camp does not (`Ane2,Avul`, Units\UnitAbilities.slk). See SimWorld.revivesInstantly.
-        if (!(tavern ? this.sim.revivesInstantly(cmd.buildingId) : t.revive && t.trains.includes(f.typeId))) return false;
+        if (!(tavern ? this.sim.revivesInstantly(cmd.buildingId) : t.revive)) return false;
         if (this.sim.queueFull(cmd.buildingId)) return false; // before charging
         const def = this.registry.get(f.typeId);
         if (!def) return false;

@@ -955,11 +955,11 @@ export class AiPlayer {
     for (const b of this.host.world.units.values()) {
       if (b.owner !== this.player || b.hp <= 0 || !b.building) continue;
       if (b.building.constructionLeft > 0 || b.building.queue.length > 0) continue;
-      // An altar of ours, and one that trains this hero — the same rule the authority applies
-      // (a Human altar does not raise an orc hero). The AI never uses a Tavern for this: its
-      // scripts ask for a hero by id and the altar is where their build order puts it.
+      // An altar of ours — any altar revives any of our heroes, a Tavern hero included, the
+      // same rule the authority applies. The AI never uses a Tavern for this: its scripts ask
+      // for a hero by id and the altar is where their build order puts it.
       const t = this.host.tech.get(b.typeId);
-      if (!t.revive || !t.trains.includes(typeId)) continue;
+      if (!t.revive) continue;
       if (this.host.execute(this.player, { c: "revive", buildingId: b.id, heroId: fallen.id })) return true;
     }
     return false;

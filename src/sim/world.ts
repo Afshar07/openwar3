@@ -14943,8 +14943,8 @@ export class SimWorld {
       // altogether, so a sapper levelled a Town Hall from wherever it happened to be standing.
       //
       // A POINT keeps the old "only if the ability states a reach" test, because a blank
-      // column there is genuinely ambiguous — `[ANlm]` Summon Lava Spawn states none — and a
-      // point spell whose target cell is unwalkable is a walk that can never arrive.
+      // column there is genuinely ambiguous and a point spell whose target cell is unwalkable
+      // is a walk that can never arrive.
       const t = pc.targetId ? this.units.get(pc.targetId) : null;
       if (t || pc.range > 0) {
         const gap = this.castGap(u, tx, ty, t);

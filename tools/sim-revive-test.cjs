@@ -265,5 +265,49 @@ console.log("\nan enemy building's status is the owner's");
   check("…while DisplayEnemyInventory is on", MISC_GAME.DisplayEnemyInventory, 1);
 }
 
+console.log("\nan altar revives a Tavern hero too");
+{
+  // Reported by a tester against the real client: a Firelord hired at the Tavern could not be
+  // revived at the Altar of Elders. An altar (`Revive=1`) takes ANY fallen hero of yours, not
+  // only the four it trains — the roster is the one global `SimWorld.fallen`.
+  const { TechRegistry } = require(join(REPO, ".sim-build", "src", "data", "techtree.js"));
+  const { UpgradeRegistry } = require(join(REPO, ".sim-build", "src", "data", "upgrades.js"));
+  const { UnitRegistry } = require(join(REPO, ".sim-build", "src", "data", "units.js"));
+  const { Authority } = require(join(REPO, ".sim-build", "src", "game", "authority.js"));
+  const unit = (id, over) => ({
+    id, name: id, isHero: false, isBuilding: false, goldCost: 0, lumberCost: 0, buildTime: 10,
+    foodUsed: 0, foodMade: 0, ...over,
+  });
+  const units = new UnitRegistry(new Map([
+    ["eate", unit("eate", { isBuilding: true, foodMade: 20 })],
+    ["Edem", unit("Edem", { isHero: true, goldCost: 425, lumberCost: 100, buildTime: 55, foodUsed: 5 })],
+    ["Nfir", unit("Nfir", { isHero: true, goldCost: 425, lumberCost: 100, buildTime: 55, foodUsed: 5 })],
+  ]));
+  const node = (id, over = {}) => [id, {
+    id, name: id, requiresTiers: [[]], requiresAmount: [], dependencyOr: [], trains: [], researches: [],
+    builds: [], upgrade: [], makeitems: [], sellitems: [], sellunits: [], revive: false, ...over,
+  }];
+  const tech = new TechRegistry(new Map([node("eate", { trains: ["Edem"], revive: true }), node("Edem"), node("Nfir")]));
+  const grid = new PathingGrid({ width: 32, height: 32, flags: new Uint8Array(32 * 32) }, [0, 0]);
+  const world = new SimWorld(grid, 1, undefined, undefined, units, tech, new UpgradeRegistry(new Map()));
+  const authority = new Authority(world, units, { get: () => undefined }, tech, new UpgradeRegistry(new Map()));
+  world.initStash(0, 2000, 1000);
+  const altar = {
+    id: 1, owner: 0, team: 0, typeId: "eate", hp: 100, x: 0, y: 0, buffs: [], garrison: [], orderQueue: [], inventory: [], abilities: [],
+    building: { queue: [], constructionLeft: 0, buildTimeTotal: 0, builderIds: [], goldCost: 0, lumberCost: 0 },
+  };
+  world.units.set(altar.id, altar);
+  world.tech.invalidate();
+  const file = (id, typeId) => world.fallen.set(id, {
+    id, owner: 0, team: 0, typeId, level: 3, xp: 0, skillPoints: 0, abilities: [], inventory: [],
+    baseStr: 0, baseAgi: 0, baseInt: 0, baseMaxHp: 100, x: 0, y: 0, revivingAt: 0, bodyLeft: 0,
+  });
+  file(7, "Nfir");
+  file(8, "Edem");
+  check("the Altar of Elders takes the Tavern's Firelord", authority.execute(0, { c: "revive", buildingId: 1, heroId: 7 }), true);
+  check("…and its own Demon Hunter as before", authority.execute(0, { c: "revive", buildingId: 1, heroId: 8 }), true);
+  check("…both on its clock", [world.fallen.get(7)?.revivingAt, world.fallen.get(8)?.revivingAt], [1, 1]);
+}
+
 console.log(failed ? `\nrevive: ${failed} CHECK(S) FAILED` : "\nrevive: all checks passed");
 process.exit(failed ? 1 : 0);

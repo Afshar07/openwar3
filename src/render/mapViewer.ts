@@ -10710,12 +10710,12 @@ export class MapViewerScene {
     const stash = this.rts!.stashFor(this.localPlayer);
     const food = this.rts!.foodFor(this.localPlayer);
     // Which heroes THIS building can bring back — the same two rules the authority applies
-    // (see its `revive` case): an ALTAR takes the heroes it trains, i.e. its own race's four;
+    // (see its `revive` case): an ALTAR takes any hero of yours, Tavern heroes included;
     // a TAVERN takes any of yours, neutral and race-specific alike — and only a Tavern: a
     // Mercenary Camp sells units too, but it is the Tavern's `Aawa` that wakes a hero
     // (SimWorld.revivesInstantly), so a camp puts up no revive buttons at all.
     const tavern = world.isShopUnit(sel.id);
-    const here = fallen.filter((f) => (tavern ? world.revivesInstantly(sel.id) : t.revive && t.trains.includes(f.typeId)));
+    const here = tavern ? (world.revivesInstantly(sel.id) ? fallen : []) : t.revive ? fallen : [];
     if (!here.length) return;
     const mode: ReviveMode = tavern ? "tavern" : "altar";
     for (const f of here) {
@@ -10861,9 +10861,12 @@ export class MapViewerScene {
         && (d.foodUsed <= 0 || food.used + d.foodUsed <= food.made);
       const inStock = stock !== 0; // -1 = not stock-limited, 0 = sold out
       const unavailable = !metTech || (d.isHero && atHeroCap);
-      // The restock sweep is only for a unit you could hire once it is back — one greyed out
-      // for a tech gate or the hero cap shows no countdown, as the item wares do.
-      const restocking = restockDue && !unavailable;
+      // The restock sweep is a fact about the SHELF, not about the buyer, so a sold unit wears it
+      // whether or not you could hire it today: a Tavern hero shows its "Coming soon" countdown
+      // from 0:00, greyed or not, before your Altar has finished building (developer, against
+      // the real client). Item wares behind a Keep/Castle are the opposite case and keep their
+      // own rule in pushShopButtons.
+      const restocking = restockDue;
       const [col, row] = place(d.buttonX, d.buttonY);
       used.add(`${col},${row}`);
       out.push(this.cmd({

@@ -3385,8 +3385,9 @@ export const SPELL_HANDLERS: Record<string, Handler> = {
   ANsw: (api, caster, def, rank) => summonSpell(api, caster, def, rank, { count: 1, atPoint: false }),
   // Scout (Priestess) — summon a flying owl for vision.
   AEst: (api, caster, def, rank) => summonSpell(api, caster, def, rank, { count: 1, atPoint: false }),
-  // Summon Lava Spawn (Firelord) — spawn a lava spawn at the point.
-  ANlm: (api, caster, def, rank, ctx) => summonSpell(api, caster, def, rank, { count: 1, atPoint: true }, ctx),
+  // Summon Lava Spawn (Firelord) — one lava spawn beside the caster, the Water Elemental's
+  // way (instant order `slimemonster`; no target, see data/abilities.ts).
+  ANlm: (api, caster, def, rank) => summonSpell(api, caster, def, rank, { count: 1, atPoint: false }),
   // Serpent Ward (Shadow Hunter) — a stationary attack ward at the point.
   AOwd: (api, caster, def, rank, ctx) => summonSpell(api, caster, def, rank, { count: 1, atPoint: true }, ctx),
   // Tornado (Naga, ult) — a roaming tornado at the point.
