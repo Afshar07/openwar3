@@ -249,7 +249,7 @@ console.log("\n--- siege joins the army at tier 2 ---");
       const r = recorder(table, s, profile, withIt);
       buildPlan(r.ctx);
       const row = r.build.find((x) => x.item === table.siegeUnit);
-      check(`${race} (${name}) keeps two ${table.siegeUnit} at tier 2`, row?.qty, 2);
+      check(`${race} (${name}) keeps ${profile.siegeUnits} ${table.siegeUnit} at tier 2`, row?.qty, profile.siegeUnits);
     }
     const early = recorder(table, s, PLUS_INSANE, { ...withIt, tier: 1 });
     buildPlan(early.ctx);
@@ -610,13 +610,17 @@ console.log("\n--- the human's Scout Towers become something ---");
     buildPlan(r.ctx);
     return r;
   };
-  const both = towered(PLUS_NORMAL);
+  // Two towers' worth of profile, so there is a "rest" for the Guard Tower to be: Normal's own
+  // one tower is the Arcane Tower alone (checked below).
+  const both = towered({ ...PLUS_NORMAL, towers: 2 });
   // `check` compares by identity, so the rows are read as `qty@town` strings.
   const at = (r, id) => rows(r, id).map((x) => `${x.qty}@${x.town}`).join(",");
   check("a Normal human with a Lumber Mill asks for an Arcane Tower at its base", at(both, "hatw"), "1@0");
   check("…and a Guard Tower", at(both, "hgtw"), "1@0");
   check("…after the Scout Towers themselves", both.build.findIndex((x) => x.item === "hwtw") < both.build.findIndex((x) => x.item === "hatw"), true);
-  const noMill = towered(PLUS_NORMAL, { meets: (id) => id !== "hgtw" });
+  const one = towered(PLUS_NORMAL);
+  check("a Normal human's one tower is the Arcane Tower", `${at(one, "hatw")}|${at(one, "hgtw")}`, "1@0|");
+  const noMill = towered({ ...PLUS_NORMAL, towers: 2 }, { meets: (id) => id !== "hgtw" });
   check("without a Lumber Mill it still asks for the Arcane Tower", rows(noMill, "hatw").length, 1);
   check("…and not for the Guard Tower it cannot buy", rows(noMill, "hgtw").length, 0);
   const bare = towered(PLUS_NORMAL, { standing: { hwtw: 0 } });

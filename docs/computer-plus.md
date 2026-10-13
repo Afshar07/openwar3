@@ -381,27 +381,29 @@ Blizzard's unless a comment says otherwise) every value here is ours.
 | | Easy | Normal | Insane |
 | --- | --- | --- | --- |
 | build / army / spell pass | 3 s / 3 s / 2 s | 2 s / 1.5 s / 1 s | 1 s / 0.5 s / 0.35 s |
-| notices a base attack after | **15 s** | 6 s | 1 s |
+| notices a base attack after | **15 s** | 10 s | 1 s |
 | waits this long into a fight before casting | 2.5 s | 1 s | 0 |
 | workers per town | 8 | 11 | 14 |
 | expansions | **never** | 1, after 10 min | 3, after 5 min |
-| **army food ceiling** | **12** | 26 (was 30 — "one or two units fewer") | 80 (`UPKEEP_TIER2`) |
-| towers | **0** | 2 | 4 |
+| **army food ceiling** | **12** | 20 (was 30, then 26 — see below) | 80 (`UPKEEP_TIER2`) |
+| towers | **0** | 1 | 4 |
+| siege units at tier 2 | **0** | 1 | 2 |
 | heroes | 1 | 2 | 3 |
 | hall tier | **1** | 3 | 3 |
 | upgrade rank | 1 | 2 | 3 |
 | animation-cancels | no | no | **yes** |
 | stutter-steps its ranged units | no | no | **yes** |
-| first attack | 7–10 min, rolled per seat | 5 min | 2½ min |
-| army food that makes a wave | 10 | 14 | 16 |
+| first attack | 7–10 min, rolled per seat | 6–8 min, rolled per seat | 2½ min |
+| army food that makes a wave | 10 | 12 | 16 |
+| quiet time between waves | 150 s | 120 s | 30 s |
 | **after falling back, waits for the whole army** | **yes** (`refill`) | no | no |
-| **first creep camp** | **never** | 2½ min | 1½ min |
+| **first creep camp** | **never** | 4 min | 1½ min |
 | army food that makes a creeping party | — | 10 | 8 |
 | retreats a broken army | **no** | at 35 % | at 40 % |
 | **walks a wounded unit out of the fight** | **no** | at 25 % | at 25 % |
 | focus-fires / creeps / raids workers | no / no / no | no / yes / no | yes / yes / yes |
-| belt slots it shops for | **0** | 3 (6 when rich) | 6 |
-| gold it keeps back from the shop | — | 300 | 200 |
+| belt slots it shops for | **0** | 2 (6 when rich) | 6 |
+| gold it keeps back from the shop | — | 500 | 200 |
 | keeps and replaces a Town Portal | no | **yes** | **yes** |
 | builds its race's shop | no | **yes** | **yes** |
 | accepts a lost game after | 35 s | 20 s | 12 s |
@@ -427,6 +429,17 @@ attack or attack-move `STUTTER_LEAD` before the weapon is ready, which is the tu
 with less than `STUTTER_MIN` of cooldown left, because then the turn costs the shot. It runs every
 AI step rather than on the army's clock, because it is timed to a cooldown. Heroes are left to the
 caster and the belt.
+
+**Normal was brought towards Easy.** Reported: the step from Easy to Normal was "quite a massive
+difference … not very friendly for beginners" — and read off the table it was, because nearly every
+dial on Normal sat nearer Insane's value than Easy's. The cut is in what a beginner FEELS: the army
+ceiling (26 → 20, against Easy's 12), the first wave (5 min on the dot → 6–8 min rolled per seat, so
+a table of Normal computers no longer leaves on one tick either), the gap between waves (90 → 120 s),
+the hero (creeping from 4 min instead of 2½, which is what put a level-3–4 hero with a belt of
+potions in the first fight against a level-1 Easy one; two belt slots instead of four, and 500 gold
+held back from the shop instead of 300), and the base (one tower and one siege unit instead of two
+of each, 10 s to notice a raid instead of 6). What makes Normal a different PLAYER rather than a
+bigger Easy is untouched: two heroes, tier 3, an expansion, wounded walked out of a fight.
 
 **Normal reaches tier 3.** It used to stop at a Keep, which is a bigger handicap than it reads
 as: `techTier` is also the filter on which *builds* may be rolled (`rollStrategy`), so a tier-2
@@ -3350,7 +3363,7 @@ neither was `keepPortal`:
   not stop being a player who carries one, which is `keepPortal`'s own wording.
 * **`PlusProfile.shopping` is a HABIT, and it counted the replacement.** It is how much of a belt
   this player bothers to fill, and it is counted against *everything the hero is holding, drops
-  included* — four slots on Normal is two potions and two things picked up off a creep, at which
+  included* — two slots on Normal is two potions, or one and a thing picked up off a creep, at which
   point `shopper` returned nobody at all and the AI stopped shopping for the rest of the match
   with the gold still in the bank. So `shop` now asks **what** to buy before **who** fetches it,
   and a Town Portal is exempt from the ceiling: a free *slot* is the only thing that may stop it.
@@ -3430,8 +3443,8 @@ that is what the Merchant actually stocks.)
 
 **A race opens with its own buy** (`RACE_FIRST`), in front of everything on that list — the Town
 Portal included. This is arithmetic before it is preference: `pick` walks the list in order and
-stops at the first row it can afford, and `shopping` is only **four slots** on Normal, so
-anything below the first three or four rows is decoration that is never reached. Two races have
+stops at the first row it can afford, and `shopping` is only **two slots** on Normal, so
+anything below the first two rows is decoration that is never reached there. Two races have
 one, and they are the same idea in two vocabularies — *the item that puts the army back together
 between creep camps*:
 
@@ -3476,7 +3489,10 @@ banked purse with three more (`RACE_SURPLUS`).
 
 `PlusProfile.shopping` went from three to four on Normal to make room for it. Three slots was the
 race's opening (two Healing Salves, or two Scrolls of Regeneration) plus the scroll, and the mana
-row directly behind them was never once reached on that rung.
+row directly behind them was never once reached on that rung. It is back DOWN to two since Normal
+was brought towards Easy ("quite a massive difference … not very friendly for beginners"), so on
+Normal the mana row is once again not reached — deliberately this time: a shorter bar on the hero
+is part of the cut. Insane's six still reach it.
 
 **An opening buy is not discretionary spending** (`Want.opening`). Everything else on the list is
 bought out of the surplus above `itemReserve`; these are bought out of the purse. That is what the

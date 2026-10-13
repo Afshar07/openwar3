@@ -1408,9 +1408,12 @@ const spend = (h, id) => { const i = h.inventory.findIndex((s) => s?.itemId === 
   check("120 gold buys the opening salve, reserve or no reserve",
     shopped([hero(), MERCHANT], PLUS_NORMAL, { race: "orc", shelf: LOUNGE, gold: 120 }).buy?.itemId, "hslv");
   // …and the rest of the list still waits for the surplus, which is what the reserve is for.
-  const stocked = belt(hero(), "hslv", "hslv");
+  // The scroll is already carried (it is bought out of the purse too, see above) and the habit
+  // ceiling is lifted, so the only thing left that can refuse the next row is the reserve.
+  const stocked = belt(hero(), "hslv", "hslv", "stwp");
+  const roomy = { ...PLUS_NORMAL, shopping: 6 };
   check("…but the general list still waits above the reserve",
-    shopped([stocked, MERCHANT], PLUS_NORMAL, { race: "orc", shelf: LOUNGE, gold: PLUS_NORMAL.itemReserve + 10, soldOut: ["phea"] }).buy, null);
+    shopped([stocked, MERCHANT], roomy, { race: "orc", shelf: LOUNGE, gold: PLUS_NORMAL.itemReserve + 10, soldOut: ["phea"] }).buy, null);
 }
 {
   // Nobody else gets the habit: a night elf off the same shelf still opens with the scroll.

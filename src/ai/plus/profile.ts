@@ -140,8 +140,9 @@ export interface PlusProfile {
    * whatever the build order's mix asks for (plus/plan.ts `siegeLine`). OURS, and the number is
    * the developer's: "two demolishers or mortar teams or meat wagons or glaive throwers later
    * into the game would make a lot of sense" — only a few builds name a siege unit, so most
-   * armies walked into a base full of towers with nothing that out-ranges them. Normal and
-   * Insane only; Easy stays on its tier-1 soldiers.
+   * armies walked into a base full of towers with nothing that out-ranges them. Insane keeps
+   * two, Normal one (it was two, until Normal was brought towards Easy); Easy stays on its
+   * tier-1 soldiers.
    */
   readonly siegeUnits: number;
   /** How many heroes it fields. */
@@ -231,7 +232,7 @@ export interface PlusProfile {
    *
    * This is the whole reason `creeps: true` used not to produce a computer that creeps.
    * Creeping was a rung of `pickTarget`, and `pickTarget` is only reached once the wave gates
-   * have opened — `firstAttack` (300 s on Normal), `waveGap`, and `attackFood`. So a Normal
+   * have opened — `firstAttack` (then 300 s on Normal), `waveGap`, and `attackFood`. So a Normal
    * computer's first creep camp came at FIVE MINUTES, by which time a ladder player has three
    * camps and a level-4 hero, and its hero was still level 1 at the first fight.
    *
@@ -369,15 +370,24 @@ export const PLUS_EASY: PlusProfile = {
  * Computer+ (Normal) — "a bit of a faster reaction time and executes simple build orders, but
  * again, NO unit massing".
  *
- * Two heroes, the whole tech tree, one expansion, a couple of towers, and an army it will
- * actually pull out of a lost fight. Twenty-six food is a real army and well under half of what the map
- * can feed, which is the line the brief draws — and it is the FOOD ceiling, not the tech
- * ceiling, that carries "no unit massing". It counters, but late and half-heartedly (see
- * `counterWeight`), it upgrades only two ranks deep, and it is three minutes later to expand.
+ * Two heroes, the whole tech tree, one expansion, one tower, and an army it will actually pull
+ * out of a lost fight. Twenty food is a real army and well under half of what the map can feed,
+ * which is the line the brief draws — and it is the FOOD ceiling, not the tech ceiling, that
+ * carries "no unit massing". It counters, but late and half-heartedly (see `counterWeight`), it
+ * upgrades only two ranks deep, and it is three minutes later to expand.
+ *
+ * Brought DOWN towards Easy on the developer's report that the step from Easy was "quite a
+ * massive difference … not very friendly for beginners". Nearly every dial had been nearer
+ * Insane's value than Easy's, so the cut is in the numbers a beginner FEELS — the size of the
+ * army, when it first arrives, how levelled and how equipped its hero is when it does, and how
+ * hard the base is to break — and not in what makes Normal a different player rather than a
+ * bigger Easy (two heroes, tier 3, the expansion, the wounded walked out of a fight).
  */
 export const PLUS_NORMAL: PlusProfile = {
   difficulty: MELEE_NORMAL,
-  buildPeriod: 2, armyPeriod: 1.5, castPeriod: 1, defendDelay: 6, castDelay: 1,
+  // `defendDelay` 10, not the 6 it was: the beginner's raid gets a few more seconds in the base
+  // before the army comes home — still a third less than Easy's fifteen.
+  buildPeriod: 2, armyPeriod: 1.5, castPeriod: 1, defendDelay: 10, castDelay: 1,
   // It knows what the units are and mostly aims at the right one, and misclicks about one
   // spell in seven. It does not price a spell's effect — a nuke goes on whoever is lowest
   // rather than on whoever it can finish.
@@ -393,29 +403,38 @@ export const PLUS_NORMAL: PlusProfile = {
   // no Tauren — and left it playing two or three openings for ever. A Normal player reaches
   // tier 3; they just take longer over it and stop short of the whole tree, which is what
   // `upgradeRank` and the clocks above already say.
-  // 26 food, not the 30 it was: the developer's call — "reduce the target army size of
-  // Computer+ AI (Normal difficulty) by 1-2 units" — which is two Footmen or Archers, or a
-  // Grunt and change, off the ceiling `armyBudget` trains to.
-  armyFood: 26, towers: 2, siegeUnits: 2, heroes: 2, techTier: 3, upgradeRank: 2,
-  firstAttack: 300, firstAttackSpread: 0, waveGap: 90, attackFood: 14, retreatHp: 0.35, refill: false,
-  // Creeps from two and a half minutes with the hero and ten food behind it — about a hero, a
-  // couple of soldiers and whatever else is standing around, which is what clears a green camp.
+  // 20 food: it was 30, then 26 on "reduce the target army size … by 1-2 units", and then 20
+  // when the whole rung was brought towards Easy (see above) — 26 was more than twice Easy's
+  // twelve, and the army is the first thing a beginner measures themselves against. Twenty is
+  // ten Footmen or five Grunts, between Easy's ceiling and the old one. One tower and one siege
+  // unit for the same reason: a base with two towers and two Demolishers behind the army is a
+  // base a beginner's tier-1 push cannot break, and Insane keeps the developer's two.
+  armyFood: 20, towers: 1, siegeUnits: 1, heroes: 2, techTier: 3, upgradeRank: 2,
+  // Six minutes at the earliest and each seat somewhere in the two after it — it was five on the
+  // dot, which is both two minutes sooner than Easy and the "every computer leaves on one tick"
+  // habit `firstAttackSpread` was added to Easy to cure. A wave of twelve (the hero's five on top)
+  // and two minutes between waves rather than a minute and a half.
+  firstAttack: 360, firstAttackSpread: 120, waveGap: 120, attackFood: 12, retreatHp: 0.35, refill: false,
+  // Creeps from four minutes with the hero and ten food behind it — about a hero, a couple of
+  // soldiers and whatever else is standing around, which is what clears a green camp. It was two
+  // and a half, and that was most of the gap to Easy on its own: a hero creeping from 2:30 met
+  // the first fight at level 3–4 with a belt of potions, against an Easy hero still at level 1.
   // It does not focus-fire, but it DOES pull a soldier out of the line at a quarter health —
   // the one piece of micro a player picks up long before they learn to focus a target.
-  focusFire: false, pullOutHp: 0.25, stutterStep: false, creeps: true, creepAt: 150, creepFood: 10,
+  focusFire: false, pullOutHp: 0.25, stutterStep: false, creeps: true, creepAt: 240, creepFood: 10,
   harass: false, scout: true, sweepEvery: 120, expansionFirst: 0.75,
-  // Two thirds of a belt, and it keeps 300 gold back for the build order. It DOES keep a Town
+  // A third of a belt, and it keeps 500 gold back for the build order. It DOES keep a Town
   // Portal and replace it: a scroll is the difference between losing a fight and losing an army,
   // and a player at this level has learnt that much.
   //
-  // Four rather than three, and the fourth slot is the MANA potion. This number is a ceiling on
-  // the habit and it is counted against everything the hero is holding, so three slots was the
-  // whole of the race's opening (`RACE_FIRST` — two Healing Salves, or two Scrolls of
-  // Regeneration) plus the scroll, and the mana row directly behind them was never once reached
-  // on this rung. A player who has learnt to carry a Town Portal has also learnt to carry
-  // something to cast with; making room for it is what turns `RACE_MANA` from a list into a
-  // habit. Insane keeps the full six.
-  shopping: 4, itemReserve: 300, keepPortal: true,
+  // Two, down from four, when the rung was brought towards Easy. This number is a ceiling on the
+  // habit and it is counted against everything the hero is holding, so two slots is the race's
+  // opening (`RACE_FIRST`) and little else: the MANA row behind it, which the fourth slot was
+  // added for, is no longer reached here — a hero with a shorter bar is the point. What it does
+  // not touch is `ESSENTIAL` (plus/items.ts) — the Town Portal, the Potion of Healing and the two
+  // fight items are bought past the ceiling — so the belt is thinner, not empty. Insane keeps
+  // the full six.
+  shopping: 2, itemReserve: 500, keepPortal: true,
   concedeAfter: 14,
 };
 
