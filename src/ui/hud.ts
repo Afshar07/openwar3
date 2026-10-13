@@ -1824,7 +1824,13 @@ export class GameHud {
     // commands (camera panning reads its own key set), and letting them repeat
     // both spams selection voice lines and makes every held key look like a
     // double-tap, snapping the camera to the group.
-    if (e.repeat) return;
+    // A HELD Tab still has to be swallowed, though: the browser's own default for every
+    // repeat is to walk focus to the next element, and returning before the Tab branch's
+    // preventDefault below let a held Tab tour every focusable control on the page.
+    if (e.repeat) {
+      if (e.key === "Tab") e.preventDefault();
+      return;
+    }
     // Enter opens the chat entry line to everyone, Ctrl+Enter to your allies — the game's
     // own two send keys. Ctrl is read here rather than left to a modal picker because that
     // is the binding: there is no "switch target" step in the middle.
