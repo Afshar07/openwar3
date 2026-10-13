@@ -590,5 +590,50 @@ console.log("a melee blow does not cross a cliff");
   check("a ranged unit still shoots up the cliff", shotAt.hp < shotAt.maxHp);
 }
 
+// ── A netted unit fights what is beside it ──────────────────────────────────────────────
+// Ensnare / Web / Entangling Roots pin the unit where it stands. Its own target out of reach,
+// it must not stand there idle while an enemy chops at it: it swings at what it CAN strike,
+// and the order it was given is still the order (the net comes off, it goes back to it).
+console.log("a pinned unit falls back on an enemy in reach");
+for (const ordered of [true, false]) {
+  const w = new SimWorld(grid(), 1);
+  const u = addUnit(w, 1, 0, 500, 500);
+  const beside = addUnit(w, 2, 1, 560, 500, { weapons: [] }); // in reach, harmless
+  const far = addUnit(w, 3, 1, 1500, 500, { speed: 0 }); // out of reach, and stays there
+  if (ordered) w.issueOrder(1, { kind: "attack", targetId: far.id, force: false });
+  else w.issueAttack(1, far.id);
+  w.applyBuffInternal(u, { kind: "root", group: "ensnare", timeLeft: 5, sourceId: 0, value: 1 });
+  w.recomputeStats(u);
+  const x0 = u.x;
+  run(w, 4);
+  const tag = ordered ? "ordered" : "auto";
+  check(`[${tag}] held where it stands (x ${u.x.toFixed(0)})`, Math.abs(u.x - x0) < 40);
+  check(`[${tag}] struck the enemy beside it (hp ${beside.hp}/${beside.maxHp})`, beside.hp < beside.maxHp);
+  if (ordered) {
+    check("[ordered] the order still names its target", u.targetId === far.id);
+    run(w, 1.5); // the net comes off
+    const before = u.x;
+    run(w, 2);
+    check(`[ordered] net off, it walks back toward its own target (x ${before.toFixed(0)} → ${u.x.toFixed(0)})`, u.x > before + 100);
+  }
+}
+
+// …and a WEBBED flyer the same: pulled down, still shooting what is in reach.
+console.log("a webbed flyer shoots what is in reach");
+{
+  const w = new SimWorld(grid(), 1);
+  const ranged = { ...WEAPON(), ranged: true, range: 300, baseRange: 300, missileSpeed: 0 };
+  const u = addUnit(w, 1, 0, 500, 500, { flying: true, moveType: "fly", targetedAs: "air", weapons: [ranged] });
+  const beside = addUnit(w, 2, 1, 700, 500, { weapons: [] });
+  const far = addUnit(w, 3, 1, 1800, 500, { speed: 0 });
+  w.issueOrder(1, { kind: "attack", targetId: far.id, force: false });
+  w.applyBuffInternal(u, { kind: "root", group: "web", timeLeft: 5, sourceId: 0, value: 1 });
+  w.recomputeStats(u);
+  run(w, 3);
+  check(`webbed (${u.webbed})`, u.webbed);
+  check(`shot the enemy in reach (hp ${beside.hp}/${beside.maxHp})`, beside.hp < beside.maxHp);
+  check("the order still names its target", u.targetId === far.id);
+}
+
 console.log(failures === 0 ? "\nattack-order: all checks passed" : `\nattack-order: ${failures} FAILED`);
 process.exit(failures === 0 ? 0 : 1);

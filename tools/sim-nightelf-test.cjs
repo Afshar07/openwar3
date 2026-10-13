@@ -53,7 +53,7 @@ const ABILITIES = {
 const abilities = { get: (id) => ABILITIES[id] };
 const UNITS = {
   // `abilities` here is UnitAbilities.slk's abilList — what cargoHold/computeGarrisonCap read.
-  egol: { id: "egol", abilities: ["Aenc", "Aegm"], moveType: "foot", upgradesUsed: [], buildTime: 60, goldCost: 0, lumberCost: 0, manaRegen: 0, regenType: "none", hpRegen: 0 },
+  egol: { id: "egol", specialArt: "Objects\\Spawnmodels\\NightElf\\NECancelDeath\\NECancelDeath.mdx", abilities: ["Aenc", "Aegm"], moveType: "foot", upgradesUsed: [], buildTime: 60, goldCost: 0, lumberCost: 0, manaRegen: 0, regenType: "none", hpRegen: 0 },
   emow: { id: "emow", abilities: ["Ambt"], moveType: "foot", upgradesUsed: ["Rews"], buildTime: 60, goldCost: 180, lumberCost: 40, goldRep: 180, lumberRep: 40, repairTime: 50, manaStart: 100, manaRegen: 1.5, regenType: "none", hpRegen: 0 },
   ewsp: { id: "ewsp", abilities: [], moveType: "hover", upgradesUsed: [], buildTime: 60, goldCost: 0, lumberCost: 0, manaRegen: 0, regenType: "none", hpRegen: 0 },
   eaom: { id: "eaom", abilities: [], moveType: "foot", upgradesUsed: [], buildTime: 60, goldCost: 150, lumberCost: 60, goldRep: 150, lumberRep: 60, repairTime: 60, manaRegen: 0, regenType: "night", hpRegen: 0.25 },
@@ -946,6 +946,50 @@ console.log("Renew (`Aren`) — the one repair that may mend an Ancient");
   check("…and the wisp is on the job", w.order === "repair" && !!w.repair);
   // …and it costs. Rep1 = 0.35 of the build cost across the whole repair.
   check("…and it is not free", world.stashOf(0).gold < 1000, `${world.stashOf(0).gold.toFixed(1)}`);
+}
+
+console.log("A Tree of Life that falls or uproots takes its Entangled Gold Mine down with it");
+{
+  // The roots are the TREE's (SimUnit.entangler). Knock the Tree down, or pull it out of the
+  // ground, and the Entangled Gold Mine it was holding goes with it: the crew walks out alive
+  // and the rock is a plain mine again.
+  for (const how of ["killed", "uprooted", "removed"]) {
+    const world = newWorld(200, 200);
+    world.initStash(0, 0, 0);
+    const mine = world.addMine(2000, 2000, 12500, 128);
+    world.add(base({ id: 40, typeId: "etol", x: 2560, y: 2000, hp: 1200, maxHp: 1200, speed: 0, radius: 128, isBuilding: true, ancient: true, name: "Tree of Life" }),
+      BUILT(2560, 2000), { abilities: [{ id: "Aent", code: "Aent", level: 1, cooldownLeft: 0, autocastOn: false }, { id: "Aro1", code: "Aroo", level: 1, cooldownLeft: 0, autocastOn: false }] });
+    const u = world.units.get(40);
+    u.baseSpeed = 100;
+    world.recomputeStats(u);
+    world.add(base({ id: 50, typeId: "egol", x: 2000, y: 2000, hp: 800, maxHp: 800, speed: 0, radius: 128, isBuilding: true, name: "Entangled Gold Mine" }), BUILT(2000, 2000));
+    world.attachEntangled(50, mine.id, 40);
+    for (let i = 0; i < 3; i++) {
+      world.add(wisp(60 + i, 2200 + i * 40, 2200));
+      world.issueGarrison(60 + i, 50);
+    }
+    for (let t = 0; t < 12 / 0.05; t++) world.tick(0.05);
+    check(`[${how}] the crew is aboard`, world.units.get(50)?.garrison.length === 3);
+    if (how === "killed") world.killUnit(40);
+    else if (how === "uprooted") world.toggleRoot(u);
+    else world.removeUnit(40);
+    world.tick(0.05);
+    check(`[${how}] the Entangled Gold Mine is gone`, !world.units.has(50));
+    check(`[${how}] …the rock is a plain mine again`, world.mines.get(mine.id)?.entangledBy === 0);
+    const out = [60, 61, 62].map((id) => world.units.get(id));
+    check(`[${how}] …and every wisp is back on the field, alive`, out.every((w) => w && w.hp > 0 && !w.inBurrow && !w.garrisonHost));
+    // Let go by its Tree, the mine collapses through its Death clip alone — no burst.
+    check(`[${how}] …with no explosion`, !world.drainSpellEffects().some((e) => /NECancelDeath/.test(e.art)));
+  }
+  // RAZED by damage, it goes up in its own Specialart as well (the developer's call).
+  const world = newWorld(200, 200);
+  world.initStash(0, 0, 0);
+  const mine = world.addMine(2000, 2000, 12500, 128);
+  world.add(base({ id: 50, typeId: "egol", x: 2000, y: 2000, hp: 800, maxHp: 800, speed: 0, radius: 128, isBuilding: true, name: "Entangled Gold Mine" }), BUILT(2000, 2000));
+  world.attachEntangled(50, mine.id);
+  world.drainSpellEffects();
+  world.killUnit(50);
+  check("a RAZED Entangled Gold Mine explodes (its Specialart)", world.drainSpellEffects().some((e) => /NECancelDeath/.test(e.art)));
 }
 
 console.log("…and the well only refills after dark");

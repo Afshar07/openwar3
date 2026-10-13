@@ -250,12 +250,18 @@ build at 768, then walk in. Computer+ does exactly that — `entangleat` with `a
 planted tree that could entangle from where it stands (`AiPlayer.entangleMines(true)`); measured,
 its expansion Trees went from 770.7 to 452.5 from their mines.
 
-**An Ancient that pulls itself out of the ground lets the mine go.** The roots are the *Tree's*
-— `SimUnit.entangler` is the link, set when the building is raised — so uprooting a Tree of
-Life collapses its Entangled Gold Mine, turns the crew out (`unloadBurrow`, not a burial) and
-leaves a plain mine anybody can work. Planting again does not hand it back: entangling is a
-button you press. Killing the Tree does not release it either — the Entangled Gold Mine is its
-own building with its own 800 hit points, and knocking it down is a separate job.
+**A Tree that pulls itself out of the ground — or is knocked down — lets the mine go.** The
+roots are the *Tree's* — `SimUnit.entangler` is the link, set when the building is raised — so
+uprooting a Tree of Life, destroying it (any tier: Tree of Ages and Eternity morph in place and
+keep the link) or a script's `RemoveUnit` on it collapses its Entangled Gold Mine
+(`releaseEntangledMine`), turns the crew out (`unloadBurrow`, not a burial) and leaves a plain
+mine anybody can work. The collapse is SEEN: the building leaves through `takeMineCollapse`, the
+same door a mine running dry uses, so it plays its own Death clip (the roots pulling back off
+the rock) — no explosion, no corpse, no kill credit. RAZED by damage is the other door: the
+building dies like any other (its Death clip) AND goes up in its row's own "Art - Special"
+(`[egol] Specialart` = `NECancelDeath.mdl`), which only that door plays. Planting again does not hand it back:
+entangling is a button you press. (The developer's call: an Entangled Gold Mine is not left
+standing on its own 800 hit points once the Tree that grew it is gone.)
 
 The crew rides the same cargo-hold machinery as the Orc Burrow (`cargoHold` matches `Abun`,
 `Aenc` and `Acar`); what tells them apart is that a burrow's and a mine's passengers must be

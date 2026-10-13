@@ -6863,6 +6863,7 @@ export class SimWorld {
     for (const o of [...this.units.values()]) {
       if (o.entangler !== u.id) continue;
       this.unloadBurrow(o.id);
+      this.mineCollapses.add(o.id); // …SEEN to go down, through its own Death clip (takeMineCollapse)
       this.removeUnit(o.id);
     }
     // …including one still in flight: a request whose model has not landed yet has already
@@ -8798,6 +8799,7 @@ export class SimWorld {
       }
     }
     this.releaseEntangled(u); // an Entangled Gold Mine leaving hands the mine back
+    this.releaseEntangledMine(u); // …and a Tree of Life leaving takes the one it holds with it
     this.units.delete(u.id);
     this.unitsVersion++; // see unitsInOrder
     this.teleportChannels.delete(u.id); // a caster that leaves mid-teleport takes its channel with it
@@ -15279,6 +15281,29 @@ export class SimWorld {
     return u.buffs.some((b) => b.kind === "root");
   }
 
+  /** What a PINNED unit whose own target is out of reach swings at meanwhile (tickAttack): an
+   *  enemy inside its strike band. The one it struck last is kept while it is still there —
+   *  "the nearest" flips between two bodies of equal reach every few ticks, and every flip is
+   *  a turn — and otherwise the pick is acquisition's own, strike reach only (a creep asks its
+   *  tier ladder, as it does everywhere). Null when nothing is in reach: the unit stands. */
+  private netStandIn(u: SimUnit, t: SimUnit): SimUnit | null {
+    const inReach = (o: SimUnit): boolean => {
+      const ow = this.weaponVs(u, o);
+      if (!ow) return false;
+      const gap = Math.hypot(o.x - u.x, o.y - u.y) - u.radius - o.radius;
+      const dz = this.deadZone(ow);
+      return gap <= (ow.ranged ? ow.range : ow.range + ATTACK_LEASH) && !(dz > 0 && gap < dz) && !this.cliffApart(u, o, ow);
+    };
+    const last = u.swingTargetId ? this.units.get(u.swingTargetId) : undefined;
+    if (last && last !== t && last.hp > 0 && !isOffField(last) && this.hostile(u, last) && !last.invulnerable && !last.invisible
+      && this.canAttack(u, last) && this.canSee(u, last) && inReach(last)) return last;
+    const w = u.weapon;
+    if (!w) return null;
+    const strike = w.ranged ? w.range : w.range + ATTACK_LEASH;
+    const pick = u.isCreep ? this.bestCreepTarget(u, strike) : this.acquireTarget(u, strike, true);
+    return pick && pick !== t && inReach(pick) ? pick : null;
+  }
+
   /** How many live units of a type a player has — the cap check behind Carrion Beetles'
    *  `DataE` and the Avatar of Vengeance's six Spirits. */
   private countOwnedOf(owner: number, typeId: string): number {
@@ -19168,6 +19193,27 @@ export class SimWorld {
             t = near;
             w = this.weaponVs(u, t) ?? w; // the new target may want the other slot
           }
+        }
+      }
+    }
+    // NETTED, AND THE TARGET IS OUT OF REACH (Ensnare, Web, Entangling Roots — `pinned`). The
+    // unit cannot take a step toward it, so standing there aimed at it is standing there doing
+    // nothing while whatever is beside it chops away. It swings at a STAND-IN instead: an enemy
+    // it can strike from where it is held, picked the way Hold Position picks (strike reach
+    // only, never up a cliff). The order itself is untouched — `targetId` still names what it
+    // was told to kill — so the moment that target comes into reach, or the net comes off and
+    // the chase is possible again, this branch stops firing and the unit is back on it. The
+    // switch above covers the auto-acquired half on its own throttle; this one is the ORDERED
+    // half, which issue #83's "attack THAT one walks past the ones in between" keeps from ever
+    // switching — a rule about walking, and a netted unit is not walking anywhere.
+    if (u.swingLeft < 0 && this.pinned(u)) {
+      const strike = w.ranged ? w.range : w.range + ATTACK_LEASH;
+      const curGap = Math.hypot(t.x - u.x, t.y - u.y) - u.radius - t.radius;
+      if (curGap > strike || this.cliffApart(u, t, w)) {
+        const standIn = this.netStandIn(u, t);
+        if (standIn) {
+          this.engage(u, standIn, true); // noChase — the net holds it anyway
+          return;
         }
       }
     }
@@ -23289,7 +23335,18 @@ export class SimWorld {
       });
       if (this.heroKills.length > HERO_KILL_LOG) this.heroKills.splice(0, this.heroKills.length - HERO_KILL_LOG);
     }
+    // An ENTANGLED GOLD MINE razed by damage goes up in its row's own "Art - Special"
+    // (`[egol] Specialart` = NECancelDeath, the night elf structure burst) on top of its Death
+    // clip — the developer's call, and only for this door: the roots let go by their Tree
+    // (releaseEntangledMine) or by the gold running out collapse through the clip alone.
+    if (u.mineId && this.cargoHoldCode(u.typeId) === "Aenc") {
+      const art = this.unitReg?.get(u.typeId)?.specialArt;
+      if (art) this.spellEffects.push({ art, x: u.x, y: u.y, targetId: 0, z: 0 });
+    }
     this.releaseEntangled(u); // an Entangled Gold Mine knocked down hands the mine back
+    // …and a Tree of Life knocked down takes its roots with it: the Entangled Gold Mine it was
+    // holding collapses and the Wisps inside walk out, exactly as when it uproots (toggleRoot).
+    this.releaseEntangledMine(u);
     // The body goes on seeing while it falls — read off the unit here, one line before it
     // stops existing (issue #126; see revealDyingUnit).
     this.revealDyingUnit(u);
