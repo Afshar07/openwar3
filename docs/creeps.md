@@ -34,6 +34,7 @@ For what no file states:
 | Once FIGHTING, a creep looks as far as its own weapon's acquisition, not the 200 it was pulled at. | (inference: the Riflemen at 500 are fought like anybody) | `creepFightRange` |
 | **Threat ladder** (below level 7): a **summon** first, then whatever is **attacking the camp** (an Ancient of War included), then armed units, unarmed, buildings, and last workers/wards, **ensnared melee** units and anything whose **aggro has been dropped**. Nearest within a tier. | 176; warcraft-gym; Grubby | `threatTier`, `attackingCreeps`, `creepScore` |
 | **The aggro-drop trick**: a unit ordered to attack ITS OWN SIDE is no threat, and it STAYS no threat after the order is cancelled — only a deliberate attack order back onto an enemy ends it. And a camp in a fight only ever moves UP a rung: it does not re-decide, so the dropped unit is not picked back up. | 176; warcraft-gym; Grubby's video | `SimUnit.aggroDropped`, `issueAttack`, `threatTier`, the re-pick in `tickCreep` |
+| **A camp FOCUSING somebody keeps them** (below level 7): an armed target still inside the camp (`creepFightRange` of the creep's POST) is not left for a unit that walks in and starts hitting the camp — only for a summon, or when the target drops off the threat rungs (the trick, a snare, a disarm) or leaves the camp. Asked by all three places a creep can turn: the re-pick, return fire (`provoke`), and the "enemy right here" switch in `tickAttack`. | maintainer, issue #171 | `creepHoldsFocus`, `inCreepCamp` |
 | **Level 7+**: summon > hero > **lowest hit points**, among what is in weapon reach; the ladder for the rest. The retarget trick does not work on them. | warcraft-gym; Wowpedia; 176 | `creepScore`, `CREEP_SMART_LEVEL` |
 | **Level 6+** take a spell's HERO duration ("Hero magic resistance"). | patch 1.03 | `dur()` in spells.ts |
 | A resting camp **ignores a flyer under a plain move**; one that stops overhead, or attack-moves, is fair game. | patch 1.10; Wowpedia | `bestCreepTarget(idle)` |
@@ -233,6 +234,30 @@ had just saved:
   Below level 7 the re-pick now needs a strictly HIGHER rung: an ally that starts hitting the
   camp, a summon walked in front of it, or the current target dropping a rung. A level 7+
   creep keeps the full comparison, which is why the trick "does not always work" on those.
+
+## Why a hurt unit walking back in took the camp off the tank (issue #171)
+
+"Once creeps are focusing (attacking) someone, they don't change their target, except if the
+target goes out of range of the camp chase range or some trick is performed" (maintainer,
+against the real client). The rung rule above still let the camp go, through three doors:
+
+- **The re-pick took rung 4 over rung 3.** The tank reads as "attacking us" only while it holds
+  an attack order on a creep, so the moment it was microed — a step back, a Hold — it was merely
+  "armed", and the hurt unit that had just right-clicked a creep outranked it. The attacking
+  rung is how a camp CHOOSES; once it has chosen, `creepHoldsFocus` says the focus holds while
+  the target is armed, in sight, reachable and still IN THE CAMP, and only a summon takes the
+  camp off it. Measured from the creep's POST rather than from the creep: measured from the
+  creep, the hurt unit pulled back out of the fight would be chased to the leash.
+- **Return fire.** `provoke` turned a creep that was not in its strike band onto whoever hit it
+  (issue #24's rule, for units stalled on a target they cannot reach) — and a creep walking
+  after a tank that has stepped back is exactly that. A creep holding its focus is not stalled.
+- **The "enemy right here" switch in `tickAttack`**, for the same walk, and a melee bug under it:
+  `gap < deadZone(w)` with a dead zone of 0 is true whenever two bodies are SHOVED INTO each
+  other (the gap goes negative), so a creep the tank stepped into dropped the tank outright and
+  re-acquired whoever was beside it. Only a weapon that has a minimum range has a dead zone now.
+
+So the aggro-drop test's last step changed with it: ordered back in, the tricked Footman is a
+threat again, but the camp is on the Footman it moved onto and stays there.
 
 ## The net: one spell, four models, three sizes
 

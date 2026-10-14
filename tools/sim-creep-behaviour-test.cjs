@@ -178,12 +178,57 @@ console.log("\n…and the drop STICKS past the cancel, which is the whole of how
   check("…which is what the drop being remembered means", a.aggroDropped, true);
 
   // Sending it back in by hand is what ends the drop — a deliberate attack order, never a
-  // swing the unit took by itself (see issueAttack): now it is the top rung again and the
-  // camp, which only ever moves UP a rung, comes for it.
+  // swing the unit took by itself (see issueAttack). It is a threat again, but the camp is
+  // FOCUSING the Footman it moved onto, and walking back in is not a trick (issue #171).
   w.issueAttack(a.id, gnoll.id, false, true);
   runKeeping(w, null, 4, keep);
   check("ordered back onto the camp, it is a threat again", a.aggroDropped, false);
-  check("…and the camp comes for it", gnoll.targetId, a.id);
+  check("…but the camp stays on the Footman it is focusing", gnoll.targetId, b.id);
+}
+
+console.log("\na camp FOCUSING somebody is not pulled off by a unit walking back in (issue #171)");
+{
+  // Maintainer, against the real client: "once creeps are focusing (attacking) someone, they
+  // don't change their target (except if target goes out of range of the camp chase range or
+  // some trick is performed". The hurt Footman is pulled out, the camp turns on the tank — and
+  // when the hurt one walks back in and hits the camp, the camp stays on the tank, however the
+  // tank is being microed.
+  const scenario = (micro) => {
+    const w = world();
+    const cs = [creep(w, "ngno", 1000, 1000), creep(w, "ngno", 1100, 1000), creep(w, "ngno", 1050, 1100)];
+    const tank = footman(w, 1050, 850);
+    const hurt = footman(w, 950, 850);
+    tank.hp = tank.maxHp = 5000;
+    const keep = () => { for (const c of cs) c.hp = c.maxHp; tank.hp = tank.maxHp; hurt.hp = Math.max(hurt.hp, 60); };
+    w.issueAttack(hurt.id, cs[1].id, false, true);
+    runKeeping(w, null, 3, keep);
+    w.issueMove(hurt.id, 300, 300); // pulled out of the fight…
+    w.issueAttack(tank.id, cs[0].id, false, true);
+    runKeeping(w, null, 6, keep);
+    const before = cs.filter((c) => c.targetId === tank.id).length;
+    w.issueAttack(hurt.id, cs[0].id, false, true); // …and sent back in
+    let stolen = 0;
+    for (let i = 0; i < 8 * 20; i++) {
+      micro(w, tank, cs, i);
+      w.tick(0.05);
+      keep();
+      stolen = Math.max(stolen, cs.filter((c) => c.targetId === hurt.id).length);
+    }
+    return { before, stolen };
+  };
+  const still = scenario(() => {});
+  check("the hurt Footman pulled out, the camp turns on the tank", still.before, 3);
+  check("…and walking back in steals none of it", still.stolen, 0);
+  // The micro that used to give it away: a step back and in again (the tank reads as "armed"
+  // rather than "attacking us" for the step, and its body is shoved into a creep's). Always to
+  // the same spot, inside the camp — a tank walked OUT of it is a focus the camp may drop.
+  const kited = scenario((w, tank, cs, i) => {
+    if (i % 40 === 0) w.issueMove(tank.id, 1050, 760);
+    else if (i % 40 === 15) w.issueAttack(tank.id, cs[0].id, false, true);
+  });
+  check("…nor while the tank steps back and in again", kited.stolen, 0);
+  const held = scenario((w, tank, cs, i) => { if (i === 0) w.issueHold(tank.id); });
+  check("…nor while the tank is on Hold Position", held.stolen, 0);
 }
 
 console.log("\na summon is worth hitting even when it is not fighting");

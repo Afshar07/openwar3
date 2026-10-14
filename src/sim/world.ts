@@ -3322,6 +3322,12 @@ const BUILDING_PLACEMENT_NOTIFY_RADIUS = (): number => dataNum("BuildingPlacemen
 export const CREEP_CAMP_ACQUIRE_RANGE = 200;
 /** The creep level from which a creep aims like the melee AI — see `creepScore`. */
 const CREEP_SMART_LEVEL = 7;
+/** The threat ladder's top rung, a SUMMON's — the one thing that takes a camp off a target it is
+ *  focusing (see `threatTier`, `creepHoldsFocus`). */
+const CREEP_SUMMON_TIER = 5;
+/** The threat ladder's ARMED rung: a target on it or above is one a camp keeps its focus on —
+ *  below it (dropped aggro, a worker, a snare, a building, an unarmed unit) it is still choosing. */
+const CREEP_FOCUS_TIER = 3;
 /** A creep breaks off a TOWER it is chewing on below this fraction of its own bar — see tickCreep. */
 const CREEP_TOWER_FLEE_HP = 0.6;
 /** The poison-on-hit codes whose carriers spread themselves around — see `spreadsPoison`. */
@@ -19251,7 +19257,11 @@ export class SimWorld {
         u.acquireT = 0.2;
         const strike = w.ranged ? w.range : w.range + ATTACK_LEASH;
         const curGap = Math.hypot(t.x - u.x, t.y - u.y) - u.radius - t.radius;
-        if (curGap > strike || this.cliffApart(u, t, w)) {
+        // …but a CREEP walking after the target its camp is FOCUSING is not "chasing a far
+        // target": the tank stepped out of the strike band, and the unit that had just walked
+        // back into the camp was the one right here (issue #171, `creepHoldsFocus`).
+        const focused = u.isCreep && this.creepHoldsFocus(u, t);
+        if ((curGap > strike && !focused) || this.cliffApart(u, t, w)) {
           // A creep asks the same tier-ordered question it asks everywhere else: the enemy
           // that is RIGHT HERE is worth turning on, but not when the thing right here is the
           // Peasant or the Serpent Ward standing in front of the army (see threatTier).
@@ -19668,7 +19678,13 @@ export class SimWorld {
     // away." So it stands. A fight it picked up itself is dropped, so it looks for something it
     // CAN hit (acquireTarget skips the dead zone); an ORDERED target is waited on — the player
     // said that one, and it may yet step back out.
-    if (gap < this.deadZone(w)) {
+    //
+    // Only a weapon that HAS a dead zone: `gap` goes NEGATIVE when two bodies are shoved into
+    // each other, and `gap < 0` read every melee unit (dead zone 0) as inside one — so a creep
+    // whose tank stepped into it dropped the tank and re-acquired whoever was beside it, which
+    // was half of issue #171.
+    const dz = this.deadZone(w);
+    if (dz > 0 && gap < dz) {
       this.settle(u);
       u.inCombat = false;
       u.desiredFacing = Math.atan2(t.y - u.y, t.x - u.x);
@@ -20108,11 +20124,39 @@ export class SimWorld {
     if (this.lowPriorityTarget(t)) return 0; // workers and wards dead last
     if (t.weapon && !t.weapon.ranged && t.buffs.some((b) => b.kind === "root")) return 0; // a snared swordsman is nobody's threat
     if (t.disarmed) return 0; // …and nor is anybody in Entangling Roots, which takes the weapon too
-    if (t.isSummon && t.weapon) return 5; // a summon, fighting or not
+    if (t.isSummon && t.weapon) return CREEP_SUMMON_TIER; // a summon, fighting or not
     if (this.attackingCreeps(t)) return 4; // fighting the camp
     if (t.building) return 1; // structures next
-    if (t.weapon) return 3; // armed units / heroes
+    if (t.weapon) return CREEP_FOCUS_TIER; // armed units / heroes
     return 2; // unarmed units in between
+  }
+
+  /**
+   * Is `u` FOCUSING `cur` — a target a fight has already settled on, which the camp does not
+   * leave for somebody else's swing (issue #171)? "Once creeps are focusing (attacking) someone,
+   * they don't change their target, except if the target goes out of the camp's chase range or
+   * some trick is performed, like the unit being attacked being commanded to attack a friendly
+   * unit" (maintainer, against the real client).
+   *
+   * So the focus holds while `cur` is a THREAT (the armed rung or above — which the aggro-drop
+   * trick, a snare or a disarm takes it off), still IN THE CAMP (`inCreepCamp`), still in
+   * sight, and not given up on as unreachable. A summon walked in front is the one thing that
+   * still outranks a held focus (tickCreep) — the other trick the guides teach.
+   *
+   * The camp, and not the creep: measured from the creep it would hold for as long as the creep
+   * could keep up, and a hurt unit pulled back out of the fight — the oldest creeping micro there
+   * is — would be chased to the leash with the tank hitting the camp the whole way.
+   */
+  private creepHoldsFocus(u: SimUnit, cur: SimUnit): boolean {
+    if (cur.hp <= 0 || u.gaveUp || this.threatTier(cur) < CREEP_FOCUS_TIER) return false;
+    return this.inCreepCamp(u, cur) && this.canSee(u, cur);
+  }
+
+  /** Is `t` inside `u`'s camp — within the creep's fight range (`creepFightRange`) of its own
+   *  post? The camp's "chase range" for `creepHoldsFocus`: a target that has left it is no
+   *  longer one the camp is committed to. */
+  private inCreepCamp(u: SimUnit, t: SimUnit): boolean {
+    return Math.hypot(t.x - u.guardX, t.y - u.guardY) - t.radius <= this.creepFightRange(u);
   }
 
   /** Is this unit's current attack on a creep? A unit on an attack order (its own or an
@@ -22898,8 +22942,18 @@ export class SimWorld {
     // shot on the way is not a reason to abandon the order and turn on the shooter. That is
     // the whole point of "attack THAT one" — it holds until the player says otherwise (or the
     // ordered target turns out to be unreachable, which clears attackOrdered).
+    // A CREEP walking after the target its camp is focusing is not "stalled" either: the tank
+    // stepping back out of the strike band left it walking, and whoever re-entered the camp and
+    // struck it in that moment took the camp's whole attention (issue #171). Its focus is
+    // `creepHoldsFocus`'s to end, the same rule as tickCreep's re-pick.
     const attacker = this.units.get(attackerId);
-    const notFighting = target.order === "idle" || (target.order === "attack" && !target.inCombat && !target.attackOrdered);
+    const focusing = (u: SimUnit): boolean => {
+      const cur = u.targetId !== null ? this.units.get(u.targetId) : undefined;
+      return cur !== undefined && cur.id !== attackerId && this.creepHoldsFocus(u, cur);
+    };
+    const notFighting =
+      target.order === "idle" ||
+      (target.order === "attack" && !target.inCombat && !target.attackOrdered && !(target.isCreep && focusing(target)));
     // A unit under an invisibility effect never returns fire either — the same reason it
     // never picks its own fights in acquireRange. Retaliation reaches issueAttack directly,
     // so it would otherwise be the one automatic path that could give a wind-walking hero
@@ -25692,10 +25746,18 @@ export class SimWorld {
         // that it sticks: "the creeps will therefore change their target" (warcraft3.info
         // 176), and a target changed for one tick is not changed.
         //
-        // So what moves a camp off a live fight is somebody more threatening turning up — an
-        // ally that starts hitting it (rung 4), a summon walked in front of it (rung 5) — or
-        // the current target dropping a rung under it. That is the ladder doing exactly what
-        // the guides describe, and nothing else moves the camp.
+        // So what moves a camp off a live fight is a summon walked in front of it (rung 5), the
+        // current target dropping out of the threats under it (the aggro-drop trick, a snare,
+        // a building it was chewing on), or that target leaving the fight altogether — see
+        // `creepHoldsFocus`. That is the ladder doing exactly what the guides describe, and
+        // nothing else moves the camp.
+        //
+        // In particular a camp that is FOCUSING an armed unit is not taken off it by a unit
+        // that walks in and starts hitting it (issue #171). Rung 4 used to outrank rung 3 here
+        // as well, so the moment the player microed the tank — one step back, a Hold — the
+        // tank read as "armed" rather than "attacking us" and the half-hp Footman walked back
+        // in to the camp's whole attention. The attacking rung is how a camp CHOOSES; once it
+        // has chosen, it is the trick that moves it, never somebody else's swing.
         //
         // A level 7+ creep keeps the full `creepScore` comparison: it "behaves like the melee
         // AI" and takes the most wounded thing in reach whatever it is fighting, which is why
@@ -25719,7 +25781,9 @@ export class SimWorld {
             const upgrade =
               u.level >= CREEP_SMART_LEVEL
                 ? this.creepScore(u, best, gapBest) > this.creepScore(u, cur, gapCur)
-                : this.threatTier(best) > this.threatTier(cur);
+                : this.creepHoldsFocus(u, cur)
+                  ? this.threatTier(best) === CREEP_SUMMON_TIER && this.threatTier(cur) < CREEP_SUMMON_TIER
+                  : !this.inCreepCamp(u, cur) || this.threatTier(best) > this.threatTier(cur);
             if (upgrade) {
               this.issueAttack(u.id, best.id);
               u.campHelper = false; // picked this one out of its own aggro range
