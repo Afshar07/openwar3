@@ -265,7 +265,7 @@ interface ModelSounds {
   birth: [number, number] | null;
   /** …and its first `Stand` and `Death` clips, the same way — what an effect OPENED on one of
    *  them plays its events against (SpellShieldCaster.mdx's `SNDXANSS` on Stand, the block;
-   *  ReincarnationTarget.mdx's `SNDXAORE` on Death, the Ankh's rise). */
+   *  ReincarnationTarget.mdx's `SNDXAORE` on the Death a held effect ends on). */
   standWindow: [number, number] | null;
   deathWindow: [number, number] | null;
 }
@@ -768,7 +768,8 @@ export class SoundBoard {
     return modelArt ? this.resolveModelSounds(modelArt).birth : null;
   }
 
-  /** …and of whichever clip an effect is OPENED on (its EffectAnim): Stand or Death. */
+  /** …and of a named clip of an effect: the Stand it is opened on, or the Death a held one
+   *  ends on. */
   modelClipWindow(modelArt: string, clip: "birth" | "stand" | "death"): [number, number] | null {
     if (!modelArt) return null;
     const ms = this.resolveModelSounds(modelArt);

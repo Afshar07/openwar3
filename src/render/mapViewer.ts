@@ -5446,7 +5446,7 @@ export class MapViewerScene {
       }
       inst.setLocation(this.loc3);
     }
-    const stand = anim === "stand" ? this.seqIndex(inst, /^stand/i) : anim === "death" ? this.seqIndex(inst, /^death/i) : -1;
+    const stand = anim === "stand" ? this.seqIndex(inst, /^stand/i) : -1;
     const seq = stand >= 0 ? stand : this.effectSequence(inst);
     inst.setSequence(seq);
     inst.setSequenceLoopMode(0); // play once
@@ -14189,10 +14189,17 @@ export class MapViewerScene {
           // …and EVERY sound event the model parks in the clip it plays, each at its own frame
           // (SimSpellEffect.events — the flare's whistle, pop and burn).
           if (fx.events) {
-            // …the clip it OPENS on: its Death for a "death" effect (the Ankh's rise), its Stand
-            // for a "stand" one (a Spell Shield's block), its Birth otherwise.
-            const w = this.sounds?.modelClipWindow(fx.art, fx.anim === "death" || fx.anim === "stand" ? fx.anim : "birth");
+            // …the clip it OPENS on: its Stand for a "stand" effect (a Spell Shield's block), its
+            // Birth otherwise.
+            const w = this.sounds?.modelClipWindow(fx.art, fx.anim === "stand" ? "stand" : "birth");
             if (w) this.fxSoundTracks.push({ art: fx.art, from: w[0], to: w[1], t: 0, last: w[0] - 0.001, x, y, z });
+            // …and a HELD effect plays its Death too, when its `life` runs out (updateEffects →
+            // fadeOutFx), so that clip's events are owed then: the track starts `life` seconds in
+            // the future, and fires nothing until its clock reaches the clip. This is
+            // the reincarnation's rise being HEARD — ReincarnationTarget.mdx parks `SNDXAORE`
+            // (Reincarnation.wav) at the first frame of its Death.
+            const d = fx.anim === "hold" ? this.sounds?.modelClipWindow(fx.art, "death") : null;
+            if (d) this.fxSoundTracks.push({ art: fx.art, from: d[0], to: d[1], t: -(fx.life ?? 2) * 1000, last: d[0] - 0.001, x, y, z });
           }
         }
         // Ground decals a spell painted this frame (Thunder Clap's scorch, THND).

@@ -386,15 +386,16 @@ console.log("\nthe Ankh of Reincarnation is spent, and the hero gets up where he
   check("…and so untouchable", hero.invulnerable, true);
   check("…for DataA's 7 seconds", Math.round(hero.reviveT), 7);
   // Issue #179: he goes down the way a hero DIES — the body lies in its own Death pose
-  // (REINCARNATION_BODY, drawn by rts.lieDown), with no ReincarnationTarget smoke over it.
+  // (REINCARNATION_BODY, drawn by rts.lieDown) — under ReincarnationTarget's grave, held for
+  // the delay, which fires its own events so its Death (Reincarnation.wav) is heard at the rise.
   check("…his body lies where he fell", hero.buffs.map((b) => b.group).join(), "reincarnation");
-  check("…with no effect standing over it", world.drainSpellEffects().length, 0);
+  const grave = world.drainSpellEffects();
+  check("…under the reincarnation's grave, held for the delay, sound and all",
+    grave.map((f) => [f.art.split("\\").pop(), f.anim, Math.round(f.life), f.events, f.targetId === hero.id].join()).join(";"), "ReincarnationTarget.mdl,hold,7,true,true");
   world.tickRevive(hero, 6.9);
   near("…still down at 6.9s", hero.hp, 1);
   world.tickRevive(hero, 0.2);
-  const rise = world.drainSpellEffects();
-  check("…and he RISES under the art's Death clip, events and all (Reincarnation.wav)",
-    rise.map((f) => [f.art.split("\\").pop(), f.anim, f.events, f.targetId === hero.id].join()).join(";"), "ReincarnationTarget.mdl,death,true,true");
+  check("…the grave's own Death is the rise: no second effect", world.drainSpellEffects().length, 0);
   check("…the body marker gone with it", hero.buffs.length, 0);
   near("…and up at 7 with DataB hit points", hero.hp, 500);
   near("…and the mana he had (DataC = -1)", hero.mana, 123);

@@ -2127,8 +2127,9 @@ export class RtsController {
    * marks the body with REINCARNATION_BODY, and this draws it. It dies the way any hero dies on
    * screen (its own Death clip, its death cry) and then simply stays down in the last frame of
    * that clip: none of the corpse run a real death hands it to, so no Dissipate — the hero is
-   * not dead and does not leave. Getting up is the ordinary stand the picker takes back to,
-   * under the art's own rise (SimWorld.standUp).
+   * not dead and does not leave. The grave over it is the reincarnation's own hold effect
+   * (ReincarnationTarget.mdl, SimWorld.goDown), and getting up is the ordinary stand the picker
+   * takes back to as that effect plays its Death.
    *
    * Fogged like any other image: the body is drawn only where the local player has eyes, and
    * the cry is heard only there, as `onDeath`'s is. True while the body is lying, which keeps
