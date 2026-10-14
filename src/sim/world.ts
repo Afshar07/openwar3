@@ -2398,9 +2398,8 @@ export interface SimUnit {
    * REINCARNATING: seconds left of the ability's own "Reincarnation Delay" (`Ore1` — 5 on the
    * Tauren Chieftain's row, 7 on the creeps' and the Ankh's). While it runs the unit is DOWN:
    * held at 1 hit point, invulnerable and stunned for exactly that long, so nothing can touch
-   * it and it can do nothing — and `ReincarnationTarget.mdl` stands over it (the `"hold"`
-   * EffectAnim) until it gets up, or, for the Ankh, its body lies in its Death pose (goDown's
-   * `body`). 0 the rest of the time.
+   * it and it can do nothing — its body lies in its Death pose and `ReincarnationTarget.mdl`
+   * stands over it (the `"hold"` EffectAnim) until it gets up (goDown). 0 the rest of the time.
    */
   reviveT: number;
   /** …what it gets up WITH: hit points, and mana (-1 = whatever it had). The Ankh states both
@@ -3508,8 +3507,9 @@ export interface ItemReveal {
  */
 export type EffectAnim = "birth" | "stand" | "hold";
 
-/** The marker on a reincarnating unit whose BODY lies in its Death pose for the delay — the
- *  Ankh of Reincarnation (SimWorld.goDown's `body`). The renderer draws the lying body off it. */
+/** The marker on a reincarnating unit whose BODY lies in its Death pose for the delay — every
+ *  reincarnation, the Ankh's and the ability's (SimWorld.goDown). The renderer draws the lying
+ *  body off it. */
 export const REINCARNATION_BODY = "reincarnation";
 
 /**
@@ -23530,9 +23530,8 @@ export class SimWorld {
    * before their Reincarnation is reset" — and the cooldown is what makes the second half
    * true. So the hero test cannot stand: `ACrn` is on no hero in the game.
    *
-   * (`Ore1` "Reincarnation Delay" — 5 on the hero's row, 7 on the creep's — is still not
-   * modelled: the revive is immediate for both, as it is for the Ankh. Modelling it for one
-   * only would make them behave unlike each other, which is the same reasoning tryAnkh gives.)
+   * `Ore1` "Reincarnation Delay" — 5 on the hero's row, 7 on the creep's — is the window the
+   * unit lies down for (goDown), the Ankh's DataA being the same thing.
    */
   private tryReincarnate(u: SimUnit): boolean {
     if (u.hp > 0) return false;
@@ -23569,19 +23568,21 @@ export class SimWorld {
    * `mana` of -2 means "the lot" (the ability restores a full bar); -1 keeps what it had,
    * which is the Ankh's own `DataC`.
    *
-   * `body` is the ANKH's way down (issue #179): the hero DIES on screen — its own Death clip,
-   * its death cry — and lies there in that pose for the whole delay, under the same grave the
-   * hold effect raises over every reincarnation, with none of a fallen hero's Dissipate (it is
-   * not dead, so it does not leave). The sim keeps the unit `vanished` all the same — off the
-   * field, untargetable, unorderable — and tells the renderer the body is lying there with the
-   * REINCARNATION_BODY marker, a buff because buffs cross the wire whole.
+   * ON SCREEN it DIES (issue #179): its own Death clip, its death cry — the sources say a
+   * reincarnating unit is "killed" and "come[s] back to life" (classic.battle.net's Tauren
+   * Chieftain page), and all three rows that do it name the same Effectart — and it lies there
+   * in that pose for the whole delay under ReincarnationTarget's grave, with none of a fallen
+   * hero's Dissipate (it is not dead, so it does not leave). The sim keeps the unit `vanished`
+   * all the same — off the field, untargetable, unorderable — and tells the renderer the body
+   * is lying there with the REINCARNATION_BODY marker, a buff because buffs cross the wire
+   * whole. The Ankh, the Tauren Chieftain's ultimate and the creep copy all go down this way.
    *
    * The effect fires its own SND events (`events`), which is what makes the rise HEARD:
    * ReincarnationTarget.mdx parks its one event in its DEATH clip — the clip the hold plays as
    * the unit gets up — `SNDXAORE` at frame 0 → AnimLookups `AORE` → "Reincarnation" →
    * `Abilities\Spells\Orc\Reincarnation\Reincarnation.wav`.
    */
-  private goDown(u: SimUnit, def: AbilityDef, delay: number, hp: number, mana: number, body = false): void {
+  private goDown(u: SimUnit, def: AbilityDef, delay: number, hp: number, mana: number): void {
     const window = Math.max(0, delay);
     u.buffs = u.buffs.filter((b) => b.kind === "manaShield"); // clear debuffs on revive
     this.cancelSwing(u);
@@ -23603,7 +23604,7 @@ export class SimWorld {
       u.reviveT = window;
       u.vanished = true;
       // No clock of its own: standUp takes it off, so the body cannot blink out a tick early.
-      if (body) u.buffs.push({ kind: "mark", group: REINCARNATION_BODY, timeLeft: Infinity, total: Infinity, sourceId: u.id, value: 0, value2: 0, art: "", fx: [], buffId: "", delay: 0, undispellable: true });
+      u.buffs.push({ kind: "mark", group: REINCARNATION_BODY, timeLeft: Infinity, total: Infinity, sourceId: u.id, value: 0, value2: 0, art: "", fx: [], buffId: "", delay: 0, undispellable: true });
       this.recomputeStats(u); // off the field THIS tick, not next
     }
     // On the UNIT, not on the tile: the marker stands over the body for the whole delay, and
@@ -23638,7 +23639,7 @@ export class SimWorld {
    *    DataB "Restored Life"                    500
    *    DataC "Restored Mana (-1 for current)"   -1  ← keep whatever he had
    *  The Ankh is `uses = 1` and `perishable = 1`, so it is SPENT: the item is gone, the hero
-   *  lies in his own Death pose for DataA, and gets up where he fell (goDown's `body`).
+   *  lies in his own Death pose for DataA, and gets up where he fell (goDown).
    *
    *  Checked BEFORE `AOre` so a Tauren Chieftain wearing an Ankh spends the item and keeps
    *  his ultimate off cooldown, which is the order that loses the player less. */
@@ -23653,9 +23654,7 @@ export class SimWorld {
     u.inventory[slot] = null; // spent — `uses` 1, `perishable` 1
     // Its own three columns, through the same window the ability uses: DataA "Delay After
     // Death" 7, DataB "Restored Life" 500, DataC "Restored Mana (-1 for current)".
-    // …and it goes down the way a hero DIES, in its own Death pose, rather than under the hold
-    // effect the abilities wear (goDown's `body`, issue #179).
-    this.goDown(u, ankh.def, this.dataOf(ankh.level, 0, 7), this.dataOf(ankh.level, 1, 500), this.dataOf(ankh.level, 2, -1), true);
+    this.goDown(u, ankh.def, this.dataOf(ankh.level, 0, 7), this.dataOf(ankh.level, 1, 500), this.dataOf(ankh.level, 2, -1));
     return true;
   }
 

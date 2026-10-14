@@ -347,7 +347,14 @@ console.log("\nReincarnation: the creep row (`ACrn`), on creeps rather than hero
   check("…off the field, and so untouchable", wendigo.vanished && wendigo.invulnerable, true);
   check("…and a blow lands nothing on it", (w.landDamage(wendigo, 99999, 0, false), Math.round(wendigo.hp)), 1);
   check("…with the 240-second cooldown running", Math.round(ab.cooldownLeft), 240);
+  // It goes down the way it DIES (issue #179, the Ankh's shape): its body lies in its Death
+  // pose for the delay (REINCARNATION_BODY, drawn by rts.lieDown) under ReincarnationTarget's
+  // grave, which carries its own events so its Death — the rise — plays Reincarnation.wav.
+  check("…its body lies where it fell", wendigo.buffs.map((b) => b.group).join(), "reincarnation");
+  check("…under the grave, held for the delay, sound and all",
+    w.drainSpellEffects().filter((f) => /ReincarnationTarget/i.test(f.art)).map((f) => [f.anim, Math.round(f.life), f.events].join()).join(";"), "hold,7,true");
   run(w, null, 7.5);
+  check("…and gets up out of it", wendigo.buffs.some((b) => b.group === "reincarnation"), false);
   check("…and it is on its feet at full health", Math.round(wendigo.hp), Math.round(wendigo.maxHp));
   check("…back on the field", wendigo.vanished, false);
   w.landDamage(wendigo, 99999, 0, false);

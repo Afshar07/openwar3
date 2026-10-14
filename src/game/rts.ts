@@ -340,8 +340,8 @@ interface Entry {
   inBurrow: boolean; // peon garrisoned inside an Orc Burrow (also deselects)
   devoured: boolean; // unit swallowed by a Kodo (also deselects)
   scriptHidden: boolean; // hidden by the map's script, ShowUnit (also deselects)
-  /** Lying in its Death pose while it reincarnates — the Ankh (REINCARNATION_BODY, see
-   *  lieDown). Undefined for everything that never has. */
+  /** Lying in its Death pose while it reincarnates (REINCARNATION_BODY, see lieDown).
+   *  Undefined for everything that never has. */
   lying?: boolean;
   /** This building DIED while this client could not see it, so the authority is still sending
    *  us its last-seen image (item 6d). The model stays standing and the entry stays alive —
@@ -2122,7 +2122,8 @@ export class RtsController {
   }
 
   /**
-   * A hero whose Ankh of Reincarnation went off LIES WHERE IT FELL (issue #179): the sim keeps
+   * A REINCARNATING unit — an Ankh of Reincarnation, the Tauren Chieftain's ultimate, the creep
+   * copy — LIES WHERE IT FELL (issue #179): the sim keeps
    * it `vanished` for the delay — off the field, so no bar, no ring, no hover, no click — but
    * marks the body with REINCARNATION_BODY, and this draws it. It dies the way any hero dies on
    * screen (its own Death clip, its death cry) and then simply stays down in the last frame of
@@ -4968,7 +4969,7 @@ export class RtsController {
       setZQuat(this.quat, u.facing);
       if (e.ride) this.placeRiding(e, this.loc, this.quat);
       else placeInstance(e.unit.instance, this.loc, this.quat);
-      // An Ankh's hero lies where it fell for the whole Reincarnation Delay (lieDown).
+      // A reincarnating unit lies where it fell for the whole Reincarnation Delay (lieDown).
       if (this.lieDown(e, u, dt)) continue;
       // Workers inside a gold mine vanish; enemy units vanish in the fog of war.
       this.applyVisibility(e, u, this.modelHidden(e.simId), dt);
