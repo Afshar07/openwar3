@@ -74,6 +74,9 @@ const ABILITIES = new Map([
     buffArt: "Abilities\\Spells\\NightElf\\Immolation\\ImmolationTarget.mdl",
     buffFx: [{ art: "Abilities\\Spells\\NightElf\\Immolation\\ImmolationTarget.mdl", attach: [] }],
     levelData: [lvl({ duration: 1, area: 160, data: D(10), buffs: ["BIcf"] })] })],
+  // Dust of Appearance — Dur 20, Area 1000, buff Bdet; `targs1 = air,ground,ward,enemy,neutral,vuln,invu`
+  ["AItb", ability("AItb", "AItb", { targetFlags: ["air", "ground", "ward", "enemy", "neutral", "vuln", "invu"],
+    levelData: [lvl({ duration: 20, heroDuration: 20, area: 1000, data: D(3), buffs: ["Bdet"] })] })],
 ]);
 
 const item = (id, abils, over = {}) => ({
@@ -99,6 +102,7 @@ const ITEMS = new Map([
   // TABLE ships as perfectly droppable and Human01's own trigger makes undroppable per item.
   ["soul", item("soul", [], { charges: 0, usable: false, perishable: false, classType: "Miscellaneous", droppable: false, pawnable: false, sellable: false })],
   ["ledg", passive("ledg", [])],
+  ["dust", item("dust", ["AItb"], { charges: 2 })],
 ]);
 
 const N = 256;
@@ -483,6 +487,26 @@ console.log("\nan inventory is an ABILITY, sized by its Item Capacity");
   researched.add("Ropm");
   world.recomputeStats(grunt);
   check("…the research opens them", grunt.inventory.length, 2);
+}
+
+console.log("\nDust of Appearance is NOT a provocation  (issue #184)");
+{
+  // A camp of Nightcrawlers HIDING at night (`Ashm`'s meld) beside a dusting hero: the powder
+  // marks them for the duster's side, and that is all it does — no camp wakes, nobody charges.
+  world = newWorld();
+  const hero = give(unit({ isHero: true }), "dust");
+  const meld = () => ({ kind: "invisible", group: "meld", meld: true, timeLeft: 999, delay: 0, value: 0, sourceId: 0 });
+  const crawler = unit({ owner: -1, team: -1, x: 1300, y: 1000, prevX: 1300, prevY: 1000, isCreep: true,
+    guardX: 1300, guardY: 1000, aggroRange: 200, buffs: [meld()], weapons: [], struckAt: -1, asleep: false });
+  const sleeper = unit({ owner: -1, team: -1, x: 1350, y: 1050, prevX: 1350, prevY: 1050, isCreep: true,
+    guardX: 1350, guardY: 1050, aggroRange: 200, weapons: [], struckAt: -1, asleep: true });
+  world.recomputeStats(crawler);
+  check("the hidden creep is invisible to begin with", crawler.invisible, true);
+  check("the dust fires", world.useItem(hero.id, 0, 0, hero.x, hero.y), true);
+  check("…it marks the hidden creep", crawler.buffs.some((b) => b.kind === "dusted"), true);
+  check("…which keeps its meld (the powder SHOWS it; it does not pull it out)", crawler.cloaked, true);
+  check("…and was not struck", crawler.struckAt, -1);
+  check("…and its sleeping camp-mate sleeps on", sleeper.asleep, true);
 }
 
 console.log(failed ? `\nitems: ${failed} check(s) FAILED` : "\nitems: all checks passed");

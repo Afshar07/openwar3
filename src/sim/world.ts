@@ -18267,7 +18267,13 @@ export class SimWorld {
       // a blow's own riders (Bash, the orbs) are applied by the sim directly and are not
       // spells, so they are untouched.
       if (t.magicImmune && src && src !== t && this.hostile(src, t)) return;
-      if (this.casting && src && src !== t && this.hostile(src, t)) this.provoke(t, src.id);
+      // …except a MARK that does the holder no harm. Dust of Appearance (`Bdet`) only lets the
+      // duster's side see what the powder landed on: "considered a non-hostile spell/item
+      // effect. It does not deal damage, generate threat, or count as a hostile provocation to
+      // neutral hostile units" (issue #184) — a hidden Nightcrawler dusted at night keeps its
+      // ambush, and its camp sleeps on, until somebody actually ATTACKS it.
+      const harmless = buff.kind === "dusted";
+      if (!harmless && this.casting && src && src !== t && this.hostile(src, t)) this.provoke(t, src.id);
       if (buff.group === "ensnare" && src?.isCreep) this.noteEnsnared(src, t);
       this.applyBuffInternal(t, buff.buffId === undefined && this.casting ? { ...buff, buffId: buffIdOf(this.casting.def, this.casting.rank) } : buff);
     },
