@@ -15,7 +15,7 @@ import { collectMapDestructibles, findDestructibleAt, type MapDestructible } fro
 import { destructibleUnitDef } from "../data/units";
 import { PathingGrid, parseWpm, footprintCells, PATHING_CELL, BUILD_CELL, BUILD_CELL_CELLS } from "../sim/pathing";
 import { AllianceType } from "../sim/alliances";
-import { summonsBuildings, castCostOf, isOffField, type Alert, type EffectAnim, type RallyKind, type ShopResult, type ShopStock, type SimUnit, type SimWorld } from "../sim/world";
+import { summonsBuildings, castCostOf, isOffField, CARRIED_ONTO_SHEET, type Alert, type EffectAnim, type RallyKind, type ShopResult, type ShopStock, type SimUnit, type SimWorld } from "../sim/world";
 import { stampFootprints, stampFootprint, unstampFootprint, decodePathTex, footprintBuildable, footprintCellsAt, footprintRadius, quarterTurns, rotateFootprint, type Footprint, type PlacedFootprint } from "../sim/destructibles";
 import { parseMapUnits, GOLD_MINE_ID, START_LOCATION_ID } from "../world/mapUnits";
 import { frameModel, loadMapScript, type MapScriptEngine } from "../jass/index";
@@ -12007,8 +12007,10 @@ export class MapViewerScene {
       // unit's card: `ItemAbilityFunc.txt` gives five of its 234 abilities a Buttonpos. Test of
       // Balance hangs a hero glow on every hero this way (`A03G`, an `AIgx` Regeneration Aura
       // at 0 regen), and it showed as an aura button nobody could press. No stock unit carries
-      // an item ability in its abilList, so nothing stock is touched.
-      if (def.isItem && !def.orderOn && !def.orderOff) continue;
+      // an item ability in its abilList, so nothing stock is touched. The exception is an
+      // ability an item puts on the sheet ON PURPOSE (CARRIED_ONTO_SHEET): 1.31.0's Cloak of
+      // Shadows is `AIhm`, an item-flagged Shadow Meld whose whole point is its Hide button.
+      if (def.isItem && !def.orderOn && !def.orderOff && !CARRIED_ONTO_SHEET.includes(def.code)) continue;
       // …and a WARD wears its passives without showing them. UnitBalance `type` = "Ward" is
       // the classification whose units take no orders from the card (selectionCanAttack), and
       // what a Healing Ward carries is exactly that: `ohwd` abilList `Aoar`, the aura it was
@@ -12059,7 +12061,7 @@ export class MapViewerScene {
       // underneath, because the two are different facts about the same button.
       const hidden = this.rts.simView.alreadyHidden(ready.unit, ab.code);
       // …and a NIGHT ability while the sun is up: Shadow Meld is dead by day (barredByDay).
-      const daylight = this.rts.simView.barredByDay(ab.code);
+      const daylight = this.rts.simView.barredByDay(ready.unit, ab.code);
       // …and a cargo hold's two buttons answer to the hold: Load with no seat left, Unload
       // All with nobody aboard, are each a press that could only be refused (holdRoom /
       // garrison — docs/transports.md).

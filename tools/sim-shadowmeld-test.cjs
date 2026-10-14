@@ -36,7 +36,7 @@ function def(data) {
   };
 }
 
-function cast(data, isDay) {
+function cast(data, isDay, byDay = false) {
   const caster = { id: 1, owner: 0, team: 0, hp: 500, x: 0, y: 0 };
   const log = { buffs: [], held: [] };
   const api = {
@@ -47,6 +47,7 @@ function cast(data, isDay) {
     ally: () => true,
     spellDamage: () => {}, spellHeal: () => {}, dispel: () => {}, emitEffect: () => {},
     isDay: () => isDay,
+    meldsByDay: () => byDay,
     holdPosition: (u) => log.held.push(u.id),
     applyBuff: (t, b) => log.buffs.push({ id: t.id, kind: b.kind, group: b.group, timeLeft: b.timeLeft, delay: b.delay, meld: b.meld, value: b.value }),
   };
@@ -79,6 +80,12 @@ function cast(data, isDay) {
   const log = cast([1.5, 2.5, 0.5], true);
   check("refuses to meld by day", log.buffs.length, 0);
   check("…and does not take the stance either", log.held, []);
+}
+
+// …unless the unit's meld works by day: 1.31.0's Cloak of Shadows (`AIhm`, DataD `Shm4` = 1).
+{
+  const log = cast([1.5, 2.5, 0.5, 1], true, true);
+  check("a meld that works by day melds by day", log.buffs.length, 1);
 }
 
 // --- the break conditions (tickMeld) ---------------------------------------------------
@@ -146,10 +153,11 @@ const stillMelded = (u) => u.buffs.some((b) => b.kind === "invisible");
 // the same answer. At night the same ability is live.
 {
   world.timeOfDay = 12;
-  check("Shadow Meld is barred by day", world.barredByDay("Ashm"), true);
-  check("…Wind Walk is not", world.barredByDay("AOwk"), false);
+  const archer = { abilities: [], inventory: [] };
+  check("Shadow Meld is barred by day", world.barredByDay(archer, "Ashm"), true);
+  check("…Wind Walk is not", world.barredByDay(archer, "AOwk"), false);
   world.timeOfDay = 22;
-  check("…and Shadow Meld is live at night", world.barredByDay("Ashm"), false);
+  check("…and Shadow Meld is live at night", world.barredByDay(archer, "Ashm"), false);
 }
 
 // HIDE TAKES ITSELF — but never out of a fight. Measured live on Echo Isles before the fix:
@@ -270,6 +278,57 @@ const stillMelded = (u) => u.buffs.some((b) => b.kind === "invisible");
   check("…starts no cast animation", w.drainCastStarts().length, 0);
   check("…still plays its Effectsound", w.drainCastFires().length, 1);
   check("…and lays the meld", warden.buffs.map((b) => b.group), ["shadowmeld"]);
+}
+
+// THE 1.31.0 CLOAK OF SHADOWS: `[clsd] abilList = AIhm`, a Shadow Meld row (code `Ashm`) with
+// the day flag that release added (DataD, `Shm4` = 1; 0 on `Ashm`). It hides its Hero "by day
+// and by night", by hand and by itself — and the same release lets it make a unit's OWN Shadow
+// Meld work by day ("the cloak's Hide also works on a unit that has Shadowmeld").
+{
+  const w = new SimWorld({ width: 8, height: 8, cell: 128, blocked: new Uint8Array(64) }, 1);
+  const lvl = (data) => ({ cost: 0, cooldown: 0, castTime: 0, castRange: 0, area: 0, data, dataStr: [] });
+  w.abilities = new Map([
+    ["Ashm", { id: "Ashm", code: "Ashm", isItem: false, research: false, levels: 1, levelData: [lvl([1.5, 2.5, 0.5, 0])] }],
+    ["AIhm", { id: "AIhm", code: "Ashm", isItem: true, research: false, levels: 1, levelData: [lvl([1.5, 2.5, 0.5, 1])] }],
+  ]);
+  w.itemReg = new Map([["clsd", { id: "clsd", abilities: ["AIhm"] }]]);
+  w.timeOfDay = 12; // midday
+  const hero = { id: 11, owner: 0, abilities: [], buffs: [], inventory: [{ id: 4, itemId: "clsd", charges: 0 }], pendingCast: null };
+  w.syncCarriedAbilities(hero);
+  check("a 1.31 cloak puts its AIhm Hide on the sheet", hero.abilities.map((a) => [a.id, a.code]), [["AIhm", "Ashm"]]);
+  check("…which is live by day", w.barredByDay(hero, "Ashm"), false);
+  // tickMeld: dawn does not break a meld that works by day…
+  const melded = (u) => {
+    Object.assign(u, { hp: 100, x: 0, y: 0, prevX: 0, prevY: 0, cloaked: true, invisible: true });
+    u.buffs = [{ kind: "invisible", group: "shadowmeld", timeLeft: Infinity, sourceId: u.id, value: 0, value2: 0, art: "", fx: [], delay: 0, meld: true }];
+    w.units.set(u.id, u);
+    return u;
+  };
+  w.tickMeld(melded(hero));
+  check("…and a cloaked Hero standing in daylight stays hidden", hero.buffs.length, 1);
+  const archer = { id: 12, owner: 0, abilities: [{ id: "Ashm", code: "Ashm", level: 1 }], buffs: [], inventory: [], weapons: [],
+    baseArmor: 0, baseMaxHp: 100, baseMaxMana: 0, baseMoveSpeed: 270, baseSight: 1800, detectRadius: 0 };
+  check("an Archer's own Shadow Meld is still barred by day", w.barredByDay(archer, "Ashm"), true);
+  w.tickMeld(melded(archer));
+  check("…and dawn still breaks hers", archer.buffs.length, 0);
+  const warden = { id: 13, owner: 0, abilities: [{ id: "Ashm", code: "Ashm", level: 1 }], buffs: [], inventory: [{ id: 5, itemId: "clsd", charges: 0 }] };
+  w.syncCarriedAbilities(warden);
+  check("a Warden wearing the cloak keeps ONE Hide button", warden.abilities.map((a) => a.id), ["Ashm"]);
+  check("…and it works by day while she wears it", w.barredByDay(warden, "Ashm"), false);
+  warden.inventory[0] = null;
+  check("…and not once she takes it off", w.barredByDay(warden, "Ashm"), true);
+  // HIDE TAKES ITSELF by day too: a Hero standing about with the cloak melds of its own accord.
+  let casts = 0;
+  w.issueCast = () => { casts++; return true; };
+  w.techMeets = () => true;
+  w.acquireTarget = () => null;
+  const idle = { hp: 100, x: 0, y: 0, prevX: 0, prevY: 0, order: "idle", moving: false, swingLeft: -1, targetId: null,
+    inCombat: false, cloaked: false, stunned: false, paused: false, isCreep: false, weapon: { acquire: 600, range: 100 } };
+  w.tickAutoMeld({ ...idle, id: 14, owner: 0, abilities: [{ id: "AIhm", code: "Ashm", level: 1 }], buffs: [], inventory: [{ id: 6, itemId: "clsd", charges: 0 }] });
+  check("a cloaked Hero standing about by day melds by itself", casts, 1);
+  casts = 0;
+  w.tickAutoMeld({ ...idle, id: 15, owner: 0, abilities: [{ id: "Ashm", code: "Ashm", level: 1 }], buffs: [], inventory: [] });
+  check("…an Archer by day does not", casts, 0);
 }
 
 console.log(`\n${failed ? `${failed} FAILED` : "all passed"}`);

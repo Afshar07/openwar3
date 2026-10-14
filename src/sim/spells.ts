@@ -133,6 +133,9 @@ export interface SpellApi {
   /** True during daylight (Dawn–Dusk on the sim clock). Shadow Meld is a night ability, and
    *  the day/night cycle is the only world state any spell currently reads. */
   isDay(): boolean;
+  /** Does this unit's Shadow Meld work by DAY as well — a 1.31.0 Cloak of Shadows, on its own
+   *  sheet or in its pack (SimWorld.meldsByDay)? */
+  meldsByDay(unit: SimUnit): boolean;
   /** Root/Unroot (`Aroo`): toggle an Ancient between planted and walking. False if it refused
    *  — the only refusal is trying to plant where the footprint no longer fits. */
   toggleRoot(unit: SimUnit): boolean;
@@ -2874,9 +2877,11 @@ export const SPELL_HANDLERS: Record<string, Handler> = {
   // a number"). Both want a measurement against the real client.
   //
   // Casting is refused by day. That is not decoration: without it the unit would meld, pay
-  // the fade, and be stripped by tickMeld on the very next tick.
+  // the fade, and be stripped by tickMeld on the very next tick. The exception is the 1.31.0
+  // Cloak of Shadows, whose `AIhm` row sets the day flag that release added (DataD, `Shm4`) —
+  // see SimWorld.meldsByDay, which also lets a night elf's own button work while she wears one.
   Ashm: (api, caster, def, rank) => {
-    if (api.isDay()) return; // night ability — the button is dead in daylight
+    if (api.isDay() && !api.meldsByDay(caster)) return; // night ability — the button is dead in daylight
     const lvl = def.levelData[rank - 1];
     // Hold position and hold fire. WC3 melds the unit INTO this stance, and it is the reason
     // a melded unit stays melded: left on its own orders it would walk or shoot itself out of

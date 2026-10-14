@@ -3160,8 +3160,10 @@ function altFormOf(lvl: AbilityLevel | undefined): string {
 const IMMEDIATE = new Set(["AHds", "ACds", "AOwk", "Amil", "Amic", "AEim"]);
 
 /** The abilities a CARRIED item puts on its carrier's command card (see
- *  SimWorld.syncCarriedAbilities): `[clsd] abilList = Ashm`, the Cloak of Shadows. */
-const CARRIED_ONTO_SHEET = ["Ashm"] as const;
+ *  SimWorld.syncCarriedAbilities): `[clsd] abilList = Ashm`, the Cloak of Shadows — `AIhm`
+ *  from 1.31.0 on, an item-flagged row under the same code, which is why the card asks this
+ *  list before it hides an item ability's button. */
+export const CARRIED_ONTO_SHEET: readonly string[] = ["Ashm"];
 
 /**
  * What THIS press costs — the rank's `Cost1`, except for the half of a toggle that is free:
@@ -14680,9 +14682,34 @@ export class SimWorld {
    * `api.isDay()` refusal, which stays as the backstop for a carried Cloak of Shadows). The
    * meld already in force ends at dawn in `tickMeld`. A Moonstone's eclipse IS night here,
    * because it moves `timeOfDay` itself.
+   *
+   * …unless the unit's meld works by day (meldsByDay): the 1.31.0 Cloak of Shadows.
    */
-  barredByDay(code: string): boolean {
-    return code === "Ashm" && this.isDay;
+  barredByDay(u: SimUnit, code: string): boolean {
+    return code === "Ashm" && this.isDay && !this.meldsByDay(u);
+  }
+
+  /**
+   * Does this unit's Shadow Meld work by DAY too? 1.31.0 made the Cloak of Shadows hide its
+   * Hero "by day and by night" (its patched Ubertip) by giving it a row of its own, `AIhm`, and
+   * Shadow Meld a fourth field to tell the two apart: DataD (`Shm4`), 1 on `AIhm`, 0 on
+   * `Ashm`/`Sshm` (src/patches/data/1.31.0.json). A 1.30.4 row has no DataD at all, which reads
+   * as 0 — night only, exactly as that release played.
+   *
+   * Asked of the UNIT rather than of the one row it pressed, because the same release says
+   * "the cloak's Hide also works on a unit that has Shadowmeld": a Warden keeps her own `Ashm`
+   * button (syncCarriedAbilities never doubles it) and wearing the cloak is what lets that
+   * button work in daylight. So it is any Shadow Meld on the sheet or in the pack with the flag.
+   */
+  meldsByDay(u: SimUnit): boolean {
+    for (const a of u.abilities) {
+      if (a.code !== "Ashm" || a.level < 1) continue;
+      const def = this.abilityDefOf(a);
+      const lvl = def?.levelData[Math.min(a.level, def.levelData.length) - 1];
+      if (lvl && this.dataOf(lvl, 3) === 1) return true;
+    }
+    const carried = this.itemAbility(u, "Ashm");
+    return !!carried && this.dataOf(carried.level, 3) === 1;
   }
 
   /** WHY this unit can't cast this ability AT ALL right now, target or no target — the
@@ -14730,7 +14757,7 @@ export class SimWorld {
     // is off cooldown for most of its walk, and "not ready yet" would be a lie.
     if (this.alreadyHidden(u, code)) return SILENT_REFUSAL;
     // …nor a night ability in daylight (see barredByDay) — greyed, so silent too.
-    if (this.barredByDay(code)) return SILENT_REFUSAL;
+    if (this.barredByDay(u, code)) return SILENT_REFUSAL;
     const lvl = def.levelData[Math.min(ab.level, def.levelData.length) - 1];
     // A PERMANENT form has nothing to press once it is worn (the card hides the button, see
     // morphIsPermanent) — a Destroyer is not a statue that can go back.
@@ -14904,7 +14931,7 @@ export class SimWorld {
     // and a command off the wire all mean the same thing the card shows.
     if (this.alreadyHidden(u, code)) return false;
     // …and a night ability by day (barredByDay): the card's grey button, kept at the door.
-    if (this.barredByDay(code)) return false;
+    if (this.barredByDay(u, code)) return false;
     // Entangle pressed on a WALKING tree, which is the only card it is on (UPROOTED_ONLY).
     // Roots in the air hold nothing, so the press is not a cast: it is the errand
     // (`entangleat`), and the tree plants itself within reach of the mine first.
@@ -18335,6 +18362,7 @@ export class SimWorld {
     devour: (kodo, prey) => this.devourInternal(kodo, prey),
     toggleSpiritForm: (unit) => this.toggleSpiritForm(unit),
     isDay: () => this.isDay,
+    meldsByDay: (unit) => this.meldsByDay(unit),
     holdPosition: (unit) => { this.issueHold(unit.id); },
     toggleRoot: (unit) => this.toggleRoot(unit),
     entangleMine: (unit, def) => this.entangleMine(unit, def),
@@ -20834,9 +20862,8 @@ export class SimWorld {
    *
    * WHO: the ability may be the unit's own (`Ashm` on every night elf ground unit, on the
    * Bandit/Rogue/Assassin, the Murloc Nightcrawler, the Satyr Shadowdancer) or CARRIED — the
-   * Cloak of Shadows (`[clsd] abilList = Ashm`), whose 1.30 tooltip is still "invisibility at
-   * night" (the daytime version is a 1.31 change and not ours). Both are the same row and get
-   * the same rule.
+   * Cloak of Shadows (`[clsd] abilList = Ashm`, `AIhm` from 1.31.0 — "invisibility by day and
+   * by night", see meldsByDay). Both are the same code and get the same rule.
    *
    * WHEN: no order in hand. `idle` is the plain case; `hold` is here too, and not as a
    * loophole — melding IS the hold stance (the handler puts the unit on Hold Position), so a
@@ -20855,11 +20882,12 @@ export class SimWorld {
    * target, or with an enemy in its acquisition range that it would pick a fight with, does
    * not hide: the fight is what its attack command is for.
    *
-   * The day gate is the handler's own (`api.isDay()`), where it belongs; asking here as well
-   * only saves the work.
+   * The day gate is the handler's own (`api.isDay()` / `meldsByDay`), where it belongs; asking
+   * here as well only saves the work — and a cloak that hides by day (1.31.0) hides itself by
+   * day too, standing about exactly as it does at night.
    */
   private tickAutoMeld(u: SimUnit): void {
-    if (this.isDay || u.hp <= 0 || u.building || u.cloaked || u.stunned || u.paused) return;
+    if (u.hp <= 0 || u.building || u.cloaked || u.stunned || u.paused) return;
     if (u.asleep) return; // a sleeper does nothing — see hidesAtNight
     // …and nobody hides of their own accord during a CINEMATIC (see inCinematic): the actors
     // stand still between lines because the script is directing them, not lying in wait. The
@@ -20872,6 +20900,9 @@ export class SimWorld {
     // covers the unit's own Shadow Meld and the cloak's alike.
     const own = u.abilities.find((a) => a.code === "Ashm" && a.level >= 1 && this.techMeets(u.owner, a.id));
     if (!own) return;
+    // …and by day only a meld that works by day (meldsByDay, the 1.31.0 Cloak of Shadows):
+    // asked after the cheap tests, of the few units that can hide at all.
+    if (this.isDay && !this.meldsByDay(u)) return;
     // …nor with an enemy in reach that it would auto-acquire: the gap between a kill and the
     // next `tickAcquire` scan is not the fight being over. Asked here, of the few units that
     // can hide at all, and only while `cloaked` is still false (acquireRange reads 0 once it
@@ -20958,9 +20989,10 @@ export class SimWorld {
    * and all. The Cloak of Shadows is the case: `[clsd] abilList = Ashm` — the night elves' own
    * Shadow Meld row, not an item class (`AI*`) — and its ItemStrings Description says it in
    * as many words, "Provides the Shadowmeld ability." So the hero wears the same button an
-   * Archer does, at the same `Buttonpos`, dead by day like hers (`barredByDay`; the 1.30.4
-   * Ubertip is "invisibility at night" — the daytime cloak is a 1.31 change), and it melds by
-   * itself standing about at night through the same `tickAutoMeld` test.
+   * Archer does, at the same `Buttonpos`, and it melds by itself standing about through the
+   * same `tickAutoMeld` test. 1.30.4's cloak is night-only like her ("invisibility at night");
+   * 1.31.0's `AIhm` works by day too (`meldsByDay`) — and, being an item-flagged row, is drawn
+   * on the card only because it is in CARRIED_ONTO_SHEET (mapViewer's item-ability rule).
    *
    * On the sheet rather than asked of the inventory at each door, because every door already
    * reads the sheet — the card, the hotkey, `issueCast`, the cast refusals, a client's snapshot
@@ -20992,7 +21024,9 @@ export class SimWorld {
   private tickMeld(u: SimUnit): void {
     if (!u.buffs.some((b) => b.kind === "invisible" && b.meld)) return;
     const moved = u.x !== u.prevX || u.y !== u.prevY;
-    if (moved || this.isDay) this.breakInvisibility(u);
+    // Dawn ends it — unless the meld works by day (meldsByDay, the 1.31.0 cloak), asked live so
+    // a cloak handed away in daylight takes the daytime meld with it.
+    if (moved || (this.isDay && !this.meldsByDay(u))) this.breakInvisibility(u);
   }
 
   /** Is an invisibility on this unit still COMING ON — pressed, and not yet in force? The

@@ -1193,7 +1193,7 @@
     {
       "key": "shadowmeld-by-day",
       "note": "Shadow Meld with DataD (Shm4) set hides by day too (Cloak of Shadows), and the cloak's Hide also works on a unit that has Shadowmeld",
-      "implemented": false
+      "implemented": true
     },
     {
       "key": "life-drain-dark-minion",

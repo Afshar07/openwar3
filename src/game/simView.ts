@@ -58,7 +58,7 @@ export interface SimView {
    *  while he is wind walking? A READ, and the same one the sim refuses the order on, so the
    *  greyed button and the rule cannot disagree. */
   alreadyHidden(u: SimUnit, code: string): boolean;
-  barredByDay(code: string): boolean;
+  barredByDay(u: SimUnit, code: string): boolean;
   learnable(u: SimUnit, abilityId: string): boolean;
   /** Does this hero have any skill to learn at all — a learn page to open, points to show? */
   hasHeroSkills(u: SimUnit): boolean;
