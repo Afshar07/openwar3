@@ -665,5 +665,53 @@ console.log("a unit in Entangling Roots cannot attack");
   check(`idle and rooted, it picks no fight (hp ${beside.hp}/${beside.maxHp})`, beside.hp === beside.maxHp);
 }
 
+// ── A target TELEPORTED out of sight ends the fight, ordered or not (issue #173) ──────────
+// Footman right-clicked onto a Grunt; the orc's hero reads a Town Portal and the Grunt goes
+// home with him. The fog rule only ever released a SELF-picked fight, so the commanded one
+// walked after the Grunt all the way back to the orc's base. Sight here is "within 1200 of
+// a unit of yours" — enough to make the far corner of the map fog and the near field not.
+console.log("a target teleported out of sight");
+{
+  const sight = (w) => (team, x, y) => [...w.units.values()].some((o) => o.team === team && Math.hypot(o.x - x, o.y - y) <= 1200);
+  for (const ordered of [true, false]) {
+    const w = new SimWorld(grid(), 1);
+    w.visibleToTeam = sight(w);
+    const u = addUnit(w, 1, 0, 500, 500);
+    const grunt = addUnit(w, 2, 1, 600, 500, { weapons: [] });
+    if (ordered) w.issueOrder(1, { kind: "attack", targetId: grunt.id, force: false });
+    else w.issueAttack(1, grunt.id);
+    run(w, 1);
+    check(`${ordered ? "ordered" : "auto"}: fighting before the portal`, u.targetId === grunt.id && grunt.hp < grunt.maxHp);
+    w.setUnitPosition(grunt.id, 2800, 2800); // home, a long way out of anybody's sight
+    run(w, 3);
+    check(`${ordered ? "ordered" : "auto"}: let it go (order ${u.order}, target ${u.targetId})`, u.targetId !== grunt.id);
+    check(`${ordered ? "ordered" : "auto"}: did not follow it home (at ${u.x.toFixed(0)},${u.y.toFixed(0)})`, Math.hypot(u.x - 500, u.y - 500) < 200);
+  }
+}
+// …but one that lands IN sight (a Blink a few steps off) is still chased.
+{
+  const w = new SimWorld(grid(), 1);
+  w.visibleToTeam = (team, x, y) => [...w.units.values()].some((o) => o.team === team && Math.hypot(o.x - x, o.y - y) <= 1200);
+  const u = addUnit(w, 1, 0, 500, 500);
+  const grunt = addUnit(w, 2, 1, 600, 500, { weapons: [] });
+  w.issueOrder(1, { kind: "attack", targetId: grunt.id, force: false });
+  run(w, 1);
+  w.setUnitPosition(grunt.id, 1100, 500);
+  run(w, 3);
+  check(`blinked in sight: still on it (target ${u.targetId})`, u.targetId === grunt.id);
+  check(`…and closed on it (at ${u.x.toFixed(0)})`, u.x > 900);
+}
+// …and an ORDER at a target nobody on its side can see (a trigger's IssueTargetOrder across
+// the map) is still carried out: the fog alone never releases a commanded attack.
+{
+  const w = new SimWorld(grid(), 1);
+  w.visibleToTeam = (team, x, y) => [...w.units.values()].some((o) => o.team === team && Math.hypot(o.x - x, o.y - y) <= 600);
+  const u = addUnit(w, 1, 0, 500, 500);
+  const far = addUnit(w, 2, 1, 2500, 500, { weapons: [] });
+  w.issueOrder(1, { kind: "attack", targetId: far.id, force: false });
+  run(w, 2);
+  check(`ordered through the fog: still marching on it (target ${u.targetId}, x ${u.x.toFixed(0)})`, u.targetId === far.id && u.x > 900);
+}
+
 console.log(failures === 0 ? "\nattack-order: all checks passed" : `\nattack-order: ${failures} FAILED`);
 process.exit(failures === 0 ? 0 : 1);

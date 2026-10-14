@@ -1663,6 +1663,19 @@ export interface SimUnit {
   // autocast, and with one unit selected there is no group for him to be the healer of.
   // Only ever true alongside `attackOrdered`, and cleared by the same automatic re-targets.
   attackSolo: boolean;
+  /**
+   * The attack target's `teleports` count as this attacker last KNEW it, and which target that
+   * count belongs to (issue #173). A teleport the attacker's side did not SEE land — a Town
+   * Portal home, a Mass Teleport, a staff — takes the target out of the fight even when the
+   * attack was ORDERED: the fog rule in tickAttack leaves a commanded attack alone (a trigger
+   * may send a unit at something across the map), so without this a Footman a player had
+   * right-clicked onto a Grunt walked after it all the way back to its base when the orc's
+   * hero read a scroll. A teleport that lands in sight (a Blink a few steps away) only
+   * refreshes the count, and the chase goes on. Keyed on the target's id so a re-target the
+   * sim makes by writing `targetId` directly is adopted rather than read as a teleport.
+   */
+  attackTeleId: number;
+  attackTeleports: number;
   stuckAnchorX: number; // position at the start of the current stuck window (net-progress check)
   stuckAnchorY: number;
   repathT: number; // chase-repath cooldown after getting blocked
@@ -8934,6 +8947,8 @@ export class SimWorld {
       | "attackStalls"
       | "attackOrdered"
       | "attackSolo"
+      | "attackTeleId"
+      | "attackTeleports"
       | "stuckAnchorX"
       | "stuckAnchorY"
       | "repathT"
@@ -9217,6 +9232,8 @@ export class SimWorld {
       attackStalls: 0,
       attackOrdered: false,
       attackSolo: false,
+      attackTeleId: -1,
+      attackTeleports: 0,
       stuckAnchorX: unit.x,
       stuckAnchorY: unit.y,
       repathT: 0,
@@ -10563,6 +10580,8 @@ export class SimWorld {
     }
     u.order = "attack";
     u.targetId = targetId;
+    u.attackTeleId = targetId; // where the target stands NOW is where it was told to go (issue #173)
+    u.attackTeleports = t.teleports;
     u.noCollision = false; // manual control restores collision
     u.stallT = 0; // fresh target — reset the unreachable-target watchdog (issue #24)
     u.gaveUp = false; // no longer holding — a new target may well be reachable
@@ -19153,6 +19172,26 @@ export class SimWorld {
     if (t.invisible) {
       this.reacquireOrStop(u);
       return;
+    }
+    // It was TELEPORTED out of sight (issue #173): a Town Portal, a Mass Teleport or a staff
+    // took it out of the fight, and the fight is over for this attacker too — ORDERED or not.
+    // The fog rule below is the same idea for a self-picked fight, but a commanded attack is
+    // exempt from it (a trigger may well send a unit at a target nobody on its side can see),
+    // and that exemption is what had a right-clicked Footman follow a Grunt all the way back
+    // to its base when the orc's hero read a scroll. A teleport is not a walk into the fog the
+    // attacker could have watched happen: the target is simply GONE from where everybody saw
+    // it, which is also why it disjoints the missiles already in the air (missileDisjointed).
+    // One that lands in sight — a Blink a few steps off, a portal into a base the attacker's
+    // army is standing in — only refreshes the count, and the chase goes on.
+    if (u.attackTeleId !== t.id) {
+      u.attackTeleId = t.id; // a new target (however it was handed over): adopt its count
+      u.attackTeleports = t.teleports;
+    } else if (u.attackTeleports !== t.teleports) {
+      if (!this.visibleToTeam(u.team, t.x, t.y)) {
+        this.reacquireOrStop(u);
+        return;
+      }
+      u.attackTeleports = t.teleports;
     }
     // It went into the FOG: a fight the unit picked up itself (auto-acquired, a creep's aggro,
     // a call for help) is only ever about an enemy its side can SEE — canSee is the rule it was
