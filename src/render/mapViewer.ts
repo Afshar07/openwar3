@@ -1580,7 +1580,7 @@ export class MapViewerScene {
    *  queued a site and kept it there. That is what makes releasing shift end the placement
    *  (see the keyup handler in attachControls) — a ghost that has queued nothing yet is a
    *  building you picked off the card, and a stray tap of shift is not a cancel. */
-  private placement: { def: UnitDef; fp: Footprint | null; workerId: number; rootUnitId?: number; shiftQueued?: boolean } | null = null;
+  private placement: { def: UnitDef; fp: Footprint | null; workerId: number; rootUnitId?: number; shiftQueued?: boolean; itemSlot?: number } | null = null;
   private ghost: HTMLDivElement | null = null;
   // Translucent building-silhouette ghost that follows the cursor while placing.
   private buildGhosts = new Map<string, SpawnInstance>();
@@ -4920,6 +4920,16 @@ export class MapViewerScene {
       this.refuse(this.placementRefusal(p.def, x, y));
       return;
     }
+    // A "Tiny" building ITEM (issue #190): the same ghost, the same site checks, but the price
+    // is the item's charge and the order is the item's own use at the spot — which the sim
+    // turns into the hero's walk-and-raise (SimWorld.issueItemBuild). One site per item, so
+    // there is no shift-chain to keep the ghost for.
+    if (p.itemSlot !== undefined) {
+      if (!this.rts.execute(this.localPlayer, { c: "useitem", unitId: p.workerId, slot: p.itemSlot, targetId: 0, x, y })) return;
+      this.sounds?.playUi("PlaceBuildingDefault");
+      this.cancelPlacement();
+      return;
+    }
     // Feedback only, and deliberately duplicated (same contract as trainUnit): `execute`
     // decides, but it can't SAY anything, and a placement that fails on price is otherwise
     // a click that does nothing at all. The ghost stays on the cursor either way.
@@ -5085,7 +5095,8 @@ export class MapViewerScene {
         this.buildSpawning.add(workerId);
         // The foundation belongs to the WORKER's owner, never to this machine's player —
         // the second half of the localPlayer disease (see the gate above, and bug 4).
-        void this.spawnUnit(def, pb.x, pb.y, w.owner, this.teamOf(w.owner), def.buildTime || 60).then((simId) => {
+        // A "Tiny" building item's structure raises over its row's own `Dur1` (ItemBuild).
+        void this.spawnUnit(def, pb.x, pb.y, w.owner, this.teamOf(w.owner), pb.item?.buildTime || def.buildTime || 60).then((simId) => {
           this.buildSpawning.delete(workerId);
           if (simId !== null) {
             world.clearRaisedSite(simId, workerId); // anyone of ours caught walking across it
@@ -9299,6 +9310,20 @@ export class MapViewerScene {
         const carrying = this.rts?.orderMode === "item" && this.rts.armedItem?.mode === "move";
         if (carrying) this.sounds?.playUiVariants("InterfaceClick", INVENTORY_CLICKS);
         else if (this.rts?.inventorySlots()[slot]?.usable) this.sounds?.playUi("InterfaceClick");
+        // A "Tiny" building item is not aimed, it is PLACED: it arms the very ghost a worker's
+        // Build button does (issue #190), and the click that puts it down orders the item.
+        const build = carrying ? null : this.rts?.itemBuildFor(slot);
+        if (build === "refused") return;
+        if (build) {
+          const def = this.registry.get(build.typeId);
+          if (def) {
+            this.buildGhost?.hide();
+            this.buildGhost = null;
+            this.placement = { def, fp: def.pathTex ? this.footprintFor(def.pathTex) : null, workerId: build.unitId, itemSlot: slot };
+            void this.showBuildGhost(def);
+            return;
+          }
+        }
         this.rts?.useInventorySlot(slot);
         this.hud?.setArmed(!!this.rts?.orderMode); // armed if this began a point-use targeting
       },

@@ -1055,6 +1055,18 @@ interface BlightPaint {
   period: number; // Dur1 — seconds between those steps
 }
 
+/** A build a HERO walks to raise out of a "Tiny" building item (`AIbl`, issue #190) rather
+ *  than out of the stash: which pocket pays for it (`slot`, pinned to the item ENTITY so one
+ *  moved out of the pocket on the way pays nothing), and the row's own `Dur1` — the seconds the
+ *  structure then takes to raise itself, 4 for the Ivory Tower and 20 for the Tiny Great Hall,
+ *  where a worker's build takes the unit's `bldtm`. See SimWorld.issueItemBuild. */
+export interface ItemBuild {
+  slot: number;
+  entity: number;
+  abilityId: string;
+  buildTime: number;
+}
+
 /** Per-building state: construction progress + a production queue. */
 export interface BuildingState {
   constructionLeft: number; // seconds until built (0 = complete)
@@ -1863,7 +1875,7 @@ export interface SimUnit {
   // Walking to raise a new building; gold/lumber are its cost, refunded if the build is
   // abandoned before construction starts — but only once `paid` says the stash actually
   // gave it up (see the QueuedOrder note: a queued build is priced when its turn comes).
-  buildPending: { defId: string; x: number; y: number; gold: number; lumber: number; paid: boolean; mineId?: number } | null;
+  buildPending: { defId: string; x: number; y: number; gold: number; lumber: number; paid: boolean; mineId?: number; item?: ItemBuild } | null;
   // --- hero / abilities / buffs (spells slice) ---
   isHero: boolean;
   properName: string; // hero's drawn name ("Painkiller"); "" for non-heroes
@@ -5766,6 +5778,7 @@ export class SimWorld {
     // other race builds with a single worker (Orc/NE from inside, Undead summon-and-go),
     // so refuse a would-be second builder on a non-speed-build construction.
     if (!speedBuilds(w) && b.building.constructionLeft > 0 && b.building.builderIds.length >= 1) return;
+    const byItem = !!w.buildPending?.item;
     w.buildPending = null; // its walk-to-build intent is now realised
     w.constructing = buildingId;
     if (!b.building.builderIds.includes(workerId)) b.building.builderIds.push(workerId);
@@ -5809,7 +5822,9 @@ export class SimWorld {
     // Undead acolyte: the summoning is done the moment it gets here. Hand the structure
     // its own clock and let the Acolyte go (summonsBuildings) — it keeps standing where it
     // is, as the real game leaves it, but it holds no job and takes any order at once.
-    if (summonsBuildings(w)) {
+    // A "Tiny" building item does the same for whoever carried it (issue #190): "when placed
+    // down, the building essentially starts being built by itself rapidly".
+    if (summonsBuildings(w) || byItem) {
       b.building.selfBuilds = true;
       this.detachBuilder(workerId);
       // …but step OUT from under it first. The Acolyte walked to the site's centre (the
@@ -11187,6 +11202,11 @@ export class SimWorld {
     const pb = this.units.get(id)?.buildPending;
     if (!pb) return false;
     if (pb.paid) return true;
+    if (pb.item) { // a "Tiny" building item pays with its charge, not the stash
+      if (!this.payItemBuild(this.units.get(id)!, pb.item)) return false;
+      pb.paid = true;
+      return true;
+    }
     const s = this.stashOf(this.units.get(id)!.owner);
     if (s.gold < pb.gold || s.lumber < pb.lumber) return false;
     s.gold -= pb.gold;
@@ -11215,6 +11235,11 @@ export class SimWorld {
     const u = this.units.get(id);
     const pb = u?.buildPending;
     if (!u || !pb || pb.paid) return null;
+    if (pb.item) { // the item left the pocket on the way: nothing was spent and nothing is short
+      u.buildPending = null;
+      this.stop(id);
+      return null;
+    }
     const s = this.stashOf(u.owner);
     const short = s.gold < pb.gold ? "gold" : "lumber";
     u.buildPending = null; // unpaid: nothing to refund (see refundPendingBuild)
@@ -24472,6 +24497,12 @@ export class SimWorld {
     if (!held || held.cooldownLeft > 0) return false;
     const def = this.itemReg.get(held.itemId);
     if (!def || !def.usable) return false;
+    // A "Tiny" building is not PRESSED at a spot, it is BUILT there — the worker's whole flow,
+    // walk to the edge of the site and raise it (issueItemBuild, issue #190).
+    if (!targetId) {
+      const build = this.itemBuildAbility(held);
+      if (build) return this.issueItemBuild(u, slot, build, x, y);
+    }
     // Aimed at a unit it cannot REACH from here: walk over and press it on arrival, the way a
     // spell cast at the same unit walks into its range. A unit that can move is never told
     // "Target is outside range." — it closes the distance (issueUseItemWalk / tickGetItem).
@@ -25490,18 +25521,92 @@ export class SimWorld {
    *  equivalent town hall"). The seven others repeat one human id four times, so the same
    *  read serves them all. */
   private itemBuild(u: SimUnit, ad: AbilityDef, x: number, y: number): boolean {
-    const lvl = ad.levelData[0] ?? emptyAbilityLevel();
-    const ids = (lvl.summon || "").split(",").map((s) => s.trim()).filter(Boolean);
-    if (!ids.length) return false;
-    const race = Math.max(0, TINY_BUILDING_RACES.indexOf(u.race));
-    const typeId = ids[Math.min(race, ids.length - 1)];
-    if (!typeId || !this.unitReg?.has(typeId)) return false;
+    const typeId = this.tinyBuildingType(u, ad);
+    if (!typeId) return false;
     // Through the summon queue like every other unit the sim conjures — with NO duration, so
     // what arrives is a permanent building rather than a timed summon (see drainSummonRequests).
     this.summonRequests.push({
       unitId: typeId, x, y, facing: u.facing, owner: u.owner, team: u.team, summonLeft: 0,
       sourceId: u.id, summonArt: ad.targetArt, unsummonArt: "", atPoint: true,
     });
+    return true;
+  }
+
+  /** Which structure a "Tiny" building item raises for `u`: its `UnitID1` lists one per race
+   *  (TINY_BUILDING_RACES), and a list of one is the same building for all four. Null when the
+   *  row names nothing the registry has. */
+  private tinyBuildingType(u: SimUnit, ad: AbilityDef): string | null {
+    const lvl = ad.levelData[0] ?? emptyAbilityLevel();
+    const ids = (lvl.summon || "").split(",").map((s) => s.trim()).filter(Boolean);
+    if (!ids.length) return null;
+    const race = Math.max(0, TINY_BUILDING_RACES.indexOf(u.race));
+    const typeId = ids[Math.min(race, ids.length - 1)];
+    return typeId && this.unitReg?.has(typeId) ? typeId : null;
+  }
+
+  /** The "Tiny" building ability (`code = AIbl`) a held item carries, or null. */
+  private itemBuildAbility(held: HeldItem): AbilityDef | null {
+    const def = this.itemReg?.get(held.itemId);
+    for (const id of def?.abilities ?? []) {
+      const ad = this.itemAbilityDefOf(held.id, id);
+      if (ad?.code === "AIbl") return ad;
+    }
+    return null;
+  }
+
+  /** The structure the "Tiny" building item in `slot` would raise for this unit — what the
+   *  HUD puts on the cursor as a placement ghost — or null for any other item. */
+  itemBuildTypeId(unitId: number, slot: number): string | null {
+    const u = this.units.get(unitId);
+    const held = u?.inventory[slot];
+    const ad = held ? this.itemBuildAbility(held) : null;
+    return u && ad ? this.tinyBuildingType(u, ad) : null;
+  }
+
+  /**
+   * A "Tiny" building item (`AIbl` — the Ivory Tower, the Tiny Great Hall, the Tiny Castle and
+   * the five campaign twins) used at a spot: the WORKER's build, start to finish (issue #190).
+   * The hero takes a `buildPending` exactly as a Peasant does, walks to the edge of the site
+   * (buildApproach), and the renderer raises the foundation when it arrives (tickPendingBuild)
+   * after the same site checks a worker's build gets. What differs is only the price and the
+   * clock: the build is paid with the item's CHARGE, at the raise (payItemBuild — an order
+   * abandoned on the way costs nothing, as an unpaid worker build costs nothing), and the
+   * structure then raises itself over the row's `Dur1` rather than the unit's `bldtm`, with
+   * nobody standing over it (assignBuilder's `byItem`, the Acolyte's branch).
+   */
+  private issueItemBuild(u: SimUnit, slot: number, ad: AbilityDef, x: number, y: number): boolean {
+    const held = u.inventory[slot];
+    const typeId = held ? this.tinyBuildingType(u, ad) : null;
+    if (!held || !typeId || this.castLocked(u) || u.baseSpeed <= 0) return false;
+    this.refundPendingBuild(u);
+    u.pendingUse = null;
+    u.pendingDrop = null;
+    u.pendingGive = null;
+    u.pendingSell = null;
+    u.getItemId = 0;
+    const lvl = ad.levelData[0] ?? emptyAbilityLevel();
+    u.buildPending = {
+      defId: typeId, x, y, gold: 0, lumber: 0, paid: false,
+      item: { slot, entity: held.id, abilityId: ad.id, buildTime: lvl.duration || 0 },
+    };
+    const [ax, ay] = this.buildApproach(u, typeId, x, y);
+    if (!this.issueMove(u.id, ax, ay)) u.moving = false; // already at the site → raise now
+    this.siteCacheAt = -1;
+    this.clearBuildSite(u);
+    return true;
+  }
+
+  /** Spend the item a hero's build is paid with: one charge and its cooldown, exactly as a
+   *  press spends them, raised as a USE_ITEM and sounded as a cast. False — and the build is
+   *  off — when that item is no longer in its pocket or is still cooling down. */
+  private payItemBuild(u: SimUnit, ib: ItemBuild): boolean {
+    const held = u.inventory[ib.slot];
+    const def = held && held.id === ib.entity ? this.itemReg?.get(held.itemId) : undefined;
+    if (!held || !def || held.cooldownLeft > 0) return false;
+    const ad = this.itemAbilityDefOf(held.id, ib.abilityId);
+    this.consumeItemUse(u, ib.slot, def, ad?.levelData[0]?.cooldown || 0);
+    this.castFires.push({ casterId: u.id, code: "AIbl", abilityId: ib.abilityId });
+    this.noteItem(u, held, "use");
     return true;
   }
 

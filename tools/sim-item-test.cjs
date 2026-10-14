@@ -79,6 +79,8 @@ const ABILITIES = new Map([
     levelData: [lvl({ duration: 20, heroDuration: 20, area: 1000, data: D(3), buffs: ["Bdet"] })] })],
   // Goblin Land Mines — Rng1 100, Area1 200, UnitID1 nglm: "at a target point", planted at the feet
   ["AIpm", ability("AIpm", "AIpm", { target: "point", levelData: [lvl({ castRange: 100, area: 200, summon: "nglm" })] })],
+  // Ivory Tower — `AIbt`, code AIbl: Rng1 100, Dur1 4 (the raise), UnitID1 hwtw for all four races
+  ["AIbt", ability("AIbt", "AIbl", { target: "point", levelData: [lvl({ castRange: 100, duration: 4, summon: "hwtw,hwtw,hwtw,hwtw" })] })],
 ]);
 
 const item = (id, abils, over = {}) => ({
@@ -106,6 +108,7 @@ const ITEMS = new Map([
   ["ledg", passive("ledg", [])],
   ["dust", item("dust", ["AItb"], { charges: 2 })],
   ["gobm", item("gobm", ["AIpm"], { charges: 3 })],
+  ["tsct", item("tsct", ["AIbt"])],
 ]);
 
 const N = 256;
@@ -532,6 +535,35 @@ console.log("\na POINT-aimed item walks into its own Rng1 first  (issue #185)");
   check("he arrives and the walk is over", hero.pendingUse, null);
   check("…standing within Rng1 of the spot", Math.hypot(hero.x - 2500, hero.y - 1000) <= 100 + hero.radius, true);
   check("…and the mine went in there, a charge spent", hero.inventory[0].charges, 2);
+}
+
+console.log("\na Tiny building is BUILT, the worker's way  (issue #190)");
+{
+  // The Ivory Tower: the hero takes a worker's `buildPending`, walks to the site, pays with the
+  // item's charge only when the foundation goes in, and the tower raises ITSELF over Dur1.
+  world = new SimWorld(new PathingGrid({ width: N, height: N, flags: new Uint8Array(N * N).fill(0x40) }, [0, 0]), 1,
+    { get: (id) => ABILITIES.get(id), has: (id) => ABILITIES.has(id), buffFx: () => [] },
+    { get: (id) => ITEMS.get(id), has: (id) => ITEMS.has(id) },
+    { get: () => ({ priority: 0, buffType: "", abilities: [], upgradesUsed: [], moveHeight: 0, defUp: 2 }), has: (id) => id === "hwtw" });
+  const hero = world.add({
+    id: nextId++, owner: 0, team: 0, race: "human", typeId: "Hpal", x: 1000, y: 1000, facing: 0,
+    speed: 270, turnRate: 0.5, radius: 16, flying: false, flyHeight: 0, sightDay: 1400, sightNight: 800,
+    hp: 500, maxHp: 500, mana: 0, maxMana: 0, armor: 0, armorType: "hero", weapons: [], oldWeapons: [],
+    castPoint: 0, castBackswing: 0, targetedAs: "ground", moveType: "foot", worker: null, depotGold: false, depotLumber: false,
+  }, null, {});
+  give(hero, "tsct");
+  check("the HUD is told which structure to put on the cursor", world.itemBuildTypeId(hero.id, 0), "hwtw");
+  check("used at a spot, the item is accepted as an order", world.useItem(hero.id, 0, 0, 2000, 1000), true);
+  check("…which is a build order, a worker's", hero.buildPending?.defId, "hwtw");
+  check("…raised over the row's Dur1, not the unit's build time", hero.buildPending?.item?.buildTime, 4);
+  check("…with the charge still in the pocket while he walks", hero.inventory[0]?.charges, 1);
+  check("at the site the item pays for it", world.payPendingBuild(hero.id), true);
+  check("…the charge is spent (and the item, being perishable, gone)", hero.inventory[0], null);
+  const tower = unit({ owner: 0, team: 0, typeId: "hwtw", x: hero.x + 40, y: hero.y, prevX: hero.x + 40, prevY: hero.y,
+    building: { constructionLeft: 4, buildTimeTotal: 4, builderIds: [], goldCost: 0, lumberCost: 0, queue: [], rallyX: 0, rallyY: 0, rallyKind: "point" } });
+  world.assignBuilder(hero.id, tower.id);
+  check("the foundation raises itself", tower.building.selfBuilds, true);
+  check("…and the hero is let go at once", [hero.buildPending, hero.constructing, tower.building.builderIds.length].join(","), ",0,0");
 }
 
 console.log(failed ? `\nitems: ${failed} check(s) FAILED` : "\nitems: all checks passed");

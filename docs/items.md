@@ -57,10 +57,21 @@ An aimed item has a REACH, and it is the row's own `Rng1`, exactly as a spell's 
 of it, the user WALKS into it and presses the item on arrival (`useItem` →
 `issueUseItemWalk` for a unit, `issueUseItemWalkTo` for a spot, both driven by the
 `getitem` order); nothing is refused for distance and nothing is thrown from where the user
-stands. A point item's reach is a real number on every row: 100 for the Goblin Land Mine and
-the eight "Tiny" buildings (planted at the hero's feet — issue #185), 500 for a Wand of
-Negation or a Monster Lure, 900 for the Inferno Stone, and 99999 on the Flare Gun, the
-Crystal Ball and the Scroll of Town Portal, which is how the table says "anywhere".
+stands. A point item's reach is a real number on every row: 100 for the Goblin Land Mine
+(planted at the hero's feet — issue #185), 500 for a Wand of Negation or a Monster Lure, 900
+for the Inferno Stone, and 99999 on the Flare Gun, the Crystal Ball and the Scroll of Town
+Portal, which is how the table says "anywhere".
+
+The eight "Tiny" buildings (`code = AIbl` — the Ivory Tower, the Tiny Great Hall, the Tiny
+Castle and the campaign five) are not pressed at a spot at all: they are BUILT there, through
+the worker's whole flow (issue #190). The inventory press puts the structure's ghost and
+footprint grid on the cursor exactly as a Build button does, the click orders the item's use
+at the snapped spot, and `useItem` hands the hero a worker's `buildPending`
+(`SimWorld.issueItemBuild`) — walk to the edge of the site, same site checks, same raise in
+`tickPendingBuild`. Two things are the item's own: the build is paid with its CHARGE at the
+raise (`payItemBuild`, so an order abandoned on the way costs nothing), and the foundation
+raises ITSELF over the row's `Dur1` — 4 s for the Ivory Tower, 20 for the Tiny Great Hall,
+30 for the Tiny Castle — with the hero let go at once, the Acolyte's branch of `assignBuilder`.
 
 ## Who an effect lands on
 

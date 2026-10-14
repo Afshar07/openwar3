@@ -7350,6 +7350,25 @@ export class RtsController {
     this.execute(this.localPlayer, { c: "useitem", unitId: id, slot, targetId: 0, x: u.x, y: u.y });
   }
 
+  /** The "Tiny" building item in `slot` of the unit in command, as the structure it would
+   *  raise — what the HUD puts on the cursor in place of an aiming reticle (issue #190). Null
+   *  for any other item; "refused" when it is one but cannot be used now (cooling down, a
+   *  stunned hero), which has already been said out loud in the game's own words. */
+  itemBuildFor(slot: number): { unitId: number; typeId: string } | "refused" | null {
+    const id = this.primary;
+    if (id === null || !this.controls(id)) return null;
+    const typeId = this.sim.itemBuildTypeId(id, slot);
+    if (!typeId) return null;
+    const notReady = this.sim.itemReadyError(id, slot);
+    if (notReady !== null) {
+      this.refuseOrder(notReady);
+      return "refused";
+    }
+    this.armedItem = null;
+    this.orderMode = null;
+    return { unitId: id, typeId };
+  }
+
   /** Right-click an inventory slot: enter "target to move" mode. The next click
    *  resolves it — another inventory slot (move/swap), open ground (drop, walking
    *  into range first), or an allied hero (give). */
