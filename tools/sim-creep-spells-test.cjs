@@ -233,6 +233,61 @@ console.log("\nthe Troll Priest heals a hurt camp-mate out of combat, and nothin
   check("…nor walk out after him", geo.order, "idle");
 }
 
+console.log("\nthe Kobold Geomancer runs BOTH autocasts and Slows the camp's fight (issue #176)");
+{
+  // Its card is `ACsw,ACdm` and both are autocasts. A player's button is one-at-a-time, the AI's
+  // arming is not (SimWorld.armAutocast) — through the toggle the two put each other out every
+  // caster pass and the Geomancer ran half of each.
+  const w = world();
+  const caster = new CreepCaster(w, ABILITIES);
+  const geo = creep(w, "nkog", 1000, 1000);
+  creep(w, "nkol", 1080, 1000);
+  creep(w, "nkob", 1000, 1080);
+  const puller = footman(w, 1450, 1000);
+  const second = footman(w, 1700, 1100);
+  const third = footman(w, 1700, 900);
+  const army = [puller, second, third];
+  const keep = () => { for (const u of army) u.hp = Math.max(u.hp, 300); };
+  const slowCasts = [];
+  const orig = w.issueCast.bind(w);
+  w.issueCast = (id, code, tid, x, y, auto) => {
+    const ok = orig(id, code, tid, x, y, auto);
+    if (ok && id === geo.id && code === "Aslo") slowCasts.push(tid);
+    return ok;
+  };
+  for (let i = 0; i < 2 * 20; i++) { caster.tick(0.05); w.tick(0.05); keep(); }
+  check("Slow and Abolish Magic are armed together", geo.abilities.every((a) => a.autocastOn), true);
+  check("the first Slow goes on the camp's focus — the puller", slowCasts[0], puller.id);
+  for (let i = 0; i < 20 * 20; i++) { caster.tick(0.05); w.tick(0.05); keep(); }
+  check("…it is cast again off cooldown, on somebody NOT already slowed", slowCasts.length >= 2 && slowCasts[1] !== slowCasts[0], true);
+  // Command Aura's buff on the camp-mates is a real aura: it is no work for a dispel.
+  check("no Abolish Magic is spent on a fight with nothing to dispel", geo.mana >= geo.maxMana - 50 * slowCasts.length, true);
+}
+
+console.log("\na body wearing a creep's Slow is the camp's to hunt, and an aura is no dispel's work");
+{
+  const w = world();
+  const geo = creep(w, "nkog", 1000, 1000);
+  for (const a of geo.abilities) a.autocastOn = false; // the Slow below is aimed by hand
+  const kob = creep(w, "nkob", 1080, 1000);
+  const puller = footman(w, 1300, 1000);
+  const other = footman(w, 1400, 1150);
+  const keep = () => { for (const u of [puller, other]) u.hp = Math.max(u.hp, 300); };
+  for (let i = 0; i < 2 * 20; i++) { w.tick(0.05); keep(); }
+  check("the Kobold is on the puller", kob.targetId, puller.id);
+  check("the Slow is legal on him", w.castError(geo.id, "Aslo", other.id), null);
+  w.issueCast(geo.id, "Aslo", other.id);
+  for (let i = 0; i < 3 * 20; i++) { w.tick(0.05); keep(); }
+  check("the other Footman is slowed", other.buffs.some((b) => b.group === "slow"), true);
+  check("…and the Kobold has left the puller for him", kob.targetId, other.id);
+  const { worthDispelling } = require(join(REPO, ".sim-build", "src", "sim", "spells.js"));
+  const f = footman(w, 3000, 3000);
+  f.buffs.push({ kind: "armor", group: "AHad:armor", timeLeft: 0.5, total: 0.5, sourceId: f.id, value: 1, value2: 0, art: "", fx: [], buffId: "BHad", delay: 0, aura: true });
+  check("an aura's buff on an enemy is not worth a dispel", worthDispelling(f, w.units, false, true), false);
+  f.buffs[0].aura = false;
+  check("…the same buff CAST on it is", worthDispelling(f, w.units, false, true), true);
+}
+
 // ======================================================================================
 //  The five abilities Wowpedia's "Warcraft III creep abilities" page lists that had no
 //  implementation at all. Each block quotes that page and names the columns the numbers come

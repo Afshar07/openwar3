@@ -333,6 +333,8 @@ export interface SimBuffInit {
   untilHealed?: boolean;
   /** Dispel Magic may not remove this (Doom). See SimBuff.undispellable. */
   undispellable?: boolean;
+  /** Laid by an AURA's refresh rather than cast. See SimBuff.aura. */
+  aura?: boolean;
 }
 
 /** The art half of an applyBuff: spread into a SimBuffInit (`...fx(def)`).
@@ -1063,10 +1065,23 @@ export function survivesDispel(b: { kind: BuffKind; group?: string; undispellabl
 }
 const NOT_A_STUN: ReadonlySet<string> = new Set(["cyclone"]);
 
+/**
+ * Does this buff run on a CLOCK of its own — the kind a dispel actually ends? Not an untimed one
+ * (`timeLeft` Infinity: a ward's cloak, a stance) and not an AURA's: an aura buff carries a
+ * short refresh clock (world.ts `AURA_REFRESH`) only so that it fades when its holder walks out,
+ * and the next `applyAuras` pass puts back whatever a dispel took. Read as timed, every enemy
+ * standing beside his own hero was "worth dispelling" — the Kobold Geomancer stood in the fight
+ * Abolishing a Devotion Aura that was back half a second later, until its mana was gone (issue
+ * #176).
+ */
+export function clockedBuff(b: { timeLeft: number; aura?: boolean }): boolean {
+  return Number.isFinite(b.timeLeft) && !b.aura;
+}
+
 export function worthDispelling(t: SimUnit, units: ReadonlyMap<number, SimUnit>, ours = false, auto = false): boolean {
   if (!ours && t.summonLeft > 0 && !(auto && miscGame("AbolishMagicDispelSmart"))) return true;
   return t.buffs.some((b) => {
-    if (survivesDispel(b) || !Number.isFinite(b.timeLeft)) return false;
+    if (survivesDispel(b) || !clockedBuff(b)) return false;
     const src = units.get(b.sourceId);
     if (!src) return false;
     const theirs = src.team === t.team; // hung by the bearer's OWN side
@@ -2960,13 +2975,13 @@ export const SPELL_HANDLERS: Record<string, Handler> = {
     for (const t of api.unitsInArea(ctx.x, ctx.y, lvl.area || 200)) {
       if (t.hp <= 0 || !api.admits(def, t)) continue;
       const eaten = t.buffs.filter((b) => {
-        if (survivesDispel(b) || !Number.isFinite(b.timeLeft)) return false;
+        if (survivesDispel(b) || !clockedBuff(b)) return false;
         if (!ignoreFriendly || api.hostile(caster, t)) return true;
         // On our side: a buff our side put there is a friendly buff, and pays nothing.
         const src = api.getUnit(b.sourceId);
         return !!src && api.hostile(caster, src);
       });
-      const hadAny = t.buffs.some((b) => !survivesDispel(b) && Number.isFinite(b.timeLeft));
+      const hadAny = t.buffs.some((b) => !survivesDispel(b) && clockedBuff(b));
       if (hadAny) {
         api.dispel(t);
         if (def.specialArt) api.emitEffect(def.specialArt, t.x, t.y, t.id);

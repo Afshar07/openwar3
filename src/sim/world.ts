@@ -46,7 +46,7 @@ import {
 } from "../data/gameplayConstants";
 import { perfNow, simProfile } from "./profile";
 import { flyHeight, type MissileFlight } from "./missile";
-import { SPELL_HANDLERS, ITEM_INVULN_GROUP, AURA_BUFFS, SELF_INVIS_GROUP, BLADESTORM_GROUP, FIELD_PIERCES_SPELL_IMMUNITY, POLARITY_SPELLS, HEAL_SPELLS, MANA_TARGET_SPELLS, NO_SUMMON_TARGET, DISPEL_CODES, REPLENISH_BAR, replenishRefusal, survivesDispel, worthDispelling, invisTransition, waveSchedule, WAVE_FIELDS, fx, buffIdOf, drainTag, DRAIN_GROUP, CANNIBALIZE_GROUP, POSSESSION_GROUP, type SpellApi, type SimBuffInit, type SpellFieldInit, type CastContext, type WaveOptions, type RaiseOptions } from "./spells";
+import { SPELL_HANDLERS, ITEM_INVULN_GROUP, AURA_BUFFS, SELF_INVIS_GROUP, BLADESTORM_GROUP, FIELD_PIERCES_SPELL_IMMUNITY, POLARITY_SPELLS, HEAL_SPELLS, MANA_TARGET_SPELLS, NO_SUMMON_TARGET, DISPEL_CODES, REPLENISH_BAR, replenishRefusal, survivesDispel, clockedBuff, worthDispelling, invisTransition, waveSchedule, WAVE_FIELDS, fx, buffIdOf, drainTag, DRAIN_GROUP, CANNIBALIZE_GROUP, POSSESSION_GROUP, type SpellApi, type SimBuffInit, type SpellFieldInit, type CastContext, type WaveOptions, type RaiseOptions } from "./spells";
 /** The buff group a Tornado's toss is applied under — both halves, so the invulnerability's wipe
  *  spares the stun it came with (clearStatusForInvulnerable). See tickTornado. */
 const TORNADO_SPIN_GROUP = "tornadoSpin";
@@ -495,7 +495,7 @@ const NEGATIVE_BUFF_KINDS: ReadonlySet<BuffKind> = new Set<BuffKind>([
 export interface SimBuff {
   kind: BuffKind;
   group: string; // non-stacking key ("" = always its own instance)
-  timeLeft: number; // seconds (Infinity for auras, refreshed while in range)
+  timeLeft: number; // seconds (an aura's is a short refresh clock — see `aura`)
   /** What `timeLeft` started at — the duration the last application (or refresh) put on the
    *  clock. The DENOMINATOR of any bar that draws a buff running out, and the one number
    *  `timeLeft` alone cannot supply: a Hex is 15 seconds on a Grunt and 4 on a hero, and the
@@ -543,6 +543,10 @@ export interface SimBuff {
    *  ability's whole point is that it "cannot be dispelled", and its row proves the intent
    *  by carrying no duration column at all: the curse runs until it kills. */
   undispellable?: boolean;
+  /** Laid by an AURA (`applyAuras`). Its `timeLeft` is only the refresh window that lets it fade
+   *  when the holder leaves, so it is not a timed buff anybody can end — see spells.ts
+   *  `clockedBuff`, which every "is there anything here to dispel" question asks. */
+  aura?: boolean;
 }
 
 /** The ORB EFFECT one blow carries, once the priority ladder has picked it (see
@@ -3337,7 +3341,10 @@ export const CREEP_CAMP_ACQUIRE_RANGE = 200;
 const CREEP_SMART_LEVEL = 7;
 /** The threat ladder's top rung, a SUMMON's — the one thing that takes a camp off a target it is
  *  focusing (see `threatTier`, `creepHoldsFocus`). */
-const CREEP_SUMMON_TIER = 5;
+const CREEP_SUMMON_TIER = 6;
+/** The rung under it: a body wearing a creep's own Slow (`slowedByCreeps`), which the camp turns
+ *  on and hunts while the Slow lasts (issue #176). */
+const CREEP_SLOWED_TIER = 5;
 /** The threat ladder's ARMED rung: a target on it or above is one a camp keeps its focus on —
  *  below it (dropped aggro, a worker, a snare, a building, an unarmed unit) it is still choosing. */
 const CREEP_FOCUS_TIER = 3;
@@ -14055,7 +14062,7 @@ export class SimWorld {
             if (e.pctOfMax && value <= 0) continue; // a unit with no mana pool gains nothing
             // An ordinary aura re-applies on a short TTL so it fades as its holder walks
             // away; one with its own `duration` (Disease Cloud) leaves something behind.
-            this.applyBuffInternal(t, { kind: e.kind, group: `${ab.code}:${e.kind}`, timeLeft: e.duration ?? AURA_REFRESH, sourceId: src.id, value, value2: e.value2, buffId: buffIdOf(def, ab.level) });
+            this.applyBuffInternal(t, { kind: e.kind, group: `${ab.code}:${e.kind}`, timeLeft: e.duration ?? AURA_REFRESH, sourceId: src.id, value, value2: e.value2, buffId: buffIdOf(def, ab.level), aura: e.duration === undefined });
           }
         }
       }
@@ -14156,7 +14163,7 @@ export class SimWorld {
       }
     }
     const art = init.art ?? "";
-    u.buffs.push({ kind: init.kind, group, timeLeft: init.timeLeft, total: init.timeLeft, sourceId: init.sourceId, value: init.value ?? 0, value2: init.value2 ?? 0, art, fx: init.fx ?? (art ? [{ path: art, attach: [] }] : []), buffId: init.buffId ?? "", delay: init.delay ?? 0, meld: init.meld, nonLethal: init.nonLethal, untilHealed: init.untilHealed, undispellable: init.undispellable });
+    u.buffs.push({ kind: init.kind, group, timeLeft: init.timeLeft, total: init.timeLeft, sourceId: init.sourceId, value: init.value ?? 0, value2: init.value2 ?? 0, art, fx: init.fx ?? (art ? [{ path: art, attach: [] }] : []), buffId: init.buffId ?? "", delay: init.delay ?? 0, meld: init.meld, nonLethal: init.nonLethal, untilHealed: init.untilHealed, undispellable: init.undispellable, aura: init.aura });
   }
 
   private interruptForStun(u: SimUnit): void {
@@ -15479,6 +15486,13 @@ export class SimWorld {
     // all. Outside the fight it is the most hurt, as before. A HEAL keeps its own reading: the
     // most wounded, whoever is on it.
     const fight = friendly && !HEAL_SPELLS.has(code) ? this.fightSides() : null;
+    // A CREEP's hostile autocast goes on the fight its camp is IN before anything merely
+    // nearer: first the body it is itself swinging at — the camp's focus, which is the one that
+    // walked in or opened on the camp — then anybody else in the fight, and only then the nearest
+    // (issue #176: the Kobold Geomancer "will immediately cast Slow on the very first enemy unit
+    // that enters its acquisition range or attacks its camp"). A slowed body is then the camp's
+    // to chase (threatTier's CREEP_SLOWED_TIER), so the debuff and the focus come together.
+    const campFight = !friendly && u.isCreep ? this.fightSides() : null;
     for (const t of this.autocastPool()) {
       if (autocastOutOfReach(u, t, range)) continue;
       if (!this.autocastWants(u, t, friendly, code, selfOk, flags, buffs)) continue;
@@ -15497,7 +15511,8 @@ export class SimWorld {
           best = t;
         }
       } else {
-        const d = Math.hypot(t.x - u.x, t.y - u.y);
+        let d = Math.hypot(t.x - u.x, t.y - u.y);
+        if (campFight && t.id !== u.targetId) d += campFight.has(t.id) ? 1e6 : 2e6;
         if (d < bestScore) {
           bestScore = d;
           best = t;
@@ -15573,7 +15588,11 @@ export class SimWorld {
       return true;
     }
     if (!this.hostile(u, t) || t.invulnerable) return false;
-    if (u.buffs.length && this.findBuffFrom(t, u.id)) return false;
+    // …and a DEBUFF already worn is not work either, whoever laid it: a Slow on a slowed Footman
+    // buys nothing (the buff does not stack — applyBuffInternal keeps one per group) and costs
+    // the Geomancer 50 mana it then lacks for the next body. (This read `u.buffs.length` — the
+    // CASTER's list — so a caster wearing nothing re-cast on its own victim every time.)
+    if (t.buffs.length && (this.findBuffFrom(t, u.id) || (buffs.length && t.buffs.some((b) => b.buffId && buffs.includes(b.buffId.toLowerCase()))))) return false;
     // A creep's Ensnare goes on what ENTERS its reach after the fight has begun (creepNetRefused).
     if (this.creepNetRefused(u, code, t)) return false;
     return true;
@@ -16572,14 +16591,14 @@ export class SimWorld {
    *    none ("Specifying both magic and physical as true will not include any buff").
    *  · `timedLife`: a unit's timed life is not a buff in this sim (SimUnit.summonLeft), so the
    *    flag has nothing to include and a summon keeps its clock.
-   *  · `aura`: an aura's buff has no clock (`timeLeft` Infinity) — left alone unless asked for.
+   *  · `aura`: an aura's buff, or one with no clock at all (`clockedBuff`) — left alone unless asked for.
    *  · `autoDispel`: only what a dispel may take (never Doom, never a stun — `survivesDispel`).
    */
   private buffsMatching(u: SimUnit, q: BuffQuery, counting: boolean): SimBuff[] {
     if (q.physical) return []; // physical alone, or both: nothing here is physical
     const anyPolarity = counting && !q.positive && !q.negative;
     return u.buffs.filter((b) => {
-      if (!q.aura && !Number.isFinite(b.timeLeft)) return false;
+      if (!q.aura && !clockedBuff(b)) return false;
       if (q.autoDispel && survivesDispel(b)) return false;
       if (anyPolarity) return true;
       return this.buffIsPositive(u, b) ? q.positive : q.negative;
@@ -17127,6 +17146,28 @@ export class SimWorld {
     // Sound only, like a no-wind-up cast: no castStarts, so no clip is held.
     if (stance && ab.autocastOn) this.castFires.push({ casterId: u.id, code: ab.code, abilityId: ab.id });
     return ab.autocastOn;
+  }
+
+  /**
+   * Switch an autocast ON and leave the unit's others alone — the ENGINE AI's arming, never a
+   * player's button (Authority accepts it from a computer seat alone).
+   *
+   * `toggleAutocast` keeps the game's one-at-a-time rule: lighting one autocast puts out the
+   * unit's others. The AI is not under it — "autocast spells have the same 'event for firing'
+   * for their autocast and for their AI use (which means their autocast doesn't have to be
+   * enabled for AIs)" (Hive 193280, post 20; src/ai/casting.ts) — so a creep or a computer's
+   * unit with two runs BOTH: the Kobold Geomancer Slows and Abolishes, a Priest Heals and
+   * Inner Fires. Armed through the toggle, the two put each other out every caster pass
+   * (issue #176). A stance is not an autocast setting and is refused here (see toggleAutocast).
+   */
+  armAutocast(unitId: number, code: string): boolean {
+    const u = this.units.get(unitId);
+    const ab = u ? this.findAbility(u, code) : undefined;
+    if (!ab || !u) return false;
+    const def = this.abilityDefOf(ab);
+    if (!def?.autocast || isStance(def)) return false;
+    ab.autocastOn = true;
+    return true;
   }
 
   // === spell fields (Blizzard-style repeating area effects) =================
@@ -20172,6 +20213,7 @@ export class SimWorld {
     if (t.weapon && !t.weapon.ranged && t.buffs.some((b) => b.kind === "root")) return 0; // a snared swordsman is nobody's threat
     if (t.disarmed) return 0; // …and nor is anybody in Entangling Roots, which takes the weapon too
     if (t.isSummon && t.weapon) return CREEP_SUMMON_TIER; // a summon, fighting or not
+    if (this.slowedByCreeps(t)) return CREEP_SLOWED_TIER; // the camp's own Slow marks the kill
     if (this.attackingCreeps(t)) return 4; // fighting the camp
     if (t.building) return 1; // structures next
     if (t.weapon) return CREEP_FOCUS_TIER; // armed units / heroes
@@ -20187,8 +20229,9 @@ export class SimWorld {
    *
    * So the focus holds while `cur` is a THREAT (the armed rung or above — which the aggro-drop
    * trick, a snare or a disarm takes it off), still IN THE CAMP (`inCreepCamp`), still in
-   * sight, and not given up on as unreachable. A summon walked in front is the one thing that
-   * still outranks a held focus (tickCreep) — the other trick the guides teach.
+   * sight, and not given up on as unreachable. A summon walked in front still outranks a held
+   * focus (tickCreep) — the other trick the guides teach — and so does a body the camp's own Slow
+   * has marked (CREEP_SLOWED_TIER, issue #176).
    *
    * The camp, and not the creep: measured from the creep it would hold for as long as the creep
    * could keep up, and a hurt unit pulled back out of the fight — the oldest creeping micro there
@@ -20204,6 +20247,16 @@ export class SimWorld {
    *  longer one the camp is committed to. */
   private inCreepCamp(u: SimUnit, t: SimUnit): boolean {
     return Math.hypot(t.x - u.guardX, t.y - u.guardY) - t.radius <= this.creepFightRange(u);
+  }
+
+  /** Is `t` wearing a creep's SLOW (`Aslo` — the Kobold Geomancer's `ACsw`, the Sorceress's
+   *  row under a creep owner)? "Once a unit is slowed, the Creep AI's focus-fire logic
+   *  prioritizes that unit… the Kobold Geomancer and nearby melee kobolds will aggressively hunt
+   *  down and attack the slowed target until the effect wears off or they lose aggro" (issue
+   *  #176, the maintainer). The rung above "attacking the camp" and below a summon, and one that
+   *  breaks a held focus (creepHoldsFocus) the way a summon does. */
+  private slowedByCreeps(t: SimUnit): boolean {
+    return t.buffs.some((b) => b.kind === "slow" && b.group === "slow" && this.units.get(b.sourceId)?.isCreep === true);
   }
 
   /** Is this unit's current attack on a creep? A unit on an attack order (its own or an
@@ -25854,7 +25907,7 @@ export class SimWorld {
               u.level >= CREEP_SMART_LEVEL
                 ? this.creepScore(u, best, gapBest) > this.creepScore(u, cur, gapCur)
                 : this.creepHoldsFocus(u, cur)
-                  ? this.threatTier(best) === CREEP_SUMMON_TIER && this.threatTier(cur) < CREEP_SUMMON_TIER
+                  ? this.threatTier(best) >= CREEP_SLOWED_TIER && this.threatTier(best) > this.threatTier(cur)
                   : !this.inCreepCamp(u, cur) || this.threatTier(best) > this.threatTier(cur);
             if (upgrade) {
               this.issueAttack(u.id, best.id);

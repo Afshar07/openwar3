@@ -1,7 +1,7 @@
 import { NO_AOE_CURSOR, isRepairCode, targetFlagSet, type AbilityDef, type AbilityLevel } from "../data/abilities";
 import { AttackType } from "../data/enums";
 import type { Command } from "../game/commands";
-import { survivesDispel } from "../sim/spells";
+import { clockedBuff, survivesDispel } from "../sim/spells";
 import type { SimUnit, SimWorld } from "../sim/world";
 
 /**
@@ -508,6 +508,12 @@ export class AiCaster {
    * "~Searing Arrows - Uses it whenever the CD is off", "~Cold Arrows - PREFERRED over Searing
    * Arrows in the case the hero/unit has both spells" (which is `src/sim/orbs.ts`' priority
    * ladder, not a decision made here).
+   *
+   * ARMED, never toggled (`arm`): a player's button is one-at-a-time — switching one autocast
+   * on switches the unit's others off (SimWorld.toggleAutocast) — and "doesn't have to be
+   * enabled" means the AI is not under that rule. Toggled, a unit with TWO autocasts flipped
+   * between them every pass and only ever ran half of each: the Kobold Geomancer's Slow and
+   * Abolish Magic, a Priest's Heal and Inner Fire (issue #176).
    */
   private armAutocasts(u: SimUnit): void {
     for (const ab of u.abilities) {
@@ -516,7 +522,7 @@ export class AiCaster {
       if (!def?.autocast) continue;
       if (NEVER.has(def.code) || HAND_AUTOCAST.has(def.code) || isRepairCode(def.code)) continue;
       if (!this.view.world.techMeets(u.owner, ab.id)) continue;
-      this.view.order({ c: "autocast", unitId: u.id, code: ab.code });
+      this.view.order({ c: "autocast", unitId: u.id, code: ab.code, arm: true });
     }
   }
 
@@ -811,7 +817,7 @@ export class AiCaster {
     if (t.building) return false; // enemy buildings do not make a "group of units"
     if (rule?.prefer === "mana" && t.mana < SILENCE_MANA) return false; // Silence's own bar
     // A stun (and Doom) is not something the dispel would take — `survivesDispel`.
-    if (rule?.dispellable && !t.isSummon && !t.buffs.some((b) => !survivesDispel(b) && Number.isFinite(b.timeLeft))) return false;
+    if (rule?.dispellable && !t.isSummon && !t.buffs.some((b) => !survivesDispel(b) && clockedBuff(b))) return false;
     return true;
   }
 

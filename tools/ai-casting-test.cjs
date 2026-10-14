@@ -288,7 +288,7 @@ const casts = (log) => log.filter((c) => c.c === "cast").map((c) => [c.code, c.t
   const priest = caster(w, ["Ahea"], { x: 0, y: 0 });
   const { c, log } = ai(w);
   c.pass();
-  check("an autocast the computer owns is ARMED, not aimed", log, [{ c: "autocast", unitId: priest.id, code: "Ahea" }]);
+  check("an autocast the computer owns is ARMED, not aimed", log, [{ c: "autocast", unitId: priest.id, code: "Ahea", arm: true }]);
   priest.abilities[0].autocastOn = true;
   log.length = 0;
   c.pass();

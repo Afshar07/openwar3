@@ -100,7 +100,7 @@ class CreepView implements CasterView {
       case "cast":
         return this.world.issueCast(cmd.unitId, cmd.code, cmd.targetId, cmd.x, cmd.y);
       case "autocast":
-        return this.world.toggleAutocast(cmd.unitId, cmd.code);
+        return cmd.arm ? this.world.armAutocast(cmd.unitId, cmd.code) : this.world.toggleAutocast(cmd.unitId, cmd.code);
       default:
         return false;
     }

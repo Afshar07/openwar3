@@ -727,6 +727,9 @@ export class Authority {
           && this.sim.setShopBuyer(cmd.shopId, player, cmd.unitId);
       case "autocast":
         if (!this.ownedBy(player, cmd.unitId)) return false;
+        // Arming every autocast at once is the engine's AI and nobody else's (armAutocast): a
+        // person's button keeps the one-at-a-time rule, so a client cannot ask for it.
+        if (cmd.arm) return this.sim.computerPlayers.has(player) && this.sim.armAutocast(cmd.unitId, cmd.code);
         this.sim.toggleAutocast(cmd.unitId, cmd.code);
         return true;
       case "rally":

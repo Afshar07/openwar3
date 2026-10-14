@@ -52,8 +52,9 @@ export type Command =
   | { c: "giveitem"; unitId: number; slot: number; targetId: number }
   /** Nominate which of your units buys from `shopId` (0 clears it). Not a unit order — see above. */
   | { c: "shopbuyer"; shopId: number; unitId: number }
-  /** Flip an ability's autocast. Not a unit order — see above. */
-  | { c: "autocast"; unitId: number; code: string }
+  /** Flip an ability's autocast. Not a unit order — see above. `arm` is a COMPUTER's: switch it
+   *  ON and leave the unit's other autocasts as they are (SimWorld.armAutocast). */
+  | { c: "autocast"; unitId: number; code: string; arm?: boolean }
   /** Set a production building's rally point (a point, or a unit/mine to rally onto). */
   | { c: "rally"; unitId: number; x: number; y: number; kind: RallyKind; targetId: number }
   /** Rearrange a unit's own inventory. Not an order — nothing is performed, two slots swap. */
