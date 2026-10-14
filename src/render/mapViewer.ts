@@ -13631,6 +13631,8 @@ export class MapViewerScene {
         if (su && s.sourceId) world.noteSummon(s.sourceId, simId);
         // …and a hidden ward starts the clock on its fade (Sentry Ward, Stasis Trap).
         if (su && s.cloakAfter !== undefined) world.cloakSummon(su, s.cloakAfter);
+        // …and a Mechanical Critter passes for a neutral one with the enemy (SimUnit.critterGuise).
+        if (su && s.critterGuise) su.critterGuise = true;
         this.rts!.beginSummonBirth(simId); // materialize (birth clip + spawn lock)
       });
     }

@@ -78,6 +78,9 @@ export function minimapDots(world: MinimapWorld, vp: Viewpoint): MinimapDot[] {
   const out: MinimapDot[] = [];
   for (const u of world.units.values()) {
     if (u.neutralPassive) continue;
+    // …and a Mechanical Critter is furniture to anybody it is disguised from (SimUnit.critterGuise;
+    // the client's copy arrives already named Neutral Passive and is caught by the line above).
+    if (u.critterGuise && !vp.seesFor(u.owner)) continue;
     if (isOffField(u)) continue;
     if (!hiddenFor(vp, u) || u.owner === vp.player) out.push({ x: u.x, y: u.y, owner: u.owner, hero: !!u.isHero });
   }

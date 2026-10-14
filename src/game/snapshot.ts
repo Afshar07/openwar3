@@ -1,5 +1,10 @@
 import { isOffField, type SimSpellEffect, type SimUnit, type SimMine, type SimItem, type BuildJob, type SimBuff, type SimAbility, type HeldItem, type SimProjectile, type SimCorpse, type SimLightning, type CombatText, type FallenHero, type WireNotices, type AttackReveal, type DeathReveal, type SpellFieldView, type TeleportView } from "../sim/world";
 
+/** The owner and team a Neutral Passive unit carries — RtsController's own pair, for the
+ *  Mechanical Critter an enemy is sent as one (see `snapshotFor`). */
+const NEUTRAL_PASSIVE_OWNER = -1;
+const NEUTRAL_PASSIVE_TEAM = -2;
+
 /**
  * What one client is TOLD about the world (docs/multiplayer.md Phase E item 5).
  *
@@ -843,13 +848,18 @@ export function snapshotFor(
     // A summon timer on an illusion IS a tell — an enemy must see an ordinary unit with no
     // expiry — so the whole summon triple is masked with it, not just the flag.
     const showSummon = u.isSummon && (!u.isIllusion || knowsIllusion);
+    // …and a MECHANICAL CRITTER is a critter to anybody not on its owner's side (issue #194):
+    // the payload names Neutral Passive as its owner, so every picture a client makes of it —
+    // the ring, the bar, the hover, the minimap — is a neutral critter's, and nothing in the
+    // payload says otherwise (SimUnit.critterGuise). Same `seesFor` gate as the illusion tell.
+    const guised = !!u.critterGuise && !viewer.seesFor(u.owner);
     units.push({
       id: u.id,
-      owner: u.owner,
-      team: u.team,
+      owner: guised ? NEUTRAL_PASSIVE_OWNER : u.owner,
+      team: guised ? NEUTRAL_PASSIVE_TEAM : u.team,
       typeId: u.typeId,
       race: u.race,
-      neutralPassive: u.neutralPassive,
+      neutralPassive: guised || u.neutralPassive,
       isHero: u.isHero,
       properName: u.properName,
       isCreep: u.isCreep,

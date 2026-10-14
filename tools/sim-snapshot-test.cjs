@@ -123,6 +123,18 @@ console.log("the snapshot is a subset of the sim unit, not a serialisation of it
   check("enemy sight radii are not derivable client-side", ["sightDay" in enemy, "sightNight" in enemy], [false, false]);
 }
 
+console.log("a Mechanical Critter is a neutral critter to the enemy, and the owner's own to its side (issue #194)");
+{
+  const world = worldOf([unit({ id: 3, owner: 1, team: 1, critterGuise: true, neutralPassive: false })]);
+  const foe = snapshotFor(world, viewer(0, { 0: 0, 1: 1 }), 0, 0).units[0];
+  check("the enemy is sent Neutral Passive as its owner", [foe.owner, foe.team, foe.neutralPassive], [-1, -2, true]);
+  const own = snapshotFor(world, viewer(1, { 0: 0, 1: 1, 2: 1 }), 1, 0).units[0];
+  check("…its owner is sent the truth", [own.owner, own.team, own.neutralPassive], [1, 1, false]);
+  const mate = snapshotFor(world, viewer(1, { 0: 0, 1: 1, 2: 1 }), 2, 0).units[0];
+  check("…and so is a team-mate", [mate.owner, mate.neutralPassive], [1, false]);
+  check("…and the flag itself never rides the wire", "critterGuise" in foe, false);
+}
+
 console.log("the recipient's research rides along — its own, nobody else's");
 {
   const world = worldOf([unit({ id: 1, owner: 0 })]);

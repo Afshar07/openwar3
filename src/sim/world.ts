@@ -775,6 +775,9 @@ export interface SummonRequest {
   /** An INVISIBLE ward: it stands in plain sight for this many seconds and then fades out for
    *  the rest of its life (SimWorld.cloakSummon, spells.ts WARDS). Absent: never hidden. */
   cloakAfter?: number;
+  /** A Mechanical Critter: the unit is shown to its owner's enemies as a neutral critter
+   *  (SimUnit.critterGuise). Only `Amec` sets it. */
+  critterGuise?: boolean;
 }
 
 /**
@@ -1500,6 +1503,16 @@ export interface SimUnit {
   race: string; // human|orc|undead|nightelf|… — for spell polarity (Holy Light vs undead)
   typeId: string; // unit-def id (for corpses/Resurrection to re-create the unit)
   neutralPassive: boolean; // Neutral Passive (shops, critters): never hostile, yellow ring
+  /** A MECHANICAL CRITTER (`Amec`, issue #194): the player's own unit, which every viewer
+   *  NOT on its owner's side sees as the Neutral Passive critter it looks like — yellow ring,
+   *  neutral bar, a name and nothing else on the hover, no minimap dot — and which no enemy
+   *  goes after on its own: "Appears as a normal critter when viewed by the enemy and does not
+   *  draw aggro from units (although unlike proper critters, will be attacked if
+   *  right-clicked)" (Liquipedia, Mechanical Critter). Ownership itself is untouched — the sim
+   *  still knows whose it is, an attack ORDERED on it lands, and its owner commands it. What
+   *  an enemy is SHOWN is decided where a picture is made for a viewer: `snapshotFor` on the
+   *  wire, the RtsController's view helpers on the host. Absent = an honest unit. */
+  critterGuise?: boolean;
   /** The weapon-target class this unit answers to, when it is not one of the three a unit
    *  derives (see weaponVs). Set for DESTRUCTIBLES, which carry their own: `debris` for the
    *  gates and crates, `wall` for barricades — the very words every melee unit's Targets
@@ -20215,6 +20228,10 @@ export class SimWorld {
     // creep uses (wake, go-home) want the same answer: a unit nothing in the camp can hurt
     // is not a reason to get up.
     if (t.invulnerable) return false;
+    // …and a Mechanical Critter is a critter to anybody choosing a target for themselves: it
+    // "does not draw aggro from units" (SimUnit.critterGuise). A creep camp does not wake for
+    // it and an attack-move walks past it; only an order aimed at it lands.
+    if (t.critterGuise) return false;
     if (!this.canAttack(u, t)) return false; // nothing in hand that can hit it (air/ground/structure)
     if (needSight && !this.canSee(u, t)) return false;
     return true;
@@ -24712,7 +24729,13 @@ export class SimWorld {
         // to scout enemies." Here rather than in SPELL_HANDLERS because its row names NO unit
         // — see itemMechanicalCritter, which picks the map's own. A custom map that fills the
         // `UnitID1` column in gets exactly the critter it named.
-        case "Amec": fired = this.itemSummonUnits(u, ad, 0) || this.itemMechanicalCritter(u, ad); break;
+        case "Amec": {
+          const first = this.summonRequests.length;
+          fired = this.itemSummonUnits(u, ad, 0) || this.itemMechanicalCritter(u, ad);
+          // …and whichever critter it is, it wears the disguise (SimUnit.critterGuise).
+          for (let i = first; i < this.summonRequests.length; i++) this.summonRequests[i].critterGuise = true;
+          break;
+        }
         // The FLAGS (`AIfe`/`AIfl`/`AIfm`/`AIfn`/`AIfo`) — Human/Orc/Night Elf/Undead Flag and
         // the orc Battle Standard. Their ability rows are EMPTY: no duration, no data, no
         // buff, no targets. That is not a gap in our reading, it is what the item is — "an
@@ -25927,6 +25950,7 @@ export class SimWorld {
       if (airOnly && !t.flying) continue;
       if (!this.hostile(u, t)) continue;
       if (t.invulnerable) continue; // invulnerable enemies (goblin merchant, gold mine, Divine Shield, …) aren't attackable (issue #26)
+      if (t.critterGuise) continue; // a Mechanical Critter "does not draw aggro" — only an order hits it
       if (t.isCreep && !this.creepAggroed(t)) continue; // don't wake an idle creep camp
       if (!this.canAttack(u, t)) continue; // a Footman never turns on the Gryphon overhead
       if (!this.canSee(u, t)) continue; // out of sight (fog, night, or a treeline) → don't aggro

@@ -115,6 +115,8 @@ export interface RenderUnit {
   readonly owner: number;
   readonly team: number;
   readonly neutralPassive: boolean;
+  /** SimUnit.critterGuise — a Mechanical Critter. Never present on a client's records. */
+  readonly critterGuise?: boolean;
   readonly isHero: boolean;
   readonly properName: string;
   readonly level: number;

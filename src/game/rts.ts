@@ -1427,6 +1427,14 @@ export class RtsController {
     return this.alliances.coAllied(owner, this.localPlayer);
   }
 
+  /** Is this a MECHANICAL CRITTER that the local viewer must take for a neutral one — not on
+   *  its owner's side (SimUnit.critterGuise, issue #194)? Asked by every picture the host draws
+   *  of a unit for its own player: the ring, the bar, the hover slab, the cursor. A client is
+   *  never asked: its payload already named the critter Neutral Passive (`snapshotFor`). */
+  private guised(u: { owner: number; critterGuise?: boolean }): boolean {
+    return !!u.critterGuise && !this.localAlly(u.owner);
+  }
+
   /** Which of the minimap's own friend-or-foe tones this dot takes — `self` (white) in every
    *  mode, ally/enemy once one is on, null to keep the player's colour.
    *
@@ -6138,7 +6146,7 @@ export class RtsController {
     if (this.hovered === null) return { has: false, category: "neutral" };
     const u = this.sim.units.get(this.hovered);
     if (!u) return { has: false, category: "neutral" };
-    if (u.neutralPassive) return { has: true, category: "neutral" }; // shops, critters
+    if (u.neutralPassive || this.guised(u)) return { has: true, category: "neutral" }; // shops, critters
     if (u.owner === this.localPlayer) return { has: true, category: "friendly" };
     const prim = this.primary !== null ? this.sim.units.get(this.primary) : undefined;
     // A WATCHER's cursor reads its OWN diplomacy and never the selection's: it is allied with
@@ -7907,9 +7915,9 @@ export class RtsController {
    * puts the Watchers, the Villagers and the Prisoners on your force, and every one of them
    * lit up green as though you had built it.
    */
-  private ringAllegiance(u: { owner: number; neutralPassive: boolean }): RingInfo["allegiance"] {
+  private ringAllegiance(u: { owner: number; neutralPassive: boolean; critterGuise?: boolean }): RingInfo["allegiance"] {
     if (u.owner === this.localPlayer) return "own";
-    if (u.neutralPassive || this.sim.neutralPlayers.has(u.owner)) return "neutral";
+    if (u.neutralPassive || this.guised(u) || this.sim.neutralPlayers.has(u.owner)) return "neutral";
     if (u.owner >= 0 && this.localAlly(u.owner)) return "neutral";
     return "enemy";
   }
@@ -10225,7 +10233,8 @@ export class RtsController {
         // because `unitColor` is the one call the model's own tint goes through too. A
         // neutral has no slot at all, and the two neutral PLAYERS are told apart there:
         // -1 Neutral Hostile, -2 Neutral Passive (see BarSpec.colorSlot).
-        colorSlot: u.owner < 0
+        colorSlot: this.guised(u) ? -2 // a Mechanical Critter wears Neutral Passive's bar to the enemy
+          : u.owner < 0
           ? (u.neutralPassive ? -2 : -1)
           : this.unitColor(u.owner, e.colorOverride),
         // …and what an ALLY's hero has to hand. Nothing for anything else, which is almost
@@ -10367,10 +10376,11 @@ export class RtsController {
       // A Haunted or Entangled Gold Mine is the gold mine now — the rock under it is no longer
       // a thing the cursor can find (minePickAt) — so its slab carries the mine's "Gold: N".
       const gold = this.coverGold(this.hovered);
-      if (u.owner < 0) {
+      const guised = this.guised(u); // a Mechanical Critter, to the enemy: a critter, name only
+      if (u.owner < 0 || guised) {
         // Neutral. A passive prop is name only; a hostile creep also shows its level.
         lines.push({ text: e.name, color: HOVER_TEXT });
-        if (!u.neutralPassive) {
+        if (!u.neutralPassive && !guised) {
           const lvl = u.isHero ? u.level : (this.registry.get(e.typeId)?.level ?? 0);
           if (lvl > 0) lines.push({ text: `Level ${lvl}`, color: HOVER_TEXT });
         }
