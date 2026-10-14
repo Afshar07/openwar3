@@ -67,9 +67,12 @@ interface MdxModel {
 
 const ViewerClass = ModelViewerCtor as unknown as { new (canvas: HTMLCanvasElement): Viewer };
 
-// How far to pedestal a portrait bust down, as a fraction of the eye→target
-// distance. Small — just enough to seat the face lower in the console arch.
-const PORTRAIT_PAN_DOWN = 0.08;
+// How far a portrait dollies the bust's own camera toward its target (<1 = closer). Matched
+// by eye against the real client's console (issue #180: Rexxar's bust, eyes about a third of
+// the way down the frame and the helmet's crown just inside it). There used to be a pedestal
+// DOWN beside this as well, meant to seat the face lower — but lowering the camera raises
+// what it looks at, so it pushed every face UP and cropped the eyes off the top of the arch.
+const PORTRAIT_ZOOM = 0.8;
 
 // Scratch for the camera's animated offset, sampled once per frame (see applyCamera).
 const CAM_TR = new Float32Array(3);
@@ -96,7 +99,6 @@ export class ModelViewerScene {
   private last = 0;
   private camZoom = 1; // <1 dollies the model camera closer (portraits zoom in)
   private camPanLeft = 0; // >0 pans the portrait camera left (fraction of eye→target distance)
-  private camPanDown = 0; // >0 pedestals the portrait camera down (fraction of eye→target distance)
   private idleSeq = -1; // the portrait's resting sequence (reverted to after talking)
   private talkSeq = -1; // the "Portrait Talk" sequence, or -1 if the model has none
   private talkRemaining = 0; // ms left playing the talk clip before reverting to idle
@@ -154,11 +156,8 @@ export class ModelViewerScene {
   async load(path: string, teamColor = 0, portrait = false, panLeft = 0, animProps: string[] = []): Promise<SequenceInfo[]> {
     // Portraits dolly the bust camera in a bit for a tighter close-up; panLeft
     // nudges it sideways for models whose authored camera crops the face.
-    this.camZoom = portrait ? 0.78 : 1;
+    this.camZoom = portrait ? PORTRAIT_ZOOM : 1;
     this.camPanLeft = panLeft;
-    // Nudge the bust down a touch so the face sits slightly lower in the frame
-    // (the authored portrait cameras aim a hair high for our console arch).
-    this.camPanDown = portrait ? PORTRAIT_PAN_DOWN : 0;
 
     if (this.instance) {
       this.scene.removeInstance(this.instance);
@@ -330,14 +329,6 @@ export class ModelViewerScene {
         const sy = (ly / ln) * shift;
         eye[0] += sx; eye[1] += sy;
         tgt[0] += sx; tgt[1] += sy;
-      }
-      // Pedestal down: drop eye + target together along world -Z (WC3 up axis)
-      // so the framing lowers without changing the view angle.
-      if (this.camPanDown) {
-        const dist = Math.hypot(tgt[0] - eye[0], tgt[1] - eye[1], tgt[2] - eye[2]) || 1;
-        const dz = this.camPanDown * dist;
-        eye[2] -= dz;
-        tgt[2] -= dz;
       }
       this.scene.camera.moveToAndFace(eye, tgt, new Float32Array([0, 0, 1]));
       return;
