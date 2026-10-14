@@ -21889,8 +21889,10 @@ export class SimWorld {
     // Vampiric Aura: the attacker heals for a fraction of the melee damage dealt — and shows
     // it. The drain's own one-shot (lifestealArtOf) plays on the unit that was healed, once
     // per blow that actually restored something: a Ghoul already at full life drinks nothing
-    // and flashes nothing.
-    if (attacker.lifesteal > 0 && dealt > 0 && attacker.hp > 0) {
+    // and flashes nothing. A BUILDING gives no life back: the aura's own Ubertip is "when they
+    // hit enemy UNITS" and its buff's "damage it deals to enemy units will restore hit points"
+    // (UndeadAbilityStrings.txt [AUav]) — Ghouls chewing on a Farm stay as hurt as they were.
+    if (attacker.lifesteal > 0 && dealt > 0 && attacker.hp > 0 && !target.building) {
       const before = attacker.hp;
       attacker.hp = Math.min(attacker.maxHp, attacker.hp + dealt * attacker.lifesteal);
       if (attacker.hp > before && attacker.lifestealArt)
@@ -22194,8 +22196,9 @@ export class SimWorld {
       // --- Life steal (Mask of Death, Killmaim). `DataA` is "Life Stolen Per Attack" as a
       // FRACTION of the damage dealt (0.5). Unlike the Vampiric Aura this is an orb, so it
       // works on a ranged attack too — which is why it lives here and not on u.lifesteal.
+      // Like the aura it drinks from UNITS only: a blow on a building restores nothing.
       case "AIva":
-        if (dealt > 0 && attacker.hp > 0) attacker.hp = Math.min(attacker.maxHp, attacker.hp + dealt * this.dataOf(lvl, 0, 0.5));
+        if (dealt > 0 && attacker.hp > 0 && !target.building) attacker.hp = Math.min(attacker.maxHp, attacker.hp + dealt * this.dataOf(lvl, 0, 0.5));
         break;
       // --- Orb of Fire / Orb of Kil'jaeden: "do splash damage to nearby enemy units" (the
       // items' own Ubertip). `Area1` is the radius; the splash is the orb's own damage bonus,
