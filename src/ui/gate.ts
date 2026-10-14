@@ -1,5 +1,8 @@
 import { pickInstall, requestPersistence, type PickedInstall } from "../assets/opfs";
-import { isDesktopApp, loadNativeInstall, pickNativeInstall, rememberedInstall } from "../assets/nativeInstall";
+import { downloadNativeInstall, isDesktopApp, loadNativeInstall, pickNativeInstall, rememberedInstall } from "../assets/nativeInstall";
+import {
+  downloadInstall, downloadUrl, gb, rememberLink, rememberedLink, storedInstall, type DownloadProgress,
+} from "../assets/downloadInstall";
 import { loadProfile } from "../vfs/loader";
 import { REQUIRED_VERSION, wrongVersionMessage } from "../vfs/version";
 import { DEFAULT_PROFILE } from "../vfs/profiles";
@@ -76,9 +79,40 @@ export function mountLoadGate(root: HTMLElement, onLoaded: (r: GateLoad) => void
   const status = document.createElement("p");
   status.className = "load-gate-status";
 
+  // "Download game files": the player's OWN install, zipped and kept somewhere they can reach from
+  // a new machine (src/assets/downloadInstall.ts). A link under the button rather than a second
+  // button beside it — picking the folder is still THE way in, and this is for the player who
+  // has no folder on this machine to pick. The field starts from the link the game ships with
+  // (GAME_FILES_LINK) or, once they have typed one, their own last link.
+  const downloadable = native || !!navigator.storage?.getDirectory;
+  const dlToggle = document.createElement("button");
+  dlToggle.type = "button";
+  dlToggle.className = "load-gate-link";
+  dlToggle.textContent = "Download game files";
+  dlToggle.hidden = !downloadable;
+
+  const dlForm = document.createElement("form");
+  dlForm.className = "load-gate-download";
+  dlForm.hidden = true;
+  const dlInput = document.createElement("input");
+  dlInput.type = "url";
+  dlInput.spellcheck = false;
+  dlInput.placeholder = "Link to a .zip of your Warcraft III folder";
+  dlInput.value = rememberedLink();
+  const dlGo = createGlueButton({ label: "Download" });
+  dlGo.button.type = "submit";
+  dlForm.append(dlInput, dlGo.root);
+
+  dlToggle.onclick = (): void => {
+    dlForm.hidden = !dlForm.hidden;
+    if (!dlForm.hidden) dlInput.focus();
+  };
+
   const showBar = (on: boolean): void => {
     bar.root.hidden = !on;
     btn.root.hidden = on;
+    dlToggle.hidden = on || !downloadable;
+    if (on) dlForm.hidden = true;
   };
 
   const fail = (msg: string): void => {
@@ -122,6 +156,54 @@ export function mountLoadGate(root: HTMLElement, onLoaded: (r: GateLoad) => void
     }
   };
 
+  const download = async (): Promise<void> => {
+    const link = dlInput.value.trim();
+    const url = downloadUrl(link);
+    if (!url) {
+      status.textContent = "Paste a link to a .zip of your Warcraft III folder.";
+      status.classList.add("error");
+      return;
+    }
+    rememberLink(link);
+    btn.setDisabled(true);
+    status.textContent = "";
+    status.classList.remove("error");
+    bar.set(0);
+    bar.setLabel("Connecting…");
+    const progress = (p: DownloadProgress): void => {
+      bar.set(p.fraction);
+      bar.setLabel(`Downloading game files… ${gb(p.received)} of ${gb(p.total)}`);
+    };
+    try {
+      if (native) {
+        // The shell asks where to put it before a byte moves, so nothing is shown until it has.
+        const folder = await downloadNativeInstall(url, (p) => { showBar(true); progress(p); });
+        if (!folder) {
+          showBar(false);
+          btn.setDisabled(false);
+          dlForm.hidden = false;
+          status.textContent = "No folder chosen.";
+          return;
+        }
+        return mount(await loadNativeInstall());
+      }
+      showBar(true);
+      await downloadInstall(link, progress);
+      const install = await storedInstall();
+      if (!install) throw new Error("the files did not arrive whole.");
+      return mount(install);
+    } catch (err) {
+      // An IPC rejection arrives wrapped in Electron's own words around the shell's message.
+      const msg = (err as Error).message.replace(/^Error invoking remote method '[^']*': (?:Error: )?/, "");
+      fail(`Couldn't download the game files: ${msg}`);
+      dlForm.hidden = false;
+    }
+  };
+  dlForm.onsubmit = (e): void => {
+    e.preventDefault();
+    void download();
+  };
+
   btn.button.onclick = async (): Promise<void> => {
     status.classList.remove("error");
     if (native) {
@@ -136,7 +218,7 @@ export function mountLoadGate(root: HTMLElement, onLoaded: (r: GateLoad) => void
     return mount(install);
   };
 
-  panel.append(title, sub, action, status);
+  panel.append(title, sub, action, dlToggle, dlForm, status);
   gate.appendChild(panel);
   root.appendChild(gate);
   const unbindHotkeys = bindHotkeys(gate);
@@ -157,6 +239,17 @@ export function mountLoadGate(root: HTMLElement, onLoaded: (r: GateLoad) => void
       btn.setLabel(idleLabel);
       if (path && !present) fail(`Your Warcraft III folder is no longer at ${path}.`);
       else if (path) fail(wrongVersionMessage(version));
+    });
+  }
+
+  // The browser's twin of that: a copy an earlier "Download game files" left in this origin's
+  // storage is this browser's install, so it is mounted without asking — the same as the desktop
+  // app's remembered folder, and for the same reason.
+  if (!native && downloadable) {
+    btn.setDisabled(true);
+    void storedInstall().then((install) => {
+      if (install) return mount(install);
+      btn.setDisabled(false);
     });
   }
 

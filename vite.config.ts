@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { defineConfig } from "vite";
 import { devInstall } from "./tools/vite-plugin-dev-install";
+import { driveProxy } from "./tools/vite-plugin-drive-proxy";
 import { perfLog, perfLogDefines } from "./tools/vite-plugin-perf-log";
 import { relay } from "./tools/vite-plugin-relay";
 
@@ -19,6 +20,9 @@ import { relay } from "./tools/vite-plugin-relay";
 // core on the dev server's own port at `/relay`, so `pnpm dev --host` is the whole of hosting a
 // LAN game. `server/relay.mjs` stays the standalone artifact that deploys to a cloud box.
 //
+// `driveProxy` is the fourth: Drive refuses a page's own fetch (Sec-Fetch-Site), so the browser
+// half of the load gate's "Download game files" reaches the developer's Drive through it.
+//
 // Its `define`s, though, are declared HERE and unconditionally, OUTSIDE the serve-only plugin:
 // a build has no flag, and the client's `__OW3_PERF_MS__` must fold to the constant 0 rather
 // than survive as an undefined free identifier. See src/dev/perfLog.ts.
@@ -29,7 +33,7 @@ import { relay } from "./tools/vite-plugin-relay";
 const version = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")).version as string;
 
 export default defineConfig({
-  plugins: [devInstall(), perfLog(), relay()],
+  plugins: [devInstall(), driveProxy(), perfLog(), relay()],
   define: { ...perfLogDefines(), __OW3_VERSION__: JSON.stringify(version) },
   server: { port: 5173 },
   build: { target: "es2022", outDir: "dist" },

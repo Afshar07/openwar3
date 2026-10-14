@@ -1,4 +1,5 @@
 import type { PickedInstall, InstallFiles } from "./opfs";
+import type { DownloadProgress } from "./downloadInstall";
 import {
   fetchCasc, fetchInstallAnsi, fetchInstallFile, lazyMapFile,
   type FileUrl, type InstallManifest,
@@ -25,6 +26,8 @@ interface NativeBridge {
   installPath(): Promise<InstalledFolder>;
   pickInstall(): Promise<string | null>;
   forgetInstall(): Promise<void>;
+  /** Absent on a shell older than "Download game files". */
+  downloadInstall?(url: string, onProgress: (p: DownloadProgress) => void): Promise<string | null>;
   servers(): Promise<Array<{ id: string; url: string }>>;
   onServers(fn: (peers: Array<{ id: string; url: string }>) => void): () => void;
   vsync?: {
@@ -126,6 +129,14 @@ export async function rememberedInstall(): Promise<InstalledFolder> {
  *  fail three steps later. */
 export async function pickNativeInstall(): Promise<string | null> {
   return (await bridge()?.pickInstall()) ?? null;
+}
+
+/** "Download game files" in the desktop app (electron/download.mjs). `url` is the FILE's, already
+ *  resolved by `downloadUrl`. Null if the player cancelled the folder dialog. */
+export async function downloadNativeInstall(url: string, onProgress: (p: DownloadProgress) => void): Promise<string | null> {
+  const native = bridge();
+  if (!native?.downloadInstall) throw new Error("This version of the app cannot download. Update it first.");
+  return native.downloadInstall(url, onProgress);
 }
 
 export async function forgetNativeInstall(): Promise<void> {

@@ -34,6 +34,19 @@ contextBridge.exposeInMainWorld("ow3native", {
   /** Open the OS folder picker. Resolves to the chosen path, or null if the player cancelled
    *  or picked something that is not an install. */
   pickInstall: () => ipcRenderer.invoke("ow3:install-pick"),
+  /** "Download game files": ask where to put it, then download the player's zipped install from
+   *  `url` (already resolved to the file by the page) and unpack it there. `onProgress` gets
+   *  `{ fraction, received, total }`. Resolves to the folder — now the remembered one — or null
+   *  if the player cancelled the folder dialog. */
+  downloadInstall: async (url, onProgress) => {
+    const handler = (_event, progress) => onProgress?.(progress);
+    ipcRenderer.on("ow3:install-download-progress", handler);
+    try {
+      return await ipcRenderer.invoke("ow3:install-download", String(url));
+    } finally {
+      ipcRenderer.off("ow3:install-download-progress", handler);
+    }
+  },
   /** Forget the remembered folder, so the next launch asks again. */
   forgetInstall: () => ipcRenderer.invoke("ow3:install-forget"),
   /** Write the folder's CustomKeys.txt — the hotkey editor's Save (issue #156). ONE named file

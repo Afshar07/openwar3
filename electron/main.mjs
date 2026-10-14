@@ -21,6 +21,7 @@ import { dirname, join } from "node:path";
 import { existsSync } from "node:fs";
 import { startServer } from "./server.mjs";
 import { installVersion, looksLikeInstall, serveInstall, writeCustomKeys, REQUIRED_VERSION } from "./install.mjs";
+import { downloadInstall } from "./download.mjs";
 import { detectInstall } from "./locate.mjs";
 import { startBeacon } from "./beacon.mjs";
 import { startUpdates } from "./updates.mjs";
@@ -237,6 +238,27 @@ app.whenReady().then(async () => {
     return picked;
   });
   ipcMain.handle("ow3:install-forget", () => { writeSettings({ installPath: null }); });
+  // "Download game files" (electron/download.mjs): the player's own zipped install, from a link
+  // THEY typed (the page resolves a Drive share link to the file first). Where it goes is asked
+  // here with the OS dialog — a 2 GB folder lands where the player says, not in app data — and
+  // the result is remembered only if it is an install the game will take, exactly as a pick is.
+  // Resolves to the folder, or null if the player cancelled the dialog.
+  ipcMain.handle("ow3:install-download", async (event, url) => {
+    const { canceled, filePaths } = await dialog.showOpenDialog({
+      title: "Choose where to put the Warcraft III folder",
+      properties: ["openDirectory", "createDirectory"],
+      defaultPath: app.getPath("documents"),
+    });
+    if (canceled || !filePaths[0]) return null;
+    const folder = await downloadInstall(String(url), filePaths[0], (progress) => {
+      if (!event.sender.isDestroyed()) event.sender.send("ow3:install-download-progress", progress);
+    });
+    if (!looksLikeInstall(folder)) {
+      throw new Error(`The download finished, but ${folder} is not Warcraft III ${REQUIRED_VERSION}.`);
+    }
+    writeSettings({ installPath: folder });
+    return folder;
+  });
   // The hotkey editor's Save (issue #156): the page's bytes, into the CURRENT folder's
   // CustomKeys.txt. The root is read here, never taken from the page.
   ipcMain.handle("ow3:customkeys-save", (_event, bytes) => writeCustomKeys(currentInstall().path, bytes));

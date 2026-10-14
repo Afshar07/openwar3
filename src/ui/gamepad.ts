@@ -540,7 +540,7 @@ function dpad(button: number): void {
  *  part of the dropdown; a list row's delete action is part of the row). */
 const FOCUSABLE = [
   ".fdf-button", ".fdf-popup", ".fdf-checkbox", ".fdf-slider", ".fdf-list-row", ".fdf-editbox-input",
-  ".ow3-glue-btn", ".hk-slot",
+  ".ow3-glue-btn", ".hk-slot", ".load-gate-link",
 ].join(", ");
 
 let focusOn = false;

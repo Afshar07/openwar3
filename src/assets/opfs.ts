@@ -52,7 +52,7 @@ interface DirEntry {
   getFile(): Promise<File>;
   values(): AsyncIterableIterator<DirEntry>;
 }
-interface DirHandle {
+export interface DirHandle {
   name: string;
   values(): AsyncIterableIterator<DirEntry>;
   /** The write half, used only by `customKeysWriter`. */
@@ -164,40 +164,50 @@ export async function pickInstall(): Promise<PickedInstall | null> {
     } catch {
       return null; // user cancelled
     }
-    const files: InstallFiles = new Map();
-    const casc = emptyCasc();
-    let customKeys: string | null = null;
-    /** Where the file was found, so a save goes back to the same place. */
-    let keysDir: DirHandle = handle;
-    let keysName = "CustomKeys.txt";
-    for await (const entry of handle.values()) {
-      if (entry.kind === "file" && isMpq(entry.name)) {
-        files.set(entry.name.toLowerCase(), await entry.getFile());
-      } else if (entry.kind === "file" && entry.name.toLowerCase() === BUILD_INFO) {
-        casc.buildInfo = await (await entry.getFile()).text();
-      } else if (entry.kind === "file" && entry.name.toLowerCase() === CUSTOM_KEYS_PATHS[0]) {
-        customKeys = await readAnsi(await entry.getFile());
-        keysDir = handle;
-        keysName = entry.name;
-      } else if (entry.kind === "directory" && entry.name.toLowerCase() === "maps") {
-        await collectMaps(entry, entry.name, files);
-      } else if (entry.kind === "directory" && entry.name.toLowerCase() === "customkeybindings") {
-        if (customKeys === null) {
-          const found = await customKeysIn(entry);
-          if (found) {
-            customKeys = found.text;
-            keysDir = entry as unknown as DirHandle;
-            keysName = found.name;
-          }
-        }
-      } else if (entry.kind === "directory" && entry.name.toLowerCase() === "data") {
-        await collectCasc(entry, casc);
-      }
-    }
-    return { files, casc: casc.buildInfo ? casc : null, customKeys, saveCustomKeys: customKeysWriter(keysDir, keysName) };
+    return readInstallDir(handle);
   }
 
   return pickViaInput();
+}
+
+/**
+ * What a Warcraft III folder holds, read through a directory handle. The picked folder is one
+ * such handle; the copy "Download game files" unpacked into OPFS is another
+ * (src/assets/downloadInstall.ts) — the same walk, so the two cannot disagree about what an
+ * install is made of.
+ */
+export async function readInstallDir(handle: DirHandle): Promise<PickedInstall> {
+  const files: InstallFiles = new Map();
+  const casc = emptyCasc();
+  let customKeys: string | null = null;
+  /** Where the file was found, so a save goes back to the same place. */
+  let keysDir: DirHandle = handle;
+  let keysName = "CustomKeys.txt";
+  for await (const entry of handle.values()) {
+    if (entry.kind === "file" && isMpq(entry.name)) {
+      files.set(entry.name.toLowerCase(), await entry.getFile());
+    } else if (entry.kind === "file" && entry.name.toLowerCase() === BUILD_INFO) {
+      casc.buildInfo = await (await entry.getFile()).text();
+    } else if (entry.kind === "file" && entry.name.toLowerCase() === CUSTOM_KEYS_PATHS[0]) {
+      customKeys = await readAnsi(await entry.getFile());
+      keysDir = handle;
+      keysName = entry.name;
+    } else if (entry.kind === "directory" && entry.name.toLowerCase() === "maps") {
+      await collectMaps(entry, entry.name, files);
+    } else if (entry.kind === "directory" && entry.name.toLowerCase() === "customkeybindings") {
+      if (customKeys === null) {
+        const found = await customKeysIn(entry);
+        if (found) {
+          customKeys = found.text;
+          keysDir = entry as unknown as DirHandle;
+          keysName = found.name;
+        }
+      }
+    } else if (entry.kind === "directory" && entry.name.toLowerCase() === "data") {
+      await collectCasc(entry, casc);
+    }
+  }
+  return { files, casc: casc.buildInfo ? casc : null, customKeys, saveCustomKeys: customKeysWriter(keysDir, keysName) };
 }
 
 /** Walk `Data\` for the pieces a CASC mount needs (vfs/casc.ts). Everything but the
