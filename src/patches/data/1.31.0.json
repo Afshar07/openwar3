@@ -1203,7 +1203,7 @@
     {
       "key": "warsong-drums-kodo-buff",
       "note": "Warsong Battle Drums (war2) carry AIwd, an item copy of the Kodo Beast's War Drums (base code Aakb, buff Bakb): the item and the Kodo aura are one buff and do not stack",
-      "implemented": false
+      "implemented": true
     },
     {
       "key": "possession-drops-queued-orders",

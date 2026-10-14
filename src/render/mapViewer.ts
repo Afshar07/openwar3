@@ -6075,6 +6075,18 @@ export class MapViewerScene {
     }
     return this.abilityByCode.get(code);
   }
+  /** Does `u` broadcast the aura whose base code is `code` itself — learned (a hero's, a
+   *  Kodo's) or CARRIED (the fourteen aura items, SimWorld.auraSources)? Asked only of a unit
+   *  already wearing that aura's buff, so the scan is a handful of slots. */
+  private broadcastsAura(u: SimUnit, code: string): boolean {
+    for (const ab of u.abilities) if (ab.level >= 1 && ab.code === code) return true;
+    for (const held of u.inventory) {
+      if (!held) continue;
+      for (const id of this.items.get(held.itemId)?.abilities ?? []) if (this.abilities.get(id)?.code === code) return true;
+    }
+    return false;
+  }
+
   /** updateAuraEffects' per-unit dedupe set (cleared, never re-made) and its group → aura-code
    *  memo — a buff group string names the same ability for the whole match. */
   private readonly auraSeenScratch = new Set<string>();
@@ -6108,10 +6120,13 @@ export class MapViewerScene {
         if (def) {
           if (seen.has("a:" + auraCode)) continue;
           seen.add("a:" + auraCode);
-          // Small swirl on every affected unit; big model on the owner only (its own
-          // aura copy carries sourceId === its id — allies get the owner's id).
+          // Small swirl on every affected unit; big model on whoever is BROADCASTING it. Not on
+          // whoever's copy the unit happens to be wearing: two auras of one group share a single
+          // buff (the strongest wins), so a Kodo Beast walking up to a hero who carries the
+          // Warsong Battle Drums — both `Aakb` — left the hero wearing the KODO's copy, and the
+          // drums' art went out on the hero still beating them (issue #196).
           def.buffFx.forEach((fx, i) => this.trackBuffFx(active, `${u.id}|${auraCode}|s${i}`, fx, u.id));
-          if (b.sourceId === u.id) this.trackBuffFx(active, `${u.id}|${auraCode}|o`, { path: def.targetArt, attach: [] }, u.id);
+          if (b.sourceId === u.id || this.broadcastsAura(u, auraCode)) this.trackBuffFx(active, `${u.id}|${auraCode}|o`, { path: def.targetArt, attach: [] }, u.id);
         } else if (b.fx.length) {
           // Key off the models themselves, not `art`: a buff whose fx came from its own
           // [B….] row (the regeneration items) leaves `art` empty, so two such buffs on one

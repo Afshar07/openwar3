@@ -2804,6 +2804,8 @@ interface UpgradeBonuses {
   attackLevel: number; armorLevel: number;
   /** `rlev` — ability id → the LEVEL a research sets it to (see sumUpgradeBonuses). */
   abilityLevels: [string, number][];
+  /** `raud` — ability id → what a research ADDS to that aura's `DataA` (see applyAuras). */
+  auraData: [string, number][];
 }
 /** The grid's cell, in world units. Ours, and free to be anything: the reach a body is offered is
  *  computed from the radii, so the size only decides how many cells a query walks and how many
@@ -12596,7 +12598,7 @@ export class SimWorld {
    *
    *  Still deliberately unhandled rather than guessed at: `rart` (armour-type swap, Orc
    *  Reinforced Defenses), `ratc` (attack target count — Moon Glaive's bounce), `rrai`,
-   *  `rent`, `rspi`, `raud`, `rmin`, `radl`. `rtma` is not a stat at all — it flips a
+   *  `rent`, `rspi`, `rmin`, `radl`. `rtma` is not a stat at all — it flips a
    *  unit's availability and is handled by TechState.maxAllowed. */
   private upgradeBonuses(u: SimUnit): Readonly<UpgradeBonuses> {
     // The sum depends on three things only — the owner's research levels, the unit's TYPE (its
@@ -12626,6 +12628,7 @@ export class SimWorld {
       // -1 = "no `renw` researched" — the unit keeps whatever mask its data shipped with.
       weaponMask: -1,
       abilityLevels: [] as [string, number][],
+      auraData: [] as [string, number][],
     };
     if (!this.tech || !this.upgradeReg || !this.unitReg) return b;
     const def = this.unitReg.get(u.typeId);
@@ -12684,6 +12687,12 @@ export class SimWorld {
           // as the level SET, not added: an unresearched badge is hidden by its `Requires`, so
           // there is no level to add to.
           case "rlev": if (e.code) b.abilityLevels.push([e.code, v]); break;
+          // Aura Data (`raud`, `code` = the aura): the research's total is ADDED to the aura's
+          // `DataA`. Its one stock user is Improved War Drums (`Rwdm` base 0.1 / mod 0.1 on
+          // `Aakb`), which is how the Kodo Beast's 10% becomes the "20%" its Liquipedia card
+          // gives with the upgrade. Keyed on the ability ID like `rlev`, so the Warsong Battle
+          // Drums' item copy (`AIwd`, code `Aakb` too) is not improved by it.
+          case "raud": if (e.code) b.auraData.push([e.code, v]); break;
         }
       }
     }
@@ -14189,7 +14198,12 @@ export class SimWorld {
         if (!make) continue;
         const def = this.abilityDefOf(ab);
         if (!def) continue;
-        const lvl = def.levelData[Math.min(ab.level, def.levelData.length) - 1];
+        let lvl = def.levelData[Math.min(ab.level, def.levelData.length) - 1];
+        // …raised by any `raud` research its owner has (Improved War Drums — see
+        // sumUpgradeBonuses), which adds to the aura's own first column.
+        for (const [abilityId, add] of this.upgradeBonuses(src).auraData) {
+          if (abilityId === ab.id) lvl = { ...lvl, data: [(lvl.data[0] ?? 0) + add, ...lvl.data.slice(1)] };
+        }
         const radius = lvl.area || 900;
         const effects = make(lvl);
         // Which side an aura lands on is the ability's own business, read off `targs1`, and

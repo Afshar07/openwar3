@@ -25,7 +25,8 @@ import type { UpgradeDef, UpgradeRegistry } from "./upgrades";
 //   (none)  round to a whole number — which is why Shadow Meld's Dur1 of 15.1 reads "15 seconds"
 //           and a 1.01s stun reads "1". 23 of the game's references rely on this.
 //   ,%      multiply by 100 (Boots of Speed's DataA1 is 0.6 → "60"; the % sign is in the sentence).
-//           Every one of the 302 percent references lands on a whole number, as you'd hope.
+//           Every one of the 302 percent references lands on a whole number, as you'd hope —
+//           in 1.30.4. A later patch's need not, so a tenth is kept (Warsong Battle Drums, 7.5%).
 //   ,.      keep the fraction — the flag exists for exactly one thing, Devotion Aura's +1.5 armour.
 //
 // Ten of Blizzard's own 2017 references name a row/column that does not exist (`<Acyc,DataC1>`,
@@ -184,7 +185,9 @@ function upgradeField(def: UpgradeDef, field: string): number | null {
 }
 
 function format(v: number, fmt: string): string {
-  if (fmt.includes("%")) return String(Math.round(v * 100));
+  // …to a TENTH: every stock percent is whole, but a later patch's need not be — 1.32.10 put
+  // the Warsong Battle Drums at 0.075, which a whole-number round printed as "8%" (issue #196).
+  if (fmt.includes("%")) return String(Math.round(v * 1000) / 10);
   if (fmt.includes(".")) return String(Math.round(v * 100) / 100); // 1.5 stays 1.5
   return String(Math.round(v));
 }
