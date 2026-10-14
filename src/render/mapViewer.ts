@@ -14175,8 +14175,9 @@ export class MapViewerScene {
           // …and EVERY sound event the model parks in the clip it plays, each at its own frame
           // (SimSpellEffect.events — the flare's whistle, pop and burn).
           if (fx.events) {
-            // …the clip it OPENS on: its Death for a "death" effect (the Ankh's rise).
-            const w = fx.anim === "death" ? this.sounds?.modelDeathWindow(fx.art) : this.sounds?.modelBirthWindow(fx.art);
+            // …the clip it OPENS on: its Death for a "death" effect (the Ankh's rise), its Stand
+            // for a "stand" one (a Spell Shield's block), its Birth otherwise.
+            const w = this.sounds?.modelClipWindow(fx.art, fx.anim === "death" || fx.anim === "stand" ? fx.anim : "birth");
             if (w) this.fxSoundTracks.push({ art: fx.art, from: w[0], to: w[1], t: 0, last: w[0] - 0.001, x, y, z });
           }
         }

@@ -263,8 +263,10 @@ interface ModelSounds {
   /** The model's first `Birth` clip, as a model-global [start, end] — null when it has none.
    *  What playModelBirthSound pairs the events against. */
   birth: [number, number] | null;
-  /** …and its first `Death` clip, the same way — what an effect opened on its Death plays its
-   *  events against (ReincarnationTarget.mdx's `SNDXAORE`, the Ankh's rise). */
+  /** …and its first `Stand` and `Death` clips, the same way — what an effect OPENED on one of
+   *  them plays its events against (SpellShieldCaster.mdx's `SNDXANSS` on Stand, the block;
+   *  ReincarnationTarget.mdx's `SNDXAORE` on Death, the Ankh's rise). */
+  standWindow: [number, number] | null;
   deathWindow: [number, number] | null;
 }
 
@@ -766,9 +768,11 @@ export class SoundBoard {
     return modelArt ? this.resolveModelSounds(modelArt).birth : null;
   }
 
-  /** …and of its Death clip, for an effect opened on it (EffectAnim "death"). */
-  modelDeathWindow(modelArt: string): [number, number] | null {
-    return modelArt ? this.resolveModelSounds(modelArt).deathWindow : null;
+  /** …and of whichever clip an effect is OPENED on (its EffectAnim): Stand or Death. */
+  modelClipWindow(modelArt: string, clip: "birth" | "stand" | "death"): [number, number] | null {
+    if (!modelArt) return null;
+    const ms = this.resolveModelSounds(modelArt);
+    return clip === "stand" ? ms.standWindow : clip === "death" ? ms.deathWindow : ms.birth;
   }
 
   playModelEventsIn(modelArt: string, from: number, to: number, at?: SoundPos): boolean {
@@ -889,7 +893,7 @@ export class SoundBoard {
     const key = modelArt.toLowerCase();
     const cached = this.modelSounds.get(key);
     if (cached) return cached;
-    const out: ModelSounds = { attack: [], launch: [], impact: [], ability: [], death: [], abilityByCode: new Map(), eventTimes: new Map(), birth: null, deathWindow: null };
+    const out: ModelSounds = { attack: [], launch: [], impact: [], ability: [], death: [], abilityByCode: new Map(), eventTimes: new Map(), birth: null, standWindow: null, deathWindow: null };
     this.modelSounds.set(key, out); // memoize up-front so a missing/broken model isn't re-parsed
     const bytes = this.vfs.rawBytes(modelArt);
     if (!bytes) return out;
@@ -902,6 +906,8 @@ export class SoundBoard {
     }
     const birth = model.sequences.find((q) => /^birth/i.test(q.name));
     if (birth) out.birth = [birth.interval[0], birth.interval[1]];
+    const stand = model.sequences.find((q) => /^stand/i.test(q.name));
+    if (stand) out.standWindow = [stand.interval[0], stand.interval[1]];
     const death = model.sequences.find((q) => /^death/i.test(q.name));
     if (death) out.deathWindow = [death.interval[0], death.interval[1]];
     for (const evt of model.eventObjects) {

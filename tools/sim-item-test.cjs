@@ -60,7 +60,11 @@ const ABILITIES = new Map([
   // Warsong Battle Drums — Command Aura, Area 900, DataA 0.1 ("Damage Bonus (%)")
   ["AIcd", ability("AIcd", "AOac", { targetFlags: ["air", "ground", "friend", "self", "vuln", "invu"], levelData: [lvl({ area: 900, data: D(0.1, 1, 1) })] })],
   // Amulet of Spell Shield — Cool 40, buff BNss
-  ["ANss", ability("ANss", "ANss", { levelData: [lvl({ cooldown: 40, buffs: ["BNss"] })] })],
+  ["ANss", ability("ANss", "ANss", {
+    buffArt: "Abilities\\Spells\\Items\\SpellShieldAmulet\\SpellShieldCaster.mdl",
+    buffFx: [{ path: "Abilities\\Spells\\Items\\SpellShieldAmulet\\SpellShieldCaster.mdl", attach: ["origin"] }],
+    levelData: [lvl({ cooldown: 40, buffs: ["BNss"] })],
+  })],
   // Ankh of Reincarnation — DataA 7 (delay), DataB 500 (life), DataC -1 (keep mana)
   ["AIrc", ability("AIrc", "AIrc", { effectArt: "Abilities\\Spells\\Orc\\Reincarnation\\ReincarnationTarget.mdl", levelData: [lvl({ data: D(7, 500, -1) })] })],
   // Tome of Power — DataA 1 "Levels Gained"
@@ -317,7 +321,15 @@ console.log("\nthe Amulet of Spell Shield eats one enemy spell, then grows back 
   const enemy = unit({ owner: 1, team: 1, x: 1200, y: 1000, prevX: 1200, prevY: 1000 });
   world.tickCarriedItems(hero, 0.1);
   check("the amulet is wearing its shield", hero.buffs.filter((b) => b.kind === "spellShield").length, 1);
+  // Issue #177: the shield is WORN as its icon alone — SpellShieldCaster is the block's flash,
+  // and worn as buff art it looped in front of the hero for as long as the shield was up.
+  const shield = hero.buffs.find((b) => b.kind === "spellShield");
+  check("…as its BNss icon, with no model worn", [shield.buffId, shield.art, shield.fx.length].join(), "BNss,,0");
+  world.drainSpellEffects();
   check("an enemy's aimed spell is eaten", world.consumeSpellShield(enemy, hero.id), true);
+  const flash = world.drainSpellEffects();
+  check("…and the block flashes ONCE, on its own Stand, sound and all",
+    flash.map((f) => [f.art.split("\\").pop(), f.anim, f.life, f.events].join()).join(";"), "SpellShieldCaster.mdl,stand,0,true");
   check("…and the shield is spent", hero.buffs.filter((b) => b.kind === "spellShield").length, 0);
   check("…the next one is not", world.consumeSpellShield(enemy, hero.id), false);
   world.tickCarriedItems(hero, 39);
@@ -329,6 +341,14 @@ console.log("\nthe Amulet of Spell Shield eats one enemy spell, then grows back 
   const friend = unit({ x: 1200, y: 1000, prevX: 1200, prevY: 1000 });
   check("a friendly spell passes straight through it", world.consumeSpellShield(friend, hero.id), false);
   check("…leaving the shield up", hero.buffs.filter((b) => b.kind === "spellShield").length, 1);
+  // A WAVE's sweep is a hit, not a cast at him: Shockwave, Carrion Swarm, an Impale clicked on
+  // the ground run their handler once per body the front reaches (with that body as targetId)
+  // and none of them may pop it. Spent through applySpellEffect, the door every spell takes.
+  const swarm = ability("AUcs", "AUcs", { isItem: false });
+  world.applySpellEffect("AUcs", 1, enemy, { targetId: hero.id, x: hero.x, y: hero.y, wave: { budget: 1e9 } }, swarm);
+  check("a wave sweeping over him passes the shield by", hero.buffs.filter((b) => b.kind === "spellShield").length, 1);
+  world.applySpellEffect("AUcs", 1, enemy, { targetId: hero.id, x: hero.x, y: hero.y }, swarm);
+  check("…while the same spell aimed AT him is eaten", hero.buffs.filter((b) => b.kind === "spellShield").length, 0);
 }
 
 console.log("\nthe Cloak of Flames is WORN: its BIcf fire is on the carrier while it burns");

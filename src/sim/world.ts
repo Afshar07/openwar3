@@ -46,7 +46,7 @@ import {
 } from "../data/gameplayConstants";
 import { perfNow, simProfile } from "./profile";
 import { flyHeight, type MissileFlight } from "./missile";
-import { SPELL_HANDLERS, ITEM_INVULN_GROUP, AURA_BUFFS, SELF_INVIS_GROUP, BLADESTORM_GROUP, FIELD_PIERCES_SPELL_IMMUNITY, POLARITY_SPELLS, HEAL_SPELLS, MANA_TARGET_SPELLS, NO_SUMMON_TARGET, DISPEL_CODES, REPLENISH_BAR, replenishRefusal, survivesDispel, clockedBuff, worthDispelling, invisTransition, waveSchedule, WAVE_FIELDS, fx, buffIdOf, drainTag, DRAIN_GROUP, CANNIBALIZE_GROUP, POSSESSION_GROUP, type SpellApi, type SimBuffInit, type SpellFieldInit, type CastContext, type WaveOptions, type RaiseOptions } from "./spells";
+import { SPELL_HANDLERS, ITEM_INVULN_GROUP, AURA_BUFFS, SELF_INVIS_GROUP, BLADESTORM_GROUP, FIELD_PIERCES_SPELL_IMMUNITY, POLARITY_SPELLS, HEAL_SPELLS, MANA_TARGET_SPELLS, NO_SUMMON_TARGET, DISPEL_CODES, REPLENISH_BAR, replenishRefusal, survivesDispel, clockedBuff, worthDispelling, invisTransition, waveSchedule, WAVE_FIELDS, fx, buffIdOf, spellShieldBuff, drainTag, DRAIN_GROUP, CANNIBALIZE_GROUP, POSSESSION_GROUP, type SpellApi, type SimBuffInit, type SpellFieldInit, type CastContext, type WaveOptions, type RaiseOptions } from "./spells";
 /** The buff group a Tornado's toss is applied under — both halves, so the invulnerability's wipe
  *  spares the stun it came with (clearStatusForInvulnerable). See tickTornado. */
 const TORNADO_SPIN_GROUP = "tornadoSpin";
@@ -8596,7 +8596,7 @@ export class SimWorld {
     // Ready and unshielded → put the shield back on. Infinite, because what ends it is being
     // SPENT, not a clock (see consumeSpellShield).
     if (!u.buffs.some((b) => b.kind === "spellShield")) {
-      this.applyBuffInternal(u, { kind: "spellShield", group: "spellshield", timeLeft: Infinity, sourceId: u.id, ...fx(amulet.def) });
+      this.applyBuffInternal(u, { kind: "spellShield", group: "spellshield", timeLeft: Infinity, sourceId: u.id, ...spellShieldBuff(amulet.def) });
     }
   }
 
@@ -16124,9 +16124,12 @@ export class SimWorld {
     t.buffs = t.buffs.filter((b) => b.kind !== "spellShield");
     const amulet = this.itemAbility(t, "ANss");
     if (amulet) t.spellShieldCooldown = amulet.level.cooldown || 40;
-    // The block's own flash — `BNss`'s art, worn where the spell would have landed.
+    // The block's own flash — `BNss`'s art, worn where the spell would have landed, ONCE: the
+    // model's one real clip is its 1-second `Stand` (its other is named "nothing"), carrying
+    // the block's sound at its first frame (`SNDXANSS`), so it is opened on Stand, lives as
+    // long as that clip runs, and fires its own events (issue #177).
     const fxDef = amulet?.def ?? this.abilityByCode("ANse");
-    if (fxDef?.buffArt) this.spellEffects.push({ art: fxDef.buffArt, x: t.x, y: t.y, targetId: t.id, z: 0 });
+    if (fxDef?.buffArt) this.spellEffects.push({ art: fxDef.buffArt, x: t.x, y: t.y, targetId: t.id, z: 0, anim: "stand", life: 0, events: true });
     return true;
   }
 
@@ -16140,8 +16143,13 @@ export class SimWorld {
     // negative spell that an enemy casts on the Hero." It is spent on the CAST, before any
     // of it lands — the shield is what the spell hit — and only by a spell that was aimed
     // AT the wearer by somebody hostile: an area effect that happens to catch him is not a
-    // spell cast on him, and neither is a friendly one.
-    if (ctx.targetId && this.consumeSpellShield(caster, ctx.targetId)) return;
+    // spell cast on him, and neither is a friendly one. A WAVE's sweep is the clear case of
+    // the first: Shockwave, Carrion Swarm, Impale cast at the ground run their handler once per
+    // body the front reaches, each with that body as `targetId`, and every one of those is a
+    // hit, not a cast at him — "Shockwave / Carrion Swarm (Line Spells)" and "Impale (if
+    // clicked on the ground)" bypass the Amulet (issue #177). A wave aimed AT him is still
+    // eaten whole, at the cast, before any front exists.
+    if (ctx.targetId && !ctx.wave && this.consumeSpellShield(caster, ctx.targetId)) return;
     // Which ability is casting, for the length of the handler. Every buff it applies belongs
     // to this ability's buff row unless it says otherwise, so `applyBuff` can fill `buffId`
     // in rather than each of the ~90 handlers repeating it — and a handler that applies a

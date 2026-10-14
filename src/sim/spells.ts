@@ -3873,10 +3873,22 @@ export const SPELL_HANDLERS: Record<string, Handler> = {
   ANse: (api, caster, def, rank) => {
     const lvl = lv(def, rank);
     for (const t of alliesInArea(api, caster, def, caster.x, caster.y, lvl.area || 1400, { self: true })) {
-      api.applyBuff(t, { kind: "spellShield", group: "spellshield", timeLeft: Infinity, sourceId: caster.id, ...fx(def) });
+      api.applyBuff(t, { kind: "spellShield", group: "spellshield", timeLeft: Infinity, sourceId: caster.id, ...spellShieldBuff(def) });
     }
   },
 };
+
+/**
+ * The Spell Shield buff (`BNss`) as it is WORN: its status icon and nothing else. The row's
+ * `Targetart` is `SpellShieldCaster.mdl` at `origin`, but that model is no aura — its one
+ * real clip is a 1-second `Stand` with the block's sound (`SNDXANSS`) at its first frame, so
+ * worn as a buff it played that flash on a loop in front of the hero for as long as the shield
+ * was up (issue #177). It is the BLOCK's art: SimWorld.consumeSpellShield plays it once, when
+ * a spell is actually eaten. Shared by the Amulet (`ANss`) and the Rune of Shielding (`ANse`).
+ */
+export function spellShieldBuff(def: AbilityDef): { art: string; fx: BuffFx[]; buffId: string } {
+  return { art: "", fx: [], buffId: buffIdOf(def) };
+}
 
 /** The radius that stands in for "the entire map" (Potion of Omniscience). Larger than any
  *  world bound a `.w3e` can describe — 480 tiles of 128 is 61 440 units across at the
