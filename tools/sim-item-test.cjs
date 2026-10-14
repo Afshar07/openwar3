@@ -66,6 +66,8 @@ const ABILITIES = new Map([
     levelData: [lvl({ cooldown: 40, buffs: ["BNss"] })],
   })],
   // Ankh of Reincarnation — DataA 7 (delay), DataB 500 (life), DataC -1 (keep mana)
+  // Reincarnation, the Tauren Chieftain's — Ore1 5 (delay), Cool1 240 — for the order the two take.
+  ["AOre", ability("AOre", "AOre", { isItem: false, isHero: true, effectArt: "Abilities\\Spells\\Orc\\Reincarnation\\ReincarnationTarget.mdl", levelData: [lvl({ cooldown: 240, data: D(5) })] })],
   ["AIrc", ability("AIrc", "AIrc", { effectArt: "Abilities\\Spells\\Orc\\Reincarnation\\ReincarnationTarget.mdl", levelData: [lvl({ data: D(7, 500, -1) })] })],
   // Tome of Power — DataA 1 "Levels Gained"
   ["AIlm", ability("AIlm", "AIlm", { levelData: [lvl({ data: D(1) })] })],
@@ -402,6 +404,36 @@ console.log("\nthe Ankh of Reincarnation is spent, and the hero gets up where he
   check("…and back on the field", hero.vanished, false);
   hero.hp = 0;
   check("…so a second death is a death", world.tryReincarnate(hero), false);
+}
+
+console.log("\ntwo Ankhs are two deaths, one each");
+{
+  world = newWorld();
+  const hero = give(give(unit({ isHero: true, hp: 0 }), "ankh", 0), "ankh", 3);
+  check("the first death is caught", world.tryReincarnate(hero), true);
+  check("…by ONE Ankh — the first in the pack", hero.inventory.map((h) => (h ? h.itemId : "-")).join(), "-,,,ankh");
+  world.tickRevive(hero, 8);
+  hero.hp = 0;
+  check("the second death is caught by the other", world.tryReincarnate(hero), true);
+  check("…which is spent in its turn", hero.inventory.filter(Boolean).length, 0);
+  world.tickRevive(hero, 8);
+  hero.hp = 0;
+  check("…and the third is a death", world.tryReincarnate(hero), false);
+}
+
+console.log("\nthe ABILITY goes before the Ankh  (Liquipedia, Tauren Chieftain)");
+{
+  world = newWorld();
+  const chief = give(unit({ isHero: true, hp: 0, abilities: [{ id: "AOre", code: "AOre", level: 1, cooldownLeft: 0, autocastOn: false }] }), "ankh");
+  check("a Tauren Chieftain wearing an Ankh is caught", world.tryReincarnate(chief), true);
+  check("…by his ultimate, which goes on its 240 cooldown", Math.round(chief.abilities[0].cooldownLeft), 240);
+  check("…keeping the Ankh", chief.inventory[0]?.itemId, "ankh");
+  check("…and down for the ultimate's own Ore1, 5 seconds", Math.round(chief.reviveT), 5);
+  world.tickRevive(chief, 6);
+  chief.hp = 0;
+  check("killed again while it cools, the Ankh catches him", world.tryReincarnate(chief), true);
+  check("…and is spent", chief.inventory[0], null);
+  check("…for its own DataA, 7 seconds", Math.round(chief.reviveT), 7);
 }
 
 console.log("\nthe Tome of Power is a level");

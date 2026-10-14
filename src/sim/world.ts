@@ -23535,11 +23535,12 @@ export class SimWorld {
    */
   private tryReincarnate(u: SimUnit): boolean {
     if (u.hp > 0) return false;
-    if (u.isHero && this.tryAnkh(u)) return true;
+    // The ABILITY first, the Ankh only while it is on cooldown: "If your hero has Reincarnation
+    // (the ability) and has an Ankh of Reincarnation item in his/her inventory, the hero will
+    // trigger the ability before consuming the Ankh item" (Liquipedia, Tauren Chieftain).
     const ab = u.abilities.find((a) => (a.code === "AOre" || a.code === "ACrn") && a.level >= 1 && a.cooldownLeft <= 0);
-    if (!ab || !this.abilities) return false;
-    const def = this.abilityDefOf(ab);
-    if (!def) return false;
+    const def = ab && this.abilities ? this.abilityDefOf(ab) : undefined;
+    if (!ab || !def) return u.isHero && this.tryAnkh(u);
     const lvl = def.levelData[Math.min(ab.level, def.levelData.length) - 1];
     ab.cooldownLeft = lvl.cooldown > 0 ? lvl.cooldown : 240;
     // `Ore1` "Reincarnation Delay" — 5 on the hero's row, 7 on the creeps'. See goDown.
@@ -23641,8 +23642,9 @@ export class SimWorld {
    *  The Ankh is `uses = 1` and `perishable = 1`, so it is SPENT: the item is gone, the hero
    *  lies in his own Death pose for DataA, and gets up where he fell (goDown).
    *
-   *  Checked BEFORE `AOre` so a Tauren Chieftain wearing an Ankh spends the item and keeps
-   *  his ultimate off cooldown, which is the order that loses the player less. */
+   *  Asked only AFTER the ability (tryReincarnate): a Tauren Chieftain wearing an Ankh rises on
+   *  his ultimate and keeps the item, and spends the item only while the ultimate is cooling.
+   *  ONE Ankh per death — the first one in the pack; a second rides on to the next death. */
   private tryAnkh(u: SimUnit): boolean {
     const slot = u.inventory.findIndex((h) => {
       const item = h && this.itemReg?.get(h.itemId);
