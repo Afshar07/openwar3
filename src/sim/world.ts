@@ -23845,6 +23845,7 @@ export class SimWorld {
       if (Math.hypot(x - u.x, y - u.y) <= ITEM_DROP_RANGE() + u.radius) {
         this.doDropItem(u, slot, x, y);
         this.stop(u.id);
+        this.faceDropSpot(u, x, y);
       } else if (!u.moving) {
         this.pathTo(u, x, y);
       }
@@ -24001,7 +24002,12 @@ export class SimWorld {
     // to the spot to fail there. See setItemDroppable.
     if (!this.mayLeaveInventory(held)) return false;
     if (Math.hypot(x - u.x, y - u.y) <= ITEM_DROP_RANGE() + u.radius) {
+      // A drop within reach is still an ORDER, and it ends whatever the unit was doing: a hero
+      // walking past drops the item and stands, exactly as one that had to walk over to the
+      // spot does once it gets there (tickGetItem) — and turns to the spot it put it on.
       this.doDropItem(u, slot, x, y);
+      this.stop(unitId);
+      this.faceDropSpot(u, x, y);
       return true;
     }
     // Out of reach: walk to the spot and drop it when it comes within drop range.
@@ -24018,6 +24024,12 @@ export class SimWorld {
     this.detachBuilder(unitId);
     this.pathTo(u, x, y);
     return true;
+  }
+
+  /** Turn a unit that has just dropped an item toward where it put it. A spot under its own
+   *  feet has no direction, and the unit keeps the facing it has. */
+  private faceDropSpot(u: SimUnit, x: number, y: number): void {
+    if (Math.hypot(x - u.x, y - u.y) > 1) u.desiredFacing = Math.atan2(y - u.y, x - u.x);
   }
 
   /** Actually place a slot's item on the ground at (x,y) and clear the slot. The item
