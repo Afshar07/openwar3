@@ -24607,19 +24607,23 @@ export class SimWorld {
           fired = true;
           break;
         }
-        case "AEbl": { // Kelen's Dagger of Escape → blink to a point within range
+        case "AEbl": { // Kelen's Dagger of Escape → the Warden's own Blink (issue #191)
           // The same rule the spell keeps: the unplayable black is not a place to land, and
           // a dagger waved at it keeps its charge (issue #117 — `fired` stays false below).
           if (!this.inPlayableArea(x, y)) break;
-          const range = d(0) || 1000;
-          const dist = Math.hypot(x - u.x, y - u.y);
-          const s = dist > range ? range / dist : 1;
-          const tx = u.x + (x - u.x) * s;
-          const ty = u.y + (y - u.y) * s;
-          this.unsettle(u);
-          u.x = tx; u.y = ty;
-          u.path = []; u.moving = false; u.waypoint = 0;
-          this.settle(u);
+          // `[AIbk] code = AEbl`, and its ItemAbilityFunc row is `[AEbl]`'s art word for word
+          // — "Art to leave behind at old coordinate" BlinkCaster, "Art to play at the new
+          // coordinate" BlinkTarget. So it IS Blink, and it goes the whole of Blink's way: the
+          // departure plume left standing where the Hero was (CAST_START_ART's half, with its
+          // BlinkBirth sound — an item has no wind-up for it to ride), then the spell's own
+          // handler, which caps the hop at `DataA`, sets the Hero down through teleportUnit
+          // (so a dagger aimed at a cliff face or the sea lands on the nearest ground he can
+          // stand on rather than inside it) and plays the arrival with BlinkArrival's sound.
+          // It used to write `x`/`y` by hand and show nothing at either end.
+          const plume = CAST_START_ART.AEbl(ad);
+          if (plume.art) this.spellEffects.push({ art: plume.art, x: u.x, y: u.y, targetId: 0, z: 0, sound: plume.sound });
+          this.applySpellEffect(ad.code, 1, u, { targetId: 0, x, y }, ad);
+          this.stop(u.id); // it arrives standing, not still walking the errand it blinked out of
           fired = true;
           break;
         }
