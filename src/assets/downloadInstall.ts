@@ -5,9 +5,9 @@ import { readInstallDir, type DirHandle, type PickedInstall } from "./opfs";
 // can reach from a new machine — a Google Drive share, typically — streamed down and unpacked
 // where the game can read it.
 //
-// The LINK ships with the game (GAME_FILES_LINK below): the field is prefilled for every player
-// in every build, so "Download game files" is a button rather than a formality. What the player
-// types last still wins — the prefill is only what the field starts with.
+// The LINK ships with the game (GAME_FILES_LINK below): "Download game files" on the load gate
+// (src/ui/gate.ts) takes the player straight down it — no field to fill, the press IS the start —
+// and what this player typed last time, if anything, wins over the shipped one.
 //
 // Two homes for the result. The DESKTOP app unpacks into a real folder the shell then remembers
 // (electron/download.mjs) — a downloaded install is an install. A BROWSER has no folder to write
@@ -21,20 +21,12 @@ const GAME_FILES_LINK =
   "https://drive.google.com/file/d/1hcH5hqQInvvqcGKxe9lj9N9qzCz2EekG/view?usp=sharing";
 const LINK_KEY = "ow3.gameFilesLink";
 
-/** What the link field starts with: the last link this player used, else the shipped one. */
+/** What the link the download starts from: the last one this player used, else the shipped one. */
 export function rememberedLink(): string {
   try {
     return localStorage.getItem(LINK_KEY) ?? GAME_FILES_LINK;
   } catch {
     return GAME_FILES_LINK;
-  }
-}
-
-export function rememberLink(link: string): void {
-  try {
-    localStorage.setItem(LINK_KEY, link);
-  } catch {
-    // A private window: the player types it again next time, nothing else is lost.
   }
 }
 
@@ -111,13 +103,13 @@ const wanted = (path: string): boolean => {
     p.startsWith("data/") || /^[^/]+\.mpq$/.test(p) || (p.startsWith("maps/") && /\.(w3m|w3x)$/.test(p));
 };
 
-async function rangeReader(url: string): Promise<{ size: number; read: (a: number, b: number) => Promise<Uint8Array> }> {
+async function rangeReader(url: string, signal?: AbortSignal): Promise<{ size: number; read: (a: number, b: number) => Promise<Uint8Array> }> {
   const read = async (start: number, end: number): Promise<Uint8Array> => {
-    const res = await fetch(url, { headers: { Range: `bytes=${start}-${end}` } });
+    const res = await fetch(url, { headers: { Range: `bytes=${start}-${end}` }, signal });
     if (res.status !== 206) throw new Error(notAZip(res));
     return new Uint8Array(await res.arrayBuffer());
   };
-  const probe = await fetch(url, { headers: { Range: "bytes=0-0" } });
+  const probe = await fetch(url, { headers: { Range: "bytes=0-0" }, signal });
   const size = Number(/\/(\d+)$/.exec(probe.headers.get("content-range") ?? "")?.[1]);
   await probe.body?.cancel();
   if (probe.status !== 206 || !size) throw new Error(notAZip(probe));
@@ -180,15 +172,17 @@ async function unpack(cursor: ZipCursor, entry: InstallEntry, file: FileSystemFi
 
 /**
  * Download the archive behind `link` and unpack the install out of it into OPFS. Replaces any
- * earlier copy, whole or partial. Resolves once the copy is whole; `storedInstall()` then reads it.
+ * earlier copy, whole or partial. Resolves once the copy is whole; `storedInstall()` then reads
+ * it. `signal` is the load gate's Cancel (src/ui/gate.ts): an abort stops the stream and wipes
+ * what has been unpacked so far — a cancelled download leaves nothing behind.
  */
-export async function downloadInstall(link: string, onProgress: (p: DownloadProgress) => void): Promise<void> {
+export async function downloadInstall(link: string, onProgress: (p: DownloadProgress) => void, signal?: AbortSignal): Promise<void> {
   const direct = downloadUrl(link);
   if (!direct) throw new Error("That is not a link.");
   const url = await pageUrl(direct);
   if (!navigator.storage?.getDirectory) throw new Error("This browser cannot store the game files. Try Chrome or Edge.");
 
-  const { size, read } = await rangeReader(url);
+  const { size, read } = await rangeReader(url, signal);
   const entries = installEntries(await readZipIndex(read, size)).filter((e) => wanted(e.path));
   const need = entries.reduce((sum, e) => sum + e.uncompressedSize, 0);
   const { usage, quota } = (await navigator.storage.estimate?.()) ?? {};
@@ -200,26 +194,33 @@ export async function downloadInstall(link: string, onProgress: (p: DownloadProg
   await opfs.removeEntry(STORE_DIR, { recursive: true }).catch(() => {});
   const root = await opfs.getDirectoryHandle(STORE_DIR, { create: true });
 
-  const res = await fetch(url);
-  if (!res.ok || !res.body) throw new Error(notAZip(res));
-  const cursor = new ZipCursor(chunksOf(res.body));
-  onProgress({ fraction: 0, received: 0, total: size });
-  // On a clock rather than per network chunk, which arrive by the thousand.
-  const timer = setInterval(() => onProgress({ fraction: cursor.pos / size, received: cursor.pos, total: size }), 250);
   try {
-    for (const entry of entries) {
-      await cursor.enter(entry);
-      await unpack(cursor, entry, await fileAt(root, entry.path));
+    const res = await fetch(url, { signal });
+    if (!res.ok || !res.body) throw new Error(notAZip(res));
+    const cursor = new ZipCursor(chunksOf(res.body));
+    onProgress({ fraction: 0, received: 0, total: size });
+    // On a clock rather than per network chunk, which arrive by the thousand.
+    const timer = setInterval(() => onProgress({ fraction: cursor.pos / size, received: cursor.pos, total: size }), 250);
+    try {
+      for (const entry of entries) {
+        await cursor.enter(entry);
+        await unpack(cursor, entry, await fileAt(root, entry.path));
+      }
+    } finally {
+      clearInterval(timer);
+      await cursor.close().catch(() => {});
+      await res.body.cancel().catch(() => {});
     }
-  } finally {
-    clearInterval(timer);
-    await cursor.close().catch(() => {});
-    await res.body.cancel().catch(() => {});
+    const marker = await (await root.getFileHandle(COMPLETE, { create: true })).createWritable();
+    await marker.write(JSON.stringify({ from: link, at: new Date().toISOString(), files: entries.length }));
+    await marker.close();
+    onProgress({ fraction: 1, received: size, total: size });
+  } catch (err) {
+    // Cancelled: take the half-unpacked copy with you. A download that died any other way keeps
+    // its partial for the next attempt to wipe (which this function also does, above).
+    if (signal?.aborted) await opfs.removeEntry(STORE_DIR, { recursive: true }).catch(() => {});
+    throw err;
   }
-  const marker = await (await root.getFileHandle(COMPLETE, { create: true })).createWritable();
-  await marker.write(JSON.stringify({ from: link, at: new Date().toISOString(), files: entries.length }));
-  await marker.close();
-  onProgress({ fraction: 1, received: size, total: size });
 }
 
 /** The install a previous "Download game files" left in OPFS, or null if there is none (or only

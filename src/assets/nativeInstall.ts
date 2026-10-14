@@ -28,6 +28,8 @@ interface NativeBridge {
   forgetInstall(): Promise<void>;
   /** Absent on a shell older than "Download game files". */
   downloadInstall?(url: string, onProgress: (p: DownloadProgress) => void): Promise<string | null>;
+  /** The load gate's Cancel: abort that transfer mid-flight. Absent with it. */
+  cancelDownload?(): void;
   servers(): Promise<Array<{ id: string; url: string }>>;
   onServers(fn: (peers: Array<{ id: string; url: string }>) => void): () => void;
   vsync?: {
@@ -137,6 +139,13 @@ export async function downloadNativeInstall(url: string, onProgress: (p: Downloa
   const native = bridge();
   if (!native?.downloadInstall) throw new Error("This version of the app cannot download. Update it first.");
   return native.downloadInstall(url, onProgress);
+}
+
+/** The load gate's Cancel during that download (electron/download.mjs). A no-op where there is
+ *  nothing in flight — pressed during the folder dialog it cancels the transfer that dialog is
+ *  about to start, and the shell's own abort check catches it. */
+export function cancelNativeDownload(): void {
+  bridge()?.cancelDownload?.();
 }
 
 export async function forgetNativeInstall(): Promise<void> {

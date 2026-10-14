@@ -3273,7 +3273,8 @@ body.in-game .fdf-screen.fdf-ingame {
 .load-gate-status.error { color: #ff6a55; }
 
 /* "Download game files" (src/assets/downloadInstall.ts): a quiet text link under the button, and
-   the link field it opens. Deliberately NOT a glue button — the folder pick is the way in. */
+   its Cancel twin under the progress bar. Deliberately NOT a glue button — the folder pick is the
+   way in, and the press of the link starts the download rather than opening a form. */
 .load-gate-link {
   margin-top: -8px;
   padding: 2px 4px;
@@ -3290,24 +3291,6 @@ body.in-game .fdf-screen.fdf-ingame {
 .load-gate-link:hover,
 .load-gate-link.pad-hover { color: var(--ow3-gold); opacity: 1; }
 .load-gate-link[hidden] { display: none; }
-
-.load-gate-download {
-  align-self: stretch;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.load-gate-download[hidden] { display: none; }
-.load-gate-download input {
-  flex: 1;
-  min-width: 0;
-  padding: 8px 10px;
-  border: 1px solid #5a5e6a;
-  background: rgb(0 0 0 / 0.55);
-  font: 13px var(--ow3-font);
-  color: var(--ow3-text);
-}
-.load-gate-download input:focus { outline: 1px solid var(--ow3-gold); }
 
 /* --- FDF-driven frames (issue #54): the WC3 UI system, built from UI\FrameDef\*.fdf.
    Frames are absolutely positioned over the 3D background; only interactive frames

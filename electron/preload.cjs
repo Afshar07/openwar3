@@ -47,6 +47,9 @@ contextBridge.exposeInMainWorld("ow3native", {
       ipcRenderer.off("ow3:install-download-progress", handler);
     }
   },
+  /** The load gate's Cancel during that download: abort the transfer mid-flight. The handler's
+   *  in-flight download then throws, the staging folder is wiped and the invoke rejects. */
+  cancelDownload: () => ipcRenderer.send("ow3:install-download-cancel"),
   /** Forget the remembered folder, so the next launch asks again. */
   forgetInstall: () => ipcRenderer.invoke("ow3:install-forget"),
   /** Write the folder's CustomKeys.txt — the hotkey editor's Save (issue #156). ONE named file

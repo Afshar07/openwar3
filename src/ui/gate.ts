@@ -1,8 +1,8 @@
 import { pickInstall, requestPersistence, type PickedInstall } from "../assets/opfs";
-import { downloadNativeInstall, isDesktopApp, loadNativeInstall, pickNativeInstall, rememberedInstall } from "../assets/nativeInstall";
 import {
-  downloadInstall, downloadUrl, gb, rememberLink, rememberedLink, storedInstall, type DownloadProgress,
+  downloadInstall, downloadUrl, gb, rememberedLink, storedInstall, type DownloadProgress,
 } from "../assets/downloadInstall";
+import { cancelNativeDownload, downloadNativeInstall, isDesktopApp, loadNativeInstall, pickNativeInstall, rememberedInstall } from "../assets/nativeInstall";
 import { loadProfile } from "../vfs/loader";
 import { REQUIRED_VERSION, wrongVersionMessage } from "../vfs/version";
 import { DEFAULT_PROFILE } from "../vfs/profiles";
@@ -82,8 +82,8 @@ export function mountLoadGate(root: HTMLElement, onLoaded: (r: GateLoad) => void
   // "Download game files": the player's OWN install, zipped and kept somewhere they can reach from
   // a new machine (src/assets/downloadInstall.ts). A link under the button rather than a second
   // button beside it — picking the folder is still THE way in, and this is for the player who
-  // has no folder on this machine to pick. The field starts from the link the game ships with
-  // (GAME_FILES_LINK) or, once they have typed one, their own last link.
+  // has no folder on this machine to pick. The press IS the start: it goes straight down the
+  // link the game ships with (GAME_FILES_LINK) into the bar below, Cancel under it.
   const downloadable = native || !!navigator.storage?.getDirectory;
   const dlToggle = document.createElement("button");
   dlToggle.type = "button";
@@ -91,28 +91,18 @@ export function mountLoadGate(root: HTMLElement, onLoaded: (r: GateLoad) => void
   dlToggle.textContent = "Download game files";
   dlToggle.hidden = !downloadable;
 
-  const dlForm = document.createElement("form");
-  dlForm.className = "load-gate-download";
-  dlForm.hidden = true;
-  const dlInput = document.createElement("input");
-  dlInput.type = "url";
-  dlInput.spellcheck = false;
-  dlInput.placeholder = "Link to a .zip of your Warcraft III folder";
-  dlInput.value = rememberedLink();
-  const dlGo = createGlueButton({ label: "Download" });
-  dlGo.button.type = "submit";
-  dlForm.append(dlInput, dlGo.root);
+  const dlCancel = document.createElement("button");
+  dlCancel.type = "button";
+  dlCancel.className = "load-gate-link load-gate-cancel";
+  dlCancel.textContent = "Cancel";
+  dlCancel.hidden = true;
 
-  dlToggle.onclick = (): void => {
-    dlForm.hidden = !dlForm.hidden;
-    if (!dlForm.hidden) dlInput.focus();
-  };
-
-  const showBar = (on: boolean): void => {
+  /** `cancelable` is the download's own: the mount that follows it has nothing to cancel. */
+  const showBar = (on: boolean, cancelable = false): void => {
     bar.root.hidden = !on;
     btn.root.hidden = on;
     dlToggle.hidden = on || !downloadable;
-    if (on) dlForm.hidden = true;
+    dlCancel.hidden = !on || !cancelable;
   };
 
   const fail = (msg: string): void => {
@@ -156,53 +146,70 @@ export function mountLoadGate(root: HTMLElement, onLoaded: (r: GateLoad) => void
     }
   };
 
+  /** The browser half's abort; the desktop half's lives in the shell (electron/download.mjs).
+   *  `dlCancelled` is the press of Cancel, which tells an abort apart from a failure. */
+  let dlAbort: AbortController | null = null;
+  let dlCancelled = false;
+
+  const cancelled = (): void => {
+    dlCancelled = true;
+    dlAbort?.abort();
+    void cancelNativeDownload();
+  };
+
   const download = async (): Promise<void> => {
-    const link = dlInput.value.trim();
+    const link = rememberedLink();
     const url = downloadUrl(link);
     if (!url) {
-      status.textContent = "Paste a link to a .zip of your Warcraft III folder.";
-      status.classList.add("error");
+      fail("The game files link is not one this can download.");
       return;
     }
-    rememberLink(link);
+    dlCancelled = false;
     btn.setDisabled(true);
     status.textContent = "";
     status.classList.remove("error");
     bar.set(0);
     bar.setLabel("Connecting…");
+    showBar(true, true);
     const progress = (p: DownloadProgress): void => {
       bar.set(p.fraction);
       bar.setLabel(`Downloading game files… ${gb(p.received)} of ${gb(p.total)}`);
     };
     try {
       if (native) {
-        // The shell asks where to put it before a byte moves, so nothing is shown until it has.
-        const folder = await downloadNativeInstall(url, (p) => { showBar(true); progress(p); });
+        // The shell asks where to put it before a byte moves, and its own dialog cannot be
+        // cancelled from here — only the transfer itself can, once it has started.
+        const folder = await downloadNativeInstall(url, progress);
         if (!folder) {
           showBar(false);
           btn.setDisabled(false);
-          dlForm.hidden = false;
-          status.textContent = "No folder chosen.";
+          status.textContent = dlCancelled ? "Cancelled." : "No folder chosen.";
           return;
         }
         return mount(await loadNativeInstall());
       }
-      showBar(true);
-      await downloadInstall(link, progress);
+      dlAbort = new AbortController();
+      await downloadInstall(link, progress, dlAbort.signal);
       const install = await storedInstall();
       if (!install) throw new Error("the files did not arrive whole.");
       return mount(install);
     } catch (err) {
+      if (dlCancelled) {
+        showBar(false);
+        btn.setDisabled(false);
+        status.textContent = "Cancelled.";
+        return;
+      }
       // An IPC rejection arrives wrapped in Electron's own words around the shell's message.
       const msg = (err as Error).message.replace(/^Error invoking remote method '[^']*': (?:Error: )?/, "");
       fail(`Couldn't download the game files: ${msg}`);
-      dlForm.hidden = false;
+    } finally {
+      dlAbort = null;
     }
   };
-  dlForm.onsubmit = (e): void => {
-    e.preventDefault();
-    void download();
-  };
+
+  dlToggle.onclick = (): void => void download();
+  dlCancel.onclick = (): void => cancelled();
 
   btn.button.onclick = async (): Promise<void> => {
     status.classList.remove("error");
@@ -218,7 +225,7 @@ export function mountLoadGate(root: HTMLElement, onLoaded: (r: GateLoad) => void
     return mount(install);
   };
 
-  panel.append(title, sub, action, dlToggle, dlForm, status);
+  panel.append(title, sub, action, dlToggle, dlCancel, status);
   gate.appendChild(panel);
   root.appendChild(gate);
   const unbindHotkeys = bindHotkeys(gate);
