@@ -2686,11 +2686,20 @@ const STUCK_RATIO = 0.3; // "blocked" = actual displacement below this share of 
 const YIELD_TIME = 0.2;
 // Air units ignore ground pathing & collision *while cruising* (issue #31), so a
 // group flies as one point and stacks perfectly on arrival / when swarming a
-// target. WC3 flyers don't stack: once stopped (arrived or fighting) they glide
-// apart until their collision hulls no longer overlap. This is the max drift speed
-// of that fan-out, as a share of the flyer's own move speed — a share (not full
-// speed) so it reads as a gentle spread rather than a pop.
-const AIR_FANOUT_SPEED = 0.6;
+// target. WC3 flyers don't stack: patch 1.10 turned flyer collision off and added
+// a separation step that makes air units "break out of clusters once they reach a
+// destination" (the 1.10 notes, quoted on Liquipedia's Gryphon Rider page). The
+// width of that spread is the ENGINE's, not the data's: every stock flyer has
+// UnitBalance `collision` = 8, which would park a Gryphon Rider 16 units from the
+// next one — still a single blob (issue #198). So a stopped flyer keeps the
+// radius of its own SELECTION CIRCLE clear (unitUI `scale` × the 36-unit
+// circle at 1.0, the same ring the renderer draws), which sizes the gap off the
+// body — a Frost Wyrm (2.25) holds more air than a Gargoyle (1.25). The radius was
+// picked by eye from six variants (issue #198); it is OURS, not a measured value.
+const AIR_SPACING_PER_SEL_SCALE = 36;
+// The max drift speed of that fan-out, as a share of the flyer's own move speed — a
+// share (not full speed) so it reads as a glide rather than a pop.
+const AIR_FANOUT_SPEED = 0.8;
 // Human "speed build": each builder beyond the first adds SPEED_BUILD_BONUS to the
 // build rate (1.0 = one builder) and, spread across the shortened build time, a
 // SPEED_BUILD_SURCHARGE share of the base cost per extra builder. Tuned to WC3's
@@ -28309,18 +28318,26 @@ export class SimWorld {
   // Fan stopped air units apart (issue #31). Flyers cruise with no collision (they
   // fly over everything), so a moving group is a single point and they stack exactly
   // on top of each other once they arrive or converge on a target. WC3 flyers don't
-  // stack: the moment they stop they glide apart until their hulls clear. So this
+  // stack: the moment they stop they glide apart until their circles clear. So this
   // acts on air units that are NOT moving — i.e. those that have reached their
   // destination or are holding position while fighting — and leaves cruising flyers
   // untouched (they still pass freely through the air). Both units in an overlapping
   // pair are stationary, so the correction is split evenly and each drifts out; the
   // per-unit step is capped to a share of its move speed so a clump spreads over a
   // few frames instead of popping. Air-vs-air only; ground collision is separate.
+  // The gap kept is the selection circle rather than the hull — see AIR_SPACING_PER_SEL_SCALE.
   private resolveAirSeparation(dt: number): void {
     const list: SimUnit[] = [];
     for (const u of this.units.values())
       if (u.flying && u.radius > 0 && !u.moving && !ghosting(u) && u.hp > 0) list.push(u);
     if (list.length < 2) return;
+    // Each flyer's clear radius: its selection circle, never less than its hull (above).
+    const spacing = new Float64Array(list.length);
+    for (let i = 0; i < list.length; i++) {
+      const u = list[i];
+      const sel = (this.unitReg?.get(u.typeId)?.selScale || 1) * AIR_SPACING_PER_SEL_SCALE;
+      spacing[i] = Math.max(u.radius, sel);
+    }
     // Accumulate every pair's desired push, then apply once (capped) per unit — so a
     // flyer buried in a stack drifts out smoothly instead of jerking pair-by-pair.
     const pushX = new Float64Array(list.length);
@@ -28331,7 +28348,7 @@ export class SimWorld {
         const b = list[j];
         let dx = b.x - a.x;
         let dy = b.y - a.y;
-        const min = a.radius + b.radius;
+        const min = spacing[i] + spacing[j];
         let d = Math.hypot(dx, dy);
         if (d >= min) continue;
         if (d === 0) {
@@ -28362,8 +28379,12 @@ export class SimWorld {
         px = (px / mag) * maxStep;
         py = (py / mag) * maxStep;
       }
-      list[i].x += px;
-      list[i].y += py;
+      // Never drift over the map's Unflyable border (docs/unplayable-area.md): the
+      // selection-circle gap is wide enough to carry an edge flyer across it.
+      const u = list[i];
+      if (!this.footprintWalkableAt(u, u.x + px, u.y + py)) continue;
+      u.x += px;
+      u.y += py;
     }
   }
 
