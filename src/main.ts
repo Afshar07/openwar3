@@ -102,11 +102,21 @@ applyScrollOptions(bootOptions);
 
 const resolver = new AssetResolver(null);
 
-// Placeholder terrain is now only the zero-asset map fallback (kept idle until then),
-// not the menu background — the menu uses the real MainMenu3D glue scene once loaded.
-const terrain = new TerrainScene(bgCanvas);
-terrain.setTerrain(buildTerrainMesh(makePlaceholderTerrain()));
-terrain.setDoodads([]);
+// Placeholder terrain is now only the zero-asset map fallback, not the menu background — the
+// menu uses the real MainMenu3D glue scene once loaded. Built on FIRST USE, never at module load:
+// its constructor throws without WebGL2, and a throw up here kills the whole module before the
+// load gate mounts — a machine whose GPU is blocklisted (a VM, Xvfb, an old driver) then gets a
+// blank window and no word of why, which is how the AppImage catalog's test saw the game
+// (AppImage/appimage.github.io#10203).
+let terrain: TerrainScene | null = null;
+function placeholderTerrain(): TerrainScene {
+  if (!terrain) {
+    terrain = new TerrainScene(bgCanvas);
+    terrain.setTerrain(buildTerrainMesh(makePlaceholderTerrain()));
+    terrain.setDoodads([]);
+  }
+  return terrain;
+}
 
 let modelScene: ModelViewerScene | null = null;
 let mapScene: MapViewerScene | null = null;
@@ -133,7 +143,7 @@ function show(which: Which): void {
   modelCanvas.hidden = which !== "model";
   mapCanvas.hidden = which !== "map";
   if (which !== "menubg") menuScene?.stop();
-  if (which !== "bg") terrain.stop();
+  if (which !== "bg") terrain?.stop();
   if (which !== "model") modelScene?.stop();
   if (which !== "map") mapScene?.stop();
 }
@@ -189,9 +199,10 @@ async function enterMap(bytes: Uint8Array, name: string): Promise<string> {
   }
   show("bg");
   const { terrain: data, doodads } = loadMapBytes(bytes, name);
-  terrain.setTerrain(buildTerrainMesh(data));
-  terrain.setDoodads(doodads);
-  terrain.start();
+  const scene = placeholderTerrain();
+  scene.setTerrain(buildTerrainMesh(data));
+  scene.setDoodads(doodads);
+  scene.start();
   return `${name}: placeholder terrain (import an install for authentic assets)`;
 }
 
@@ -1013,7 +1024,7 @@ async function viewModel(path: string): Promise<SequenceInfo[]> {
 
 function showTerrain(): void {
   show("bg");
-  terrain.start();
+  placeholderTerrain().start();
 }
 
 /** Throw away the map canvas and put a fresh one in its place — the last and biggest thing a
