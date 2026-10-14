@@ -52,6 +52,7 @@ import { ArmorType, AttackType, isNeutralSlot, MoveType, neutralSlot, PlayerSlot
 import { MELEE, dataNum, gameNum, xpToReachLevel } from "../data/gameplayConstants";
 import { type AbilityRegistry, type AbilityDef, type AbilityLevel } from "../data/abilities";
 import { AURA_BUFFS, SLOWED_BUFF } from "../sim/spells";
+import { REINCARNATION_BODY } from "../sim/world";
 import { resolveTipRefs } from "../data/tipRefs";
 import { disabledIconPath } from "../data/commandStrings";
 import { observePlayer, type ObserverPlayerView } from "./observerView";
@@ -339,6 +340,9 @@ interface Entry {
   inBurrow: boolean; // peon garrisoned inside an Orc Burrow (also deselects)
   devoured: boolean; // unit swallowed by a Kodo (also deselects)
   scriptHidden: boolean; // hidden by the map's script, ShowUnit (also deselects)
+  /** Lying in its Death pose while it reincarnates — the Ankh (REINCARNATION_BODY, see
+   *  lieDown). Undefined for everything that never has. */
+  lying?: boolean;
   /** This building DIED while this client could not see it, so the authority is still sending
    *  us its last-seen image (item 6d). The model stays standing and the entry stays alive —
    *  it is now drawn from the ghost record, not from a unit. Only ever set on a client. */
@@ -2115,6 +2119,48 @@ export class RtsController {
       }
     }
     if (!hide && !e.borrowedBody) this.applyFogTint(e, u, dt); // borrowed: mapViewer's doodad pass tints it
+  }
+
+  /**
+   * A hero whose Ankh of Reincarnation went off LIES WHERE IT FELL (issue #179): the sim keeps
+   * it `vanished` for the delay — off the field, so no bar, no ring, no hover, no click — but
+   * marks the body with REINCARNATION_BODY, and this draws it. It dies the way any hero dies on
+   * screen (its own Death clip, its death cry) and then simply stays down in the last frame of
+   * that clip: none of the corpse run a real death hands it to, so no Dissipate — the hero is
+   * not dead and does not leave. Getting up is the ordinary stand the picker takes back to,
+   * under the art's own rise (SimWorld.standUp).
+   *
+   * Fogged like any other image: the body is drawn only where the local player has eyes, and
+   * the cry is heard only there, as `onDeath`'s is. True while the body is lying, which keeps
+   * the animation picker off it.
+   */
+  private lieDown(e: Entry, u: RenderUnit, dt: number): boolean {
+    const lying = u.vanished && u.buffs.some((b) => b.group === REINCARNATION_BODY);
+    if (!lying) {
+      if (e.lying) {
+        e.lying = false;
+        e.curSeq = -1; // the picker sets the stand afresh (and applyVisibility's edge shows it)
+      }
+      return false;
+    }
+    this.applyVisibility(e, u, true, dt); // off the field, as far as everything else is concerned
+    const seen = !this.local.fogBlocksAt(u);
+    if (!e.lying) {
+      e.lying = true;
+      const def = this.registry.get(e.typeId);
+      const loc = e.unit.instance.localLocation;
+      if (seen && def?.soundSet) this.sounds?.play(def.soundSet, "Death", { x: loc[0], y: loc[1], z: loc[2] });
+      e.unit.state = WidgetState.WALK; // keep mdx-m3-viewer from overriding the death sequence
+      e.unit.instance.timeScale = 1;
+      if (e.anims.death >= 0) {
+        e.curSeq = e.anims.death;
+        e.unit.instance.setSequence(e.anims.death);
+        e.unit.instance.setSequenceLoopMode(SequenceLoopMode.PlayOnce); // once, holding its last frame: it stays down
+      }
+    }
+    if (seen && e.anims.death >= 0) e.unit.instance.show();
+    else e.unit.instance.hide();
+    return true;
   }
 
   /** Re-skin a unit that has changed FORM: rebuild its animation set for the new state and
@@ -4921,6 +4967,8 @@ export class RtsController {
       setZQuat(this.quat, u.facing);
       if (e.ride) this.placeRiding(e, this.loc, this.quat);
       else placeInstance(e.unit.instance, this.loc, this.quat);
+      // An Ankh's hero lies where it fell for the whole Reincarnation Delay (lieDown).
+      if (this.lieDown(e, u, dt)) continue;
       // Workers inside a gold mine vanish; enemy units vanish in the fog of war.
       this.applyVisibility(e, u, this.modelHidden(e.simId), dt);
       // A building the fog has swallowed is a STILL PICTURE: no construction scrub, no

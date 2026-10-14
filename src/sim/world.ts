@@ -2399,13 +2399,17 @@ export interface SimUnit {
    * Tauren Chieftain's row, 7 on the creeps' and the Ankh's). While it runs the unit is DOWN:
    * held at 1 hit point, invulnerable and stunned for exactly that long, so nothing can touch
    * it and it can do nothing — and `ReincarnationTarget.mdl` stands over it (the `"hold"`
-   * EffectAnim) until it gets up. 0 the rest of the time.
+   * EffectAnim) until it gets up, or, for the Ankh, its body lies in its Death pose (goDown's
+   * `body`). 0 the rest of the time.
    */
   reviveT: number;
   /** …what it gets up WITH: hit points, and mana (-1 = whatever it had). The Ankh states both
    *  in its own columns, the ability restores the lot. */
   reviveHp: number;
   reviveMana: number;
+  /** The art played as it GETS UP, when the body lay out the delay in its own Death pose
+   *  rather than under the hold effect — the Ankh (see goDown's `body`). "" otherwise. */
+  reviveArt: string;
   /**
    * THIS UNIT WAS TURNED ON ITS OWN SIDE, and a creep camp does not count it a threat.
    *
@@ -3504,8 +3508,15 @@ export interface ItemReveal {
  *              and only then is it destroyed. The shape of an effect that marks a STATE
  *              rather than an event: `ReincarnationTarget.mdl` stands over the body for as
  *              long as the reincarnation takes and dies when the unit gets up.
+ *   "death"  — open on its DEATH clip and play it once: the end of a state whose middle was
+ *              not drawn — the Ankh's rise, where the body lay in its own Death pose rather
+ *              than under the effect (SimWorld.goDown's `body`).
  */
-export type EffectAnim = "birth" | "stand" | "hold";
+export type EffectAnim = "birth" | "stand" | "hold" | "death";
+
+/** The marker on a reincarnating unit whose BODY lies in its Death pose for the delay — the
+ *  Ankh of Reincarnation (SimWorld.goDown's `body`). The renderer draws the lying body off it. */
+export const REINCARNATION_BODY = "reincarnation";
 
 /**
  * One model the renderer is asked to play THIS frame — the whole payload of the sim's
@@ -9218,6 +9229,7 @@ export class SimWorld {
       | "reviveT"
       | "reviveHp"
       | "reviveMana"
+      | "reviveArt"
       | "strayT"
       | "struckAt"
       | "returnBestDist"
@@ -9513,6 +9525,7 @@ export class SimWorld {
       reviveT: 0,
       reviveHp: 0,
       reviveMana: -1,
+      reviveArt: "",
       strayT: 0,
       struckAt: -Infinity,
       returnBestDist: 0,
@@ -23555,8 +23568,18 @@ export class SimWorld {
    *
    * `mana` of -2 means "the lot" (the ability restores a full bar); -1 keeps what it had,
    * which is the Ankh's own `DataC`.
+   *
+   * `body` is the ANKH's way down (issue #179): the hero DIES on screen — its own Death clip,
+   * its death cry — and lies there in that pose for the whole delay, with nothing standing
+   * over it and none of a fallen hero's Dissipate (it is not dead, so it does not leave). Only
+   * as it gets up does the Effectart play, and it plays its DEATH clip: ReincarnationTarget.mdx
+   * parks its one sound event there (`SNDXAORE` at frame 0 → AnimLookups `AORE` →
+   * "Reincarnation" → `Abilities\Spells\Orc\Reincarnation\Reincarnation.wav`), which is
+   * the model saying that clip is the moment of rising. The sim keeps the unit `vanished` all
+   * the same — off the field, untargetable, unorderable — and tells the renderer the body is
+   * lying there with the REINCARNATION_BODY marker, a buff because buffs cross the wire whole.
    */
-  private goDown(u: SimUnit, def: AbilityDef, delay: number, hp: number, mana: number): void {
+  private goDown(u: SimUnit, def: AbilityDef, delay: number, hp: number, mana: number, body = false): void {
     const window = Math.max(0, delay);
     u.buffs = u.buffs.filter((b) => b.kind === "manaShield"); // clear debuffs on revive
     this.cancelSwing(u);
@@ -23567,18 +23590,22 @@ export class SimWorld {
     u.order = "idle";
     u.reviveHp = hp;
     u.reviveMana = mana;
+    // `Effectart` on every row that reincarnates — `Abilities\Spells\Orc\Reincarnation\
+    // ReincarnationTarget.mdl` — and it is the one field they all fill (`Casterart` and
+    // `Targetart` are explicitly blank on `[AOre]`).
+    const art = def.effectArt || def.targetArt || def.casterArt;
+    u.reviveArt = body ? art : "";
     if (window <= 0) {
       this.standUp(u);
     } else {
       u.hp = 1;
       u.reviveT = window;
       u.vanished = true;
+      // No clock of its own: standUp takes it off, so the body cannot blink out a tick early.
+      if (body) u.buffs.push({ kind: "mark", group: REINCARNATION_BODY, timeLeft: Infinity, total: Infinity, sourceId: u.id, value: 0, value2: 0, art: "", fx: [], buffId: "", delay: 0, undispellable: true });
       this.recomputeStats(u); // off the field THIS tick, not next
     }
-    // `Effectart` on every row that reincarnates — `Abilities\Spells\Orc\Reincarnation\
-    // ReincarnationTarget.mdl` — and it is the one field they all fill (`Casterart` and
-    // `Targetart` are explicitly blank on `[AOre]`).
-    const art = def.effectArt || def.targetArt || def.casterArt;
+    if (body) return; // the body is the picture now — the art waits for standUp
     // On the UNIT, not on the tile: the marker stands over the body for the whole delay, and
     // an Ankh's owner can be a hero the sim moves while he is down (a script's SetUnitPosition,
     // a transport that was carrying him). Costs nothing where the body simply lies still.
@@ -23589,6 +23616,12 @@ export class SimWorld {
   private standUp(u: SimUnit): void {
     u.reviveT = 0;
     u.vanished = false;
+    if (u.reviveArt) {
+      // The Ankh's rise (see goDown's `body`): the art's Death clip, with the events parked in it.
+      u.buffs = u.buffs.filter((b) => b.group !== REINCARNATION_BODY);
+      this.spellEffects.push({ art: u.reviveArt, x: u.x, y: u.y, targetId: u.id, z: 0, life: 0, anim: "death", events: true });
+      u.reviveArt = "";
+    }
     u.hp = Math.min(u.maxHp, u.reviveHp > 0 ? u.reviveHp : u.maxHp);
     if (u.reviveMana === -2) u.mana = u.maxMana;
     else if (u.reviveMana >= 0) u.mana = Math.min(u.maxMana, u.reviveMana);
@@ -23609,10 +23642,8 @@ export class SimWorld {
    *    DataA "Delay After Death (seconds)"      7
    *    DataB "Restored Life"                    500
    *    DataC "Restored Mana (-1 for current)"   -1  ← keep whatever he had
-   *  The Ankh is `uses = 1` and `perishable = 1`, so it is SPENT: the item is gone and the
-   *  hero is standing where he fell. (Like the Tauren Chieftain's own `AOre` above, the
-   *  revive is immediate rather than after DataA — the delay is not modelled for either, and
-   *  modelling it for one only would make the item behave unlike the ability it is.)
+   *  The Ankh is `uses = 1` and `perishable = 1`, so it is SPENT: the item is gone, the hero
+   *  lies in his own Death pose for DataA, and gets up where he fell (goDown's `body`).
    *
    *  Checked BEFORE `AOre` so a Tauren Chieftain wearing an Ankh spends the item and keeps
    *  his ultimate off cooldown, which is the order that loses the player less. */
@@ -23627,7 +23658,9 @@ export class SimWorld {
     u.inventory[slot] = null; // spent — `uses` 1, `perishable` 1
     // Its own three columns, through the same window the ability uses: DataA "Delay After
     // Death" 7, DataB "Restored Life" 500, DataC "Restored Mana (-1 for current)".
-    this.goDown(u, ankh.def, this.dataOf(ankh.level, 0, 7), this.dataOf(ankh.level, 1, 500), this.dataOf(ankh.level, 2, -1));
+    // …and it goes down the way a hero DIES, in its own Death pose, rather than under the hold
+    // effect the abilities wear (goDown's `body`, issue #179).
+    this.goDown(u, ankh.def, this.dataOf(ankh.level, 0, 7), this.dataOf(ankh.level, 1, 500), this.dataOf(ankh.level, 2, -1), true);
     return true;
   }
 

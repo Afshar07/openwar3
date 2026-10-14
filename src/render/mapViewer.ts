@@ -5432,7 +5432,7 @@ export class MapViewerScene {
       }
       inst.setLocation(this.loc3);
     }
-    const stand = anim === "stand" ? this.seqIndex(inst, /^stand/i) : -1;
+    const stand = anim === "stand" ? this.seqIndex(inst, /^stand/i) : anim === "death" ? this.seqIndex(inst, /^death/i) : -1;
     const seq = stand >= 0 ? stand : this.effectSequence(inst);
     inst.setSequence(seq);
     inst.setSequenceLoopMode(0); // play once
@@ -14172,10 +14172,11 @@ export class MapViewerScene {
           if (fx.soundLabel) this.sounds?.playAbilitySound(fx.soundLabel, { x, y, z });
           // …and the one named by PATH (Hex/Polymorph's air and ground poofs; SimSpellEffect).
           if (fx.soundFile) this.sounds?.playSpellFile(fx.soundFile, { x, y, z });
-          // …and EVERY sound event the model parks in its Birth, each at its own frame
+          // …and EVERY sound event the model parks in the clip it plays, each at its own frame
           // (SimSpellEffect.events — the flare's whistle, pop and burn).
           if (fx.events) {
-            const w = this.sounds?.modelBirthWindow(fx.art);
+            // …the clip it OPENS on: its Death for a "death" effect (the Ankh's rise).
+            const w = fx.anim === "death" ? this.sounds?.modelDeathWindow(fx.art) : this.sounds?.modelBirthWindow(fx.art);
             if (w) this.fxSoundTracks.push({ art: fx.art, from: w[0], to: w[1], t: 0, last: w[0] - 0.001, x, y, z });
           }
         }

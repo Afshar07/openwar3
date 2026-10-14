@@ -263,6 +263,9 @@ interface ModelSounds {
   /** The model's first `Birth` clip, as a model-global [start, end] — null when it has none.
    *  What playModelBirthSound pairs the events against. */
   birth: [number, number] | null;
+  /** …and its first `Death` clip, the same way — what an effect opened on its Death plays its
+   *  events against (ReincarnationTarget.mdx's `SNDXAORE`, the Ankh's rise). */
+  deathWindow: [number, number] | null;
 }
 
 /** A live `sound` handle the script started (StartSound). The nodes arrive a tick late —
@@ -763,6 +766,11 @@ export class SoundBoard {
     return modelArt ? this.resolveModelSounds(modelArt).birth : null;
   }
 
+  /** …and of its Death clip, for an effect opened on it (EffectAnim "death"). */
+  modelDeathWindow(modelArt: string): [number, number] | null {
+    return modelArt ? this.resolveModelSounds(modelArt).deathWindow : null;
+  }
+
   playModelEventsIn(modelArt: string, from: number, to: number, at?: SoundPos): boolean {
     if (!modelArt) return false;
     const ms = this.resolveModelSounds(modelArt);
@@ -881,7 +889,7 @@ export class SoundBoard {
     const key = modelArt.toLowerCase();
     const cached = this.modelSounds.get(key);
     if (cached) return cached;
-    const out: ModelSounds = { attack: [], launch: [], impact: [], ability: [], death: [], abilityByCode: new Map(), eventTimes: new Map(), birth: null };
+    const out: ModelSounds = { attack: [], launch: [], impact: [], ability: [], death: [], abilityByCode: new Map(), eventTimes: new Map(), birth: null, deathWindow: null };
     this.modelSounds.set(key, out); // memoize up-front so a missing/broken model isn't re-parsed
     const bytes = this.vfs.rawBytes(modelArt);
     if (!bytes) return out;
@@ -894,6 +902,8 @@ export class SoundBoard {
     }
     const birth = model.sequences.find((q) => /^birth/i.test(q.name));
     if (birth) out.birth = [birth.interval[0], birth.interval[1]];
+    const death = model.sequences.find((q) => /^death/i.test(q.name));
+    if (death) out.deathWindow = [death.interval[0], death.interval[1]];
     for (const evt of model.eventObjects) {
       // Event-object names are "SND" + a 1-char separator + a 4-char code ("SNDXKRIF").
       if (evt.name.substring(0, 3) !== "SND") continue;

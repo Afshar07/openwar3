@@ -62,7 +62,7 @@ const ABILITIES = new Map([
   // Amulet of Spell Shield — Cool 40, buff BNss
   ["ANss", ability("ANss", "ANss", { levelData: [lvl({ cooldown: 40, buffs: ["BNss"] })] })],
   // Ankh of Reincarnation — DataA 7 (delay), DataB 500 (life), DataC -1 (keep mana)
-  ["AIrc", ability("AIrc", "AIrc", { levelData: [lvl({ data: D(7, 500, -1) })] })],
+  ["AIrc", ability("AIrc", "AIrc", { effectArt: "Abilities\\Spells\\Orc\\Reincarnation\\ReincarnationTarget.mdl", levelData: [lvl({ data: D(7, 500, -1) })] })],
   // Tome of Power — DataA 1 "Levels Gained"
   ["AIlm", ability("AIlm", "AIlm", { levelData: [lvl({ data: D(1) })] })],
   // Tome of Intelligence / Strength — DataA agi, DataB int, DataC str (the +2 tomes)
@@ -365,9 +365,17 @@ console.log("\nthe Ankh of Reincarnation is spent, and the hero gets up where he
   check("…off the field while he is", hero.vanished, true);
   check("…and so untouchable", hero.invulnerable, true);
   check("…for DataA's 7 seconds", Math.round(hero.reviveT), 7);
+  // Issue #179: he goes down the way a hero DIES — the body lies in its own Death pose
+  // (REINCARNATION_BODY, drawn by rts.lieDown), with no ReincarnationTarget smoke over it.
+  check("…his body lies where he fell", hero.buffs.map((b) => b.group).join(), "reincarnation");
+  check("…with no effect standing over it", world.drainSpellEffects().length, 0);
   world.tickRevive(hero, 6.9);
   near("…still down at 6.9s", hero.hp, 1);
   world.tickRevive(hero, 0.2);
+  const rise = world.drainSpellEffects();
+  check("…and he RISES under the art's Death clip, events and all (Reincarnation.wav)",
+    rise.map((f) => [f.art.split("\\").pop(), f.anim, f.events, f.targetId === hero.id].join()).join(";"), "ReincarnationTarget.mdl,death,true,true");
+  check("…the body marker gone with it", hero.buffs.length, 0);
   near("…and up at 7 with DataB hit points", hero.hp, 500);
   near("…and the mana he had (DataC = -1)", hero.mana, 123);
   check("…and back on the field", hero.vanished, false);
