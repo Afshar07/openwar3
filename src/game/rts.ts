@@ -9255,18 +9255,19 @@ export class RtsController {
     // The hover gives the item the same priority (hoverAt), so the slab over it names what
     // this click does. A left click is the other way round: the unit is selected (selectAt).
     // A selection with no inventory to carry it falls through to the ordinary orders.
+    //
+    // The order goes to the ACTIVE unit alone (the focused subgroup's portrait unit), never to
+    // the group (issue #172): with two heroes selected and the focused one's bag full, handing
+    // the item to whichever OTHER hero had room swallowed the "Inventory is full." refusal the
+    // player was owed — an item is picked up by the hero you are looking at, or by nobody.
     {
       const g = this.groundPoint(cssX, cssY);
       const gitem = g ? this.itemAt(g[0], g[1], ITEM_PICK_RADIUS) : null;
-      if (gitem) {
-        let any = false;
-        for (const id of this.orderees) {
-          const u = this.sim.units.get(id);
-          if (this.controls(id) && u?.inventory.length) {
-            if (this.execute(this.localPlayer, { c: "getitem", unitId: id, itemId: gitem.id })) any = true;
-          }
-        }
-        if (any) {
+      const id = this.primary;
+      const u = id !== null && this.orderees.has(id) ? this.sim.units.get(id) : undefined;
+      if (gitem && id !== null && this.controls(id) && u?.inventory.length) {
+        const ok = this.execute(this.localPlayer, { c: "getitem", unitId: id, itemId: gitem.id });
+        if (ok) {
           this.ack(false); // going to pick something up is a move, never the attack quote
           // Yellow (neutral) twin-blink at the item's own hover/selection ring size.
           this.flashRing(gitem.x, gitem.y, ITEM_RING_RADIUS, FLASH_YELLOW, true);
