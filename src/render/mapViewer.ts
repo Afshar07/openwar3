@@ -4528,10 +4528,24 @@ export class MapViewerScene {
       // every copy the same cell and stack them. The caster-relative summons never hit
       // this because summonMany fans their facings, and that fan is what the forward
       // step turns into distinct spots.
-      const unclaimed = (sx: number, sy: number): boolean => !claimed.has(`${sx},${sy}`);
+      //
+      // A claim is the whole FOOTPRINT, every cell of it (footprintFits' own n×n, `half` back
+      // from the anchor), never just the anchor: two summons the same fan of facings sends to
+      // the same spot — the Book of the Dead's three Skeleton Warriors and then its three
+      // Skeleton Archers — were handed neighbouring anchors whose 2×2 footprints OVERLAPPED,
+      // and the sim's settle then shoved each archer up to a hundred units clear of the spot
+      // its RaiseSkeleton burst had been stamped on. The bursts played in a heap under the
+      // warriors and every archer arrived without one (issue #175).
+      const half = n >> 1;
+      const cells = (ax: number, ay: number): string[] => {
+        const out: string[] = [];
+        for (let y = ay - half; y < ay - half + Math.max(1, n); y++) for (let x = ax - half; x < ax - half + Math.max(1, n); x++) out.push(`${x},${y}`);
+        return out;
+      };
+      const unclaimed = (sx: number, sy: number): boolean => !cells(sx, sy).some((c) => claimed.has(c));
       const spot = this.grid.nearestFit(cx, cy, n, 14, unclaimed) ?? this.grid.nearestFit(cx, cy, n, 14) ?? this.grid.nearestWalkable(cx, cy, 14);
       if (spot) {
-        claimed.add(`${spot[0]},${spot[1]}`);
+        for (const c of cells(spot[0], spot[1])) claimed.add(c);
         return this.grid.footprintCenter(spot[0], spot[1], n);
       }
     }
