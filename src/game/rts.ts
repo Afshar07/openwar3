@@ -2989,7 +2989,9 @@ export class RtsController {
     }
     if (this.orderMode === "attack") {
       const t = this.sim.units.get(simId);
-      if (t && simId !== this.primary) {
+      // The active unit is a legal target here too (issue #178) — see orderClickAt.
+      if (t && this.onlyOrderee(simId)) return this.refuseOrder("Notself");
+      if (t) {
         let any = false;
         for (const id of this.orderees) if (id !== simId && this.execute(this.localPlayer, { c: "order", unitId: id, order: { kind: "attack", targetId: simId, force: true, solo: this.soloOrder(simId) }, queued: false })) any = true;
         // Refused for everyone — a tower aimed past its range — says why and stays armed,
@@ -6588,7 +6590,10 @@ export class RtsController {
     if (mode === "attack") {
       const picked = this.pickAt(cssX, cssY);
       const prim = this.primary !== null ? this.sim.units.get(this.primary) : undefined;
-      const target = picked !== null && picked !== this.primary ? this.sim.units.get(picked) : undefined;
+      // The ACTIVE unit is a target like any other member of the group (issue #178): the rest of
+      // the selection force-attacks it and it alone sits the order out (`id !== picked` below).
+      // Excluding it here threw the click away into an attack-move onto the ground under it.
+      const target = picked !== null ? this.sim.units.get(picked) : undefined;
       if (target && prim && picked !== null) {
         // The Attack command FORCE-attacks whatever is under the cursor — including
         // friendly/own units and buildings (WC3 force attack).
@@ -6600,6 +6605,7 @@ export class RtsController {
           this.flashAttack(target.x, target.y, this.byId.get(picked)?.selRadius ?? target.radius, this.liftOver(this.byId.get(picked), target.x, target.y));
           return true;
         }
+        if (this.onlyOrderee(picked)) return this.refuseOrder("Notself"); // "Unable to target self."
         if (this.refuseAttackTarget(picked, true)) return false; // a tower pointed past its range, or an invulnerable target
       }
       // …or a TREE under the cursor. Whoever carries a weapon that may strike one (a Ghoul, a
@@ -9703,6 +9709,13 @@ export class RtsController {
    *  obeys a solo order that a group order lets its autocast override (see
    *  SimUnit.attackSolo). `except` is the unit under the cursor at a force-attack site: the
    *  loops there skip it, so it is not one of the recipients being counted. */
+  /** Is `id` the ONLY unit this order would go to — an attack aimed at the one unit giving it?
+   *  WC3 answers that with [Errors] `Notself`, "Unable to target self.", and keeps the order armed. */
+  private onlyOrderee(id: number): boolean {
+    const o = this.orderees;
+    return o.size === 1 && o.has(id);
+  }
+
   private soloOrder(except?: number): boolean {
     let n = 0;
     for (const id of this.orderees) if (id !== except) n++;
