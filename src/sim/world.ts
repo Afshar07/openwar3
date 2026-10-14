@@ -2463,9 +2463,10 @@ export interface SimUnit {
   itemCooldowns?: Map<string, number>;
   getItemId: number; // ground item this unit is walking to pick up (order === "getitem"; 0 = none)
   pendingGive: { toId: number; slot: number } | null; // walking to hand a slot's item to another hero
-  /** Walking to USE a slot's item on a unit that was out of its reach (issueUseItemWalk).
-   *  `itemId` pins the item, so one moved out of the slot on the way is not pressed. */
-  pendingUse: { slot: number; targetId: number; itemId: string } | null;
+  /** Walking to USE a slot's item on a unit — or, `targetId` 0, at a POINT — that was out of
+   *  its reach (issueUseItemWalk). `itemId` pins the item, so one moved out of the slot on the
+   *  way is not pressed. */
+  pendingUse: { slot: number; targetId: number; itemId: string; x: number; y: number } | null;
   /** Walking to a SHOP to sell a slot's item (WC3: right-click the item, click the shop —
    *  the same gesture as dropping it, but the shop takes it and pays). See issueSellItem. */
   pendingSell: { shopId: number; slot: number } | null;
@@ -24119,13 +24120,47 @@ export class SimWorld {
     return 0;
   }
 
+  /** The reach of the first POINT-aimed ability an item grants, or 0 for one that aims at no
+   *  spot. `Rng1` is a real distance on every one of them (ItemAbilityData): 100 for the Goblin
+   *  Land Mine and the eight "Tiny" buildings, 500 for a Wand of Negation, 900 for the Inferno
+   *  Stone — and 99999 on the Flare Gun, the Crystal Ball and the Town Portal, which is how the
+   *  table says "anywhere on the map". */
+  private itemPointReach(def: { abilities: string[] }): number {
+    for (const id of def.abilities) {
+      const ad = this.abilities?.get(id);
+      if (ad?.target === "point") return ad.levelData[0]?.castRange ?? 0;
+    }
+    return 0;
+  }
+
+  /** Walk `u` into its item's reach of the spot (x, y) and use it there — `issueUseItemWalk`'s
+   *  POINT half, and what a point-cast spell does with a spot out of range. A Goblin Land Mine
+   *  clicked across the map is planted at the hero's feet once he gets there, not flung there
+   *  from where he stands (issue #185: "Placement Range: Very short"). */
+  private issueUseItemWalkTo(u: SimUnit, slot: number, x: number, y: number): boolean {
+    const held = u.inventory[slot];
+    if (!held || this.castLocked(u) || u.baseSpeed <= 0) return false;
+    u.pendingUse = { slot, targetId: 0, itemId: held.itemId, x, y };
+    u.pendingDrop = null;
+    u.pendingGive = null;
+    u.pendingSell = null;
+    u.getItemId = 0;
+    u.order = "getitem";
+    u.targetId = null;
+    u.inCombat = false;
+    u.noCollision = false;
+    this.cancelSwing(u);
+    this.pathTo(u, x, y);
+    return true;
+  }
+
   /** Walk `u` into its item's reach of `t` and use it there — the item's half of what a cast
    *  does with a target out of range (see useItem). Driven by the "getitem" order, like every
    *  other errand an item sends a hero on. */
   private issueUseItemWalk(u: SimUnit, slot: number, t: SimUnit): boolean {
     const held = u.inventory[slot];
     if (!held || this.castLocked(u)) return false;
-    u.pendingUse = { slot, targetId: t.id, itemId: held.itemId };
+    u.pendingUse = { slot, targetId: t.id, itemId: held.itemId, x: t.x, y: t.y };
     u.pendingDrop = null;
     u.pendingGive = null;
     u.pendingSell = null;
@@ -24177,6 +24212,22 @@ export class SimWorld {
     }
     // Walking to use an item on a unit that was out of its reach (issueUseItemWalk). The target
     // walks too, so the route is re-taken toward where it is now whenever the last one runs out.
+    if (u.pendingUse && !u.pendingUse.targetId) {
+      // …at a SPOT (issueUseItemWalkTo). The spot does not move, so the route is taken once
+      // and only re-taken if it ran out short of the reach.
+      const { slot, itemId, x, y } = u.pendingUse;
+      const def = this.itemReg?.get(itemId);
+      if (!def || u.inventory[slot]?.itemId !== itemId) { this.stop(u.id); return; }
+      if (Math.hypot(x - u.x, y - u.y) <= this.itemPointReach(def) + u.radius) {
+        u.pendingUse = null;
+        this.stop(u.id);
+        this.useItem(u.id, slot, 0, x, y);
+      } else if (!u.moving) {
+        if (u.waypoint < u.path.length) u.moving = true;
+        else if (u.waitT <= 0 && !this.pathTo(u, x, y)) this.holdOrGiveUp(u, x, y);
+      }
+      return;
+    }
     if (u.pendingUse) {
       const { slot, targetId, itemId } = u.pendingUse;
       const t = this.units.get(targetId);
@@ -24415,6 +24466,10 @@ export class SimWorld {
       const t = this.units.get(targetId);
       const reach = this.itemAimReach(def);
       if (t && reach > 0 && Math.hypot(t.x - u.x, t.y - u.y) > reach + u.radius + t.radius) return this.issueUseItemWalk(u, slot, t);
+    } else if (!targetId) {
+      // …and aimed at a SPOT it cannot reach: the same walk, to the point (issueUseItemWalkTo).
+      const reach = this.itemPointReach(def);
+      if (reach > 0 && Math.hypot(x - u.x, y - u.y) > reach + u.radius) return this.issueUseItemWalkTo(u, slot, x, y);
     }
     // The channel this press will break, read BEFORE the item works: an item that starts a
     // channel of its own (the Town Portal's wait) must not be mistaken for the one it ended.

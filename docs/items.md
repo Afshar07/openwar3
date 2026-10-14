@@ -51,6 +51,17 @@ Writing a switch per door is what left the scroll half of each pair silently doi
   refuses a Potion of Healing at full health and a Rod of Necromancy waved over bare ground.
 * `true` — it fired; spend the charge and start the cooldown.
 
+## Where it is pressed from
+
+An aimed item has a REACH, and it is the row's own `Rng1`, exactly as a spell's is. Aimed out
+of it, the user WALKS into it and presses the item on arrival (`useItem` →
+`issueUseItemWalk` for a unit, `issueUseItemWalkTo` for a spot, both driven by the
+`getitem` order); nothing is refused for distance and nothing is thrown from where the user
+stands. A point item's reach is a real number on every row: 100 for the Goblin Land Mine and
+the eight "Tiny" buildings (planted at the hero's feet — issue #185), 500 for a Wand of
+Negation or a Monster Lure, 900 for the Inferno Stone, and 99999 on the Flare Gun, the
+Crystal Ball and the Scroll of Town Portal, which is how the table says "anywhere".
+
 ## Who an effect lands on
 
 `itemAreaTargets` is the one answer to "who does this item reach", and it is read off the

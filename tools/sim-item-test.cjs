@@ -77,6 +77,8 @@ const ABILITIES = new Map([
   // Dust of Appearance — Dur 20, Area 1000, buff Bdet; `targs1 = air,ground,ward,enemy,neutral,vuln,invu`
   ["AItb", ability("AItb", "AItb", { targetFlags: ["air", "ground", "ward", "enemy", "neutral", "vuln", "invu"],
     levelData: [lvl({ duration: 20, heroDuration: 20, area: 1000, data: D(3), buffs: ["Bdet"] })] })],
+  // Goblin Land Mines — Rng1 100, Area1 200, UnitID1 nglm: "at a target point", planted at the feet
+  ["AIpm", ability("AIpm", "AIpm", { target: "point", levelData: [lvl({ castRange: 100, area: 200, summon: "nglm" })] })],
 ]);
 
 const item = (id, abils, over = {}) => ({
@@ -103,6 +105,7 @@ const ITEMS = new Map([
   ["soul", item("soul", [], { charges: 0, usable: false, perishable: false, classType: "Miscellaneous", droppable: false, pawnable: false, sellable: false })],
   ["ledg", passive("ledg", [])],
   ["dust", item("dust", ["AItb"], { charges: 2 })],
+  ["gobm", item("gobm", ["AIpm"], { charges: 3 })],
 ]);
 
 const N = 256;
@@ -507,6 +510,28 @@ console.log("\nDust of Appearance is NOT a provocation  (issue #184)");
   check("…which keeps its meld (the powder SHOWS it; it does not pull it out)", crawler.cloaked, true);
   check("…and was not struck", crawler.struckAt, -1);
   check("…and its sleeping camp-mate sleeps on", sleeper.asleep, true);
+}
+
+console.log("\na POINT-aimed item walks into its own Rng1 first  (issue #185)");
+{
+  // Goblin Land Mines' `Rng1` is 100: the mine goes in at the hero's feet. Clicked 1500 units
+  // away, he walks there and plants it on arrival — he does not fling it across the map.
+  world = newWorld();
+  // A unit the world itself built (`add`), since this one has to WALK through real ticks.
+  const hero = world.add({
+    id: nextId++, owner: 0, team: 0, race: "human", typeId: "Hpal", x: 1000, y: 1000, facing: 0,
+    speed: 270, turnRate: 0.5, radius: 16, flying: false, flyHeight: 0, sightDay: 1400, sightNight: 800,
+    hp: 500, maxHp: 500, mana: 0, maxMana: 0, armor: 0, armorType: "hero", weapons: [], oldWeapons: [],
+    castPoint: 0, castBackswing: 0, targetedAs: "ground", moveType: "foot", worker: null, depotGold: false, depotLumber: false,
+  }, null, {});
+  give(hero, "gobm");
+  check("a far click is accepted as an order", world.useItem(hero.id, 0, 0, 2500, 1000), true);
+  check("…which is a walk, not a mine", hero.order, "getitem");
+  check("…with no charge spent yet", hero.inventory[0].charges, 3);
+  for (let i = 0; i < 20 * 10 && hero.pendingUse; i++) world.tick(0.05);
+  check("he arrives and the walk is over", hero.pendingUse, null);
+  check("…standing within Rng1 of the spot", Math.hypot(hero.x - 2500, hero.y - 1000) <= 100 + hero.radius, true);
+  check("…and the mine went in there, a charge spent", hero.inventory[0].charges, 2);
 }
 
 console.log(failed ? `\nitems: ${failed} check(s) FAILED` : "\nitems: all checks passed");
