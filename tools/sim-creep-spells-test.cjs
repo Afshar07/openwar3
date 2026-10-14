@@ -481,15 +481,24 @@ console.log("\nInferno: the meteor is in the air for its Impact Delay, and the c
   lord.mana = lord.maxMana = 500;
   const f = footman(w, 1700, 1000);
   const f2 = footman(w, 1760, 1000);
+  // …and a stand of trees: two inside the crash's 250, one outside it (issue #189: the landing
+  // "flattens/destroys trees in a 250 area of effect", though targs1 names no `tree`).
+  const inA = w.addTree(1730, 1150);
+  const inB = w.addTree(1900, 1000);
+  const out = w.addTree(1730, 1400);
   w.issueHold(f.id);
   w.issueHold(f2.id);
   w.issueCast(lord.id, "ANin", 0, 1730, 1000);
   run(w, null, 0.5);
   check("half a second in, the Footmen are untouched", f.hp === f.maxHp && f2.hp === f2.maxHp, true);
+  check("…and so is the forest", w.trees.has(inA.id) && w.trees.has(inB.id), true);
   check("…and nothing is owed yet", w.drainSummonRequests().length, 0);
   run(w, null, 1);
   check("a second later they are hurt", f.hp < f.maxHp && f2.hp < f2.maxHp, true);
   check("…by DataA's 50", Math.round(f.maxHp - f.hp), 50);
+  check("the meteor was the row's own Effectart, InfernalBirth", w.drainSpellEffects().some((e) => /InfernalBirth/i.test(e.art)), true);
+  check("…the trees inside Area1 are flattened", !w.trees.has(inA.id) && !w.trees.has(inB.id), true);
+  check("…and the one outside it stands", w.trees.has(out.id), true);
   check("…and stunned (`BNin`)", buffIdOn(f, "BNin") && buffIdOn(f2, "BNin"), true);
   // The summon is a REQUEST the renderer drains (a headless host never does), so what the
   // sim owes is the request — `ninf`, at the impact point, for DataB.

@@ -1,6 +1,6 @@
 import { WidgetState } from "mdx-m3-viewer/dist/cjs/viewer/handlers/w3x/widget";
 import { SimWorld, weaponsFromDef, inventoryCapacity, isOffField, CREEP_CAMP_ACQUIRE_RANGE, BUILD_START_HP_FRAC, ANIM_FOR_DURATION, HERO_FADE_TIME, HERO_DISSIPATE_TIME, type WorkerState, type SimUnit, type SimMine, type SimItem, type BuildingState, type QueuedOrder, type RallyKind, type SimAbility, type HeroInit, type SimLightning, type CombatText, type FallenHero, type SimSpellEffect, type StoredUnitState } from "../sim/world";
-import { KNOWN_ABILITIES, NO_AOE_CURSOR, REVEAL_CODES, TREE_UPGRADE_ABILITY, aoeCursorRadius } from "../data/abilities";
+import { FELLS_TREES_UNLISTED, KNOWN_ABILITIES, NO_AOE_CURSOR, REVEAL_CODES, TREE_UPGRADE_ABILITY, aoeCursorRadius } from "../data/abilities";
 import type { Command } from "./commands";
 import { PATHING_CELL, footprintCells, type PathingGrid } from "../sim/pathing";
 import { flyHeight } from "../sim/missile";
@@ -6229,7 +6229,11 @@ export class RtsController {
    *  own, or the aura of the ward it drops (see wardAura). */
   private aoeOf(def: AbilityDef | undefined, area: number): { area: number; flags: string[]; ward: boolean } {
     const ward = def && !aoeCursorRadius(def) ? this.wardAura(def) : null;
-    return { area, flags: ward?.flags ?? def?.targetFlags ?? [], ward: !!ward };
+    const flags = ward?.flags ?? def?.targetFlags ?? [];
+    // A code that fells the trees its flag list does not name lights them up all the same
+    // (Inferno, Death and Decay — FELLS_TREES_UNLISTED, issue #189).
+    const trees = !ward && def && FELLS_TREES_UNLISTED.has(def.code) && !flags.includes("tree");
+    return { area, flags: trees ? [...flags, "tree"] : flags, ward: !!ward };
   }
 
   /** The radius of the `SpellAreaOfEffect` circle an ability or an item arms with —

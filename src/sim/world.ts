@@ -4,7 +4,7 @@ import { targsKindError } from "./targeting";
 import { corpseAdmits, corpseMissingError, corpseNeed, corpseReach, spawnsFromCorpse, type CorpseNeed, type CorpseOrder } from "./corpses";
 import { footprintBuildable, footprintRadius, stampFootprint, unstampFootprint, type Footprint } from "./destructibles";
 import { BlightGrid } from "./blight";
-import { type AbilityRegistry, type AbilityDef, type AbilityLevel, type BuffFx, emptyAbilityLevel, isCriticalStrikeCode, isRepairCode, targetFlagSet, requiredHeroLevel, KNOWN_ABILITIES, morphFlags, MORPH_FLAG_PERMANENT, MORPH_FLAG_REQUIRES_PAYMENT, isStance } from "../data/abilities";
+import { type AbilityRegistry, type AbilityDef, type AbilityLevel, type BuffFx, emptyAbilityLevel, isCriticalStrikeCode, isRepairCode, targetFlagSet, requiredHeroLevel, KNOWN_ABILITIES, FELLS_TREES_UNLISTED, morphFlags, MORPH_FLAG_PERMANENT, MORPH_FLAG_REQUIRES_PAYMENT, isStance } from "../data/abilities";
 import { type ItemRegistry, type ItemDef } from "../data/items";
 import { cloneAbilityDef, readAbilityField, writeAbilityField } from "../data/objectData";
 import { ATTACK_TYPES, defenseTypeCode, defenseTypeFrom, targetedAsCode, targetedAsFrom } from "../data/unitFieldCodes";
@@ -17821,6 +17821,7 @@ export class SimWorld {
     t: number; x: number; y: number; area: number; damage: number; stun: number; heroStun: number;
     buffId: string; art?: string; fx: BuffFx[]; summon: string; duration: number; summonArt: string;
     unsummonArt: string; casterId: number; owner: number; team: number; facing: number; flags: string[];
+    fellsTrees: boolean;
   }> = [];
 
   /**
@@ -17846,8 +17847,10 @@ export class SimWorld {
     const lvl = def.levelData[Math.min(rank, def.levelData.length) - 1];
     if (!lvl) return;
     // The meteor. One shot, and it is the ability's `Effectart` rather than a target art —
-    // nothing is being hit yet.
-    if (def.effectArt) this.spellEffects.push({ art: def.effectArt, x, y, targetId: 0, z: 0 });
+    // nothing is being hit yet. Played for its WHOLE Birth (`life` 0): InfernalBirth.mdx's one
+    // clip runs 3.13 s, the fall and then the burning crater, and the renderer's ordinary 2 s
+    // one-shot cut it off in the middle of the landing.
+    if (def.effectArt) this.spellEffects.push({ art: def.effectArt, x, y, targetId: 0, z: 0, life: 0 });
     this.infernoDrops.push({
       t: Math.max(0, this.dataOf(lvl, 2, 1)), // DataC "Impact Delay"
       x, y,
@@ -17866,6 +17869,7 @@ export class SimWorld {
       team: caster.team,
       facing: caster.facing,
       flags: def.targetFlags,
+      fellsTrees: FELLS_TREES_UNLISTED.has(def.code) || def.targetFlags.includes("tree"),
     });
   }
 
@@ -17884,6 +17888,10 @@ export class SimWorld {
         fx: drop.fx,
       });
     }
+    // …and the forest under it is FLATTENED, every tree in the crash's `Area1` at once: a tree
+    // has no life to take 50 off in any meaningful sense, and the meteor is the whole point of
+    // landing an Infernal in a treeline (FELLS_TREES_UNLISTED).
+    if (drop.fellsTrees) this.damageTreesInArea(drop.x, drop.y, drop.area, Infinity);
     if (drop.summon) {
       this.summonRequests.push({
         unitId: drop.summon, x: drop.x, y: drop.y, facing: drop.facing, owner: drop.owner, team: drop.team,

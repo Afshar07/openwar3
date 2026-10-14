@@ -502,6 +502,20 @@ export const NO_AOE_CURSOR = new Set<string>([
 export const REVEAL_CODES: ReadonlySet<string> = new Set(["AOfs", "AIta", "Andt", "AIfa", "Afla"]);
 
 /**
+ * The CODES whose effect fells every tree it covers though its `targs1` lists no `tree` — the
+ * flag list has no way to say it, so the code does. Asked by the sim (what comes down) and by
+ * the aiming cursor (which trees light up green, RtsController.aoeTreePoints), so the two can
+ * never disagree about a forest.
+ *
+ *  · `AUdd` Death and Decay — clears a forest in the real game; `targs1` air,ground,structure,ward.
+ *  · `AUin` Inferno, and `ANin` its creep twin — "The landing deals 50 impact damage and
+ *    flattens/destroys trees in a 250 area of effect" (issue #189); `targs1`
+ *    ground,structure,debris,enemy,neutral. The Inferno Stone (`AIin`) is `code = AUin`, so it
+ *    comes with it.
+ */
+export const FELLS_TREES_UNLISTED: ReadonlySet<string> = new Set(["AUdd", "AUin", "ANin"]);
+
+/**
  * The radius of the `SpellAreaOfEffect` circle an ability arms with — 0 for "a bare cursor".
  *
  * ONE answer for a spell and for an ITEM alike, because the question is the same one and so is
