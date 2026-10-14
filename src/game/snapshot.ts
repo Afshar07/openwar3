@@ -89,6 +89,8 @@ export interface SnapshotWorld {
   readonly corpses?: ReadonlyMap<number, SimCorpse>;
   readonly timeOfDay: number;
   readonly dawnDusk: boolean;
+  /** SimWorld.eclipse — optional because a hand-built test world has no Moonstone. */
+  readonly eclipse?: boolean;
   stashOf(owner: number): { gold: number; lumber: number };
   /** The recipient's researched-upgrade ledger (`TechState.researchedBy`). Optional and
    *  nullable because it is exactly `SimWorld.tech`'s shape: null before registries load,
@@ -570,6 +572,8 @@ export interface WorldSnapshot {
   time: number;
   timeOfDay: number;
   dawnDusk: boolean;
+  /** A Moonstone's eclipse is holding the clock (SimWorld.eclipse). Optional: absent = none. */
+  eclipse?: boolean;
   /** The RECIPIENT's own gold and lumber — the authority's figures, which are the only real
    *  ones: income (mining, pawning) happens only where the sim steps, so a client that kept
    *  its own ledger watched it drift from the truth with every trip a peon made. The drift
@@ -1039,5 +1043,5 @@ export function snapshotFor(
     if (f.owner !== recipient) continue;
     fallen.push({ id: f.id, typeId: f.typeId, properName: f.properName, level: f.level, revivingAt: f.revivingAt, bodyLeft: f.bodyLeft });
   }
-  return { recipient, time, timeOfDay: world.timeOfDay, dawnDusk: world.dawnDusk, stash: { gold: stash.gold, lumber: stash.lumber }, research, fallen, creepCamps, units, mines, items, projectiles, corpses, fx: { effects: [], splats: [], lightnings: [], lightningStops: [], castStarts: [], castFires: [], texts: [] }, deaths: [], commands };
+  return { recipient, time, timeOfDay: world.timeOfDay, dawnDusk: world.dawnDusk, eclipse: world.eclipse, stash: { gold: stash.gold, lumber: stash.lumber }, research, fallen, creepCamps, units, mines, items, projectiles, corpses, fx: { effects: [], splats: [], lightnings: [], lightningStops: [], castStarts: [], castFires: [], texts: [] }, deaths: [], commands };
 }

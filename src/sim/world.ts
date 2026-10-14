@@ -3642,6 +3642,12 @@ export class SimWorld {
    *  blizzard.j's CinematicModeExBJ turns it off on the way in and restores it on the way
    *  out. Nothing else in the game switches it. */
   dawnDusk = true;
+  /** A MOONSTONE's eclipse is running (itemArtificialNight). The night it makes does not go
+   *  by — the clock holds at midnight for the whole of it — and the hours either side of it
+   *  are JUMPS rather than a dusk and a dawn, so the renderer must neither howl going in nor
+   *  crow coming out (mapViewer.updateClock). Public and on the wire for both reasons: a
+   *  client steps its own copy of the clock between payloads, and draws the clock it holds. */
+  eclipse = false;
   /**
    * `SetTimeOfDayScale` — how fast the clock runs, 1 being WC3's own day length.
    *
@@ -18883,7 +18889,7 @@ export class SimWorld {
 
   tick(dt: number): void {
     this.elapsed += dt;
-    if (this.dawnDusk && !this.timeOfDaySuspended) {
+    if (this.dawnDusk && !this.timeOfDaySuspended && !this.eclipse) {
       this.timeOfDay = (this.timeOfDay + dt * gameHoursPerSec() * this.timeOfDayScale) % dataNum("DayHours");
     }
     // The tech census (who owns what, and so what each player may build) is invalidated
@@ -24998,26 +25004,33 @@ export class SimWorld {
    *
    *  Its two columns are `DataA "New Time of Day - Hour"` and `DataB "New Time of Day -
    *  Minute"`, both EMPTY on this row — which is the data saying midnight, and midnight is
-   *  what an eclipse looks like. The clock is not stopped while it runs (a suspended day
-   *  would owe the match 30 seconds back); it is wound to midnight and left going, and when
-   *  the eclipse lifts the time it would have reached is restored. */
+   *  what an eclipse looks like. The night it makes STANDS STILL (issue #195): the clock is
+   *  held at the hour for all `Dur1` seconds (`eclipse`, read by tick), and when the sun comes
+   *  back the day resumes at the hour it was interrupted at — the match is neither a night's
+   *  worth of hours older for it nor owed any. A second stone pressed under the first
+   *  lengthens the eclipse and keeps the FIRST stone's hour to give back: the hour on the
+   *  clock by then is the eclipse's own midnight, and giving that back would make the night
+   *  permanent. */
   private itemArtificialNight(ad: AbilityDef): boolean {
     const lvl = ad.levelData[0] ?? emptyAbilityLevel();
     const seconds = lvl.duration || 30;
     if (seconds <= 0) return false;
     const hour = this.dataOf(lvl, 0, 0) + this.dataOf(lvl, 1, 0) / 60;
-    this.moonstone = { left: seconds, restore: this.timeOfDay };
+    const restore = this.moonstone?.restore ?? this.timeOfDay;
+    this.moonstone = { left: Math.max(seconds, this.moonstone?.left ?? 0), restore };
+    this.eclipse = true;
     this.timeOfDay = ((hour % dataNum("DayHours")) + dataNum("DayHours")) % dataNum("DayHours");
     return true;
   }
 
-  /** …and the sun coming back up where it would have been. */
+  /** …and the sun coming back up where it went in. */
   private tickMoonstone(dt: number): void {
     if (!this.moonstone) return;
     this.moonstone.left -= dt;
     if (this.moonstone.left > 0) return;
     const owed = this.moonstone.restore;
     this.moonstone = null;
+    this.eclipse = false;
     this.timeOfDay = owed % dataNum("DayHours");
   }
 

@@ -39,6 +39,7 @@ export interface ApplyWorld {
   readonly corpses?: Map<number, SimCorpse>;
   timeOfDay: number;
   dawnDusk: boolean;
+  eclipse?: boolean;
   /** The recipient's LIVE stash object, so the payload's figures overwrite the client's
    *  drifted local ledger in place — every reader already holds this object. */
   stashOf(owner: number): { gold: number; lumber: number };
@@ -404,6 +405,7 @@ export function applyWorldSnapshot(world: ApplyWorld, snap: WorldSnapshot, creat
 
   world.timeOfDay = snap.timeOfDay;
   world.dawnDusk = snap.dawnDusk;
+  world.eclipse = snap.eclipse ?? false;
   // The recipient's gold and lumber are the AUTHORITY's figures, written wholesale. This is
   // what reconciles the client's optimistic local charge: an accepted purchase comes back as
   // the host's own deduction, a refused one comes back undone — the charge that used to leak

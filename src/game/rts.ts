@@ -7849,8 +7849,8 @@ export class RtsController {
   }
 
   /** Time of day for the HUD clock: game-hour + day/night flag. */
-  timeOfDay(): { hour: number; isDay: boolean } {
-    return { hour: this.sim.timeOfDay, isDay: this.sim.isDay };
+  timeOfDay(): { hour: number; isDay: boolean; eclipse: boolean } {
+    return { hour: this.sim.timeOfDay, isDay: this.sim.isDay, eclipse: this.sim.eclipse };
   }
 
   /** The REAL click volumes of every drawn body — for the debug collider overlay. These are

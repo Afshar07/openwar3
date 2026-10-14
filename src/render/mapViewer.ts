@@ -1178,6 +1178,8 @@ export class MapViewerScene {
   // Last frame's daylight flag, so crossing Dawn/Dusk can cry once. null = not yet
   // sampled, which suppresses a spurious cry on the first frame of a match.
   private wasDay: boolean | null = null;
+  /** …and whether a Moonstone's eclipse was holding the clock then (see updateClock). */
+  private wasEclipse = false;
   // Building ground textures (ubersplats): the dirt/foundation decals under buildings
   // + gold mines (issue #12). Built at map load (needs only terrain + gl). uberSplats
   // resolves a building's `uberSplat` code → texture + scale. simBuildingSplats tracks
@@ -10021,10 +10023,15 @@ export class MapViewerScene {
       this.wasDay = null; // no match running; re-arm for the next one
       return;
     }
-    if (this.wasDay !== null && this.wasDay !== tod.isDay) {
+    // …but not across a MOONSTONE (issue #195). Its eclipse moves the clock in two jumps,
+    // to midnight and back, and neither is a dusk or a dawn: no wolf going into the night it
+    // makes and no rooster when the sun it hid comes back — so a frame on which the eclipse
+    // began or ended is never a crossing.
+    if (this.wasDay !== null && this.wasDay !== tod.isDay && tod.eclipse === this.wasEclipse) {
       this.sounds?.playAmbience(tod.isDay ? DAWN_SOUND : DUSK_SOUND);
     }
     this.wasDay = tod.isDay;
+    this.wasEclipse = tod.eclipse;
   }
 
   /** Sample the tileset's day/night light at the sim's current hour and hand it to the
