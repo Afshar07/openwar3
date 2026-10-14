@@ -24500,8 +24500,12 @@ export class SimWorld {
           break;
         case "AImi": u.baseMaxHp += d(0); this.recomputeStats(u); fired = true; break; // Manual of Health
         case "AIem": if (u.isHero) { this.gainXp(u, d(0)); fired = true; } break; // Tome of Experience
-        case "AIgo": this.stashOf(u.owner).gold += d(0); fired = true; break; // Gold Coins
-        case "AIlu": this.stashOf(u.owner).lumber += d(0); fired = true; break; // Bundle of Lumber
+        // Gold Coins / Bundle of Lumber — paid to the PLAYER, and SEEN being paid: the same
+        // "+250" in the credit's own colour that a worker's drop-off floats, over whoever picked
+        // it up (issue #187). One door for every credit (floatCredit), so it reaches the owner's
+        // screen alone, exactly as a mined load does.
+        case "AIgo": this.stashOf(u.owner).gold += d(0); this.floatCredit("gold", d(0), u.owner, u, u.id); fired = true; break;
+        case "AIlu": this.stashOf(u.owner).lumber += d(0); this.floatCredit("lumber", d(0), u.owner, u, u.id); fired = true; break;
         case "AIhe": fired = this.itemRestore(u, ad, 0, -1); break;
         case "AIma": fired = this.itemRestore(u, ad, -1, 0); break;
         case "AIha": fired = this.itemRestore(u, ad, 0, -1); break;
