@@ -15,7 +15,7 @@
 import { ATTACK_TYPES } from "../../data/unitFieldCodes";
 import type { JassDestructable } from "./destructables";
 import { weaponTypes } from "./events";
-import type { JassUnit, NativeCtx, Runtime } from "../runtime";
+import type { JassItem, JassUnit, NativeCtx, Runtime } from "../runtime";
 import { AttackType } from "../../data/enums";
 import { asNum, jBool, jReal, JNULL, truthy, type JassValue } from "../values";
 
@@ -84,9 +84,12 @@ export function registerWidgetNatives(rt: Runtime): void {
       // `GetDestructableLife` reads them in (natives/destructables.ts).
       return jReal((d?.mapId ? c.rt.hooks?.destructableInfo?.(d.mapId)?.life : undefined) ?? d?.life ?? 0);
     }
-    // An ITEM is a widget too and we do not model item hit points (a dropped item cannot be
-    // attacked here). Say so once rather than silently answering 0 forever.
-    if (w?.k === "handle" && w.ty === "item") c.rt.warnOnce("GetWidgetLife:item", "items have no hit points in this engine — 0");
+    // An ITEM is a widget too: 75 hit points on the ground that an attack wears down (issue
+    // #186, SimWorld.damageItem). Read live, as GetItemX is — 0 once it is gone.
+    if (w?.k === "handle" && w.ty === "item") {
+      const it = c.rt.data<JassItem>(w);
+      return jReal(it && it.simId >= 0 ? c.rt.hooks?.itemInfo?.(it.simId)?.life ?? 0 : 0);
+    }
     return jReal(0);
   });
   def(rt, "SetWidgetLife", (c, a) => {
@@ -103,6 +106,10 @@ export function registerWidgetNatives(rt: Runtime): void {
         d.life = life;
         if (d.mapId > 0) c.rt.hooks?.setDestructableLife?.(d.mapId, life);
       }
+    }
+    if (w?.k === "handle" && w.ty === "item") {
+      const it = c.rt.data<JassItem>(w);
+      if (it && it.simId >= 0) c.rt.hooks?.setItemLife?.(it.simId, life);
     }
     return JNULL;
   });

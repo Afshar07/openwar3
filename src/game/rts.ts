@@ -6608,6 +6608,13 @@ export class RtsController {
         if (this.onlyOrderee(picked)) return this.refuseOrder("Notself"); // "Unable to target self."
         if (this.refuseAttackTarget(picked, true)) return false; // a tower pointed past its range, or an invulnerable target
       }
+      // …or an ITEM lying on the ground (issue #186): the Attack command is the one gesture that
+      // strikes an item rather than picking it up (a right-click picks it up).
+      if (!target && this.attackItemAt(cssX, cssY, queued)) {
+        this.orderMode = null;
+        this.ack(true);
+        return true;
+      }
       // …or a TREE under the cursor. Whoever carries a weapon that may strike one (a Ghoul, a
       // worker — SimWorld.weaponVsTree) swings at the trunk; this is the Attack command's
       // answer and never a right-click's, which gathers (sendToTrees). The rest of a mixed
@@ -8200,6 +8207,10 @@ export class RtsController {
         const t = this.sim.trees.get(o.treeId);
         return t ? { x: t.x, y: t.y, z: this.heightAt(t.x, t.y) + TREE_FLAG_HEIGHT } : null;
       }
+      case "attackitem": {
+        const it = this.sim.items.get(o.itemId);
+        return it ? { x: it.x, y: it.y, z: this.heightAt(it.x, it.y) } : null;
+      }
       case "entangleat": {
         const m = this.sim.mines.get(o.mineId);
         return m ? { x: m.x, y: m.y, z: this.heightAt(m.x, m.y) } : null;
@@ -9576,6 +9587,26 @@ export class RtsController {
     if (!any) return false;
     for (const id of rest) this.execute(this.localPlayer, { c: "order", unitId: id, order: { kind: "attackmove", x: tree.x, y: tree.y }, queued });
     this.flashAttack(tree.x, tree.y, 76); // red, and no yellow trunk pulse — that one means "gather"
+    return true;
+  }
+
+  /** An armed Attack clicked on a ground ITEM: order every orderee whose weapon may strike one
+   *  at it (SimWorld.issueAttackItem). Returns whether anybody took the order; the rest of a
+   *  mixed group are sent on the attack-move to the item's spot, as at a tree (attackTreeAt). */
+  private attackItemAt(cssX: number, cssY: number, queued: boolean): boolean {
+    const g = this.groundPoint(cssX, cssY);
+    const it = g ? this.itemAt(g[0], g[1], ITEM_PICK_RADIUS) : null;
+    if (!it) return false;
+    const rest: number[] = [];
+    let any = false;
+    for (const id of this.orderees) {
+      const u = this.sim.units.get(id);
+      if (u && this.sim.weaponVsItem(u) && this.execute(this.localPlayer, { c: "order", unitId: id, order: { kind: "attackitem", itemId: it.id }, queued })) any = true;
+      else rest.push(id);
+    }
+    if (!any) return false;
+    for (const id of rest) this.execute(this.localPlayer, { c: "order", unitId: id, order: { kind: "attackmove", x: it.x, y: it.y }, queued });
+    this.flashAttack(it.x, it.y, ITEM_RING_RADIUS);
     return true;
   }
 

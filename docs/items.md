@@ -479,6 +479,24 @@ that "only the script observes" (`SetItemVisible`, `SetItemInvulnerable`) — ho
 because a ground item here is neither hideable nor destructible, and wrong for this one, because
 this one is a rule the player runs into.
 
+## An item on the ground can be broken
+
+An item is a WIDGET (common.j: `item extends widget`, beside `unit` and `destructable`), and
+`ItemData.slk` gives every stock row an `HP` of **75** (issue #186). Lying on the ground it can
+be attacked and broken; carried, it cannot be struck at all.
+
+- **Only the Attack command strikes it** — A, then a click on the item (`attackitem`,
+  `SimWorld.issueAttackItem`; `RtsController.attackItemAt`). A right-click on an item still
+  PICKS IT UP, and nothing auto-acquires one.
+- **Who may** is the weapon slot's own Targets Allowed: a slot naming `item` (571 of
+  UnitWeapons.slk's 837 rows — the Footman, Rifleman, Archer, Mortar Team …). All four
+  deliveries reach it: a melee blow and a hitscan land at the fire frame, a missile flies to the
+  item's spot (`spawnItemMissile`), a shell bursts on it (`SimProjectile.itemId`).
+- **No damage table.** The `armor` column is a SOUND (`Wood` on all 273 rows), as a tree's is,
+  so the roll lands whole (`damageItem`). At 0 the item plays its Death clip where it lay.
+- It is full again whenever it is set down, `SetItemInvulnerable` refuses every strike, and
+  `GetWidgetLife`/`SetWidgetLife` read and write it (`ItemSnapshot.life`, `setItemLife`).
+
 ## Two things still open
 
 **`AIrb` Rune of Rebirth.** Its row carries nothing at all — no duration, no data, one buff

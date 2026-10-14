@@ -146,7 +146,11 @@ export function registerItemNatives(rt: Runtime): void {
   def(rt, "IsItemVisible", (c, a) => jBool(item(c, a[0])?.visible ?? true));
   def(rt, "SetItemInvulnerable", (c, a) => {
     const it = item(c, a[0]);
-    if (it) it.invulnerable = a[1].k === "bool" && a[1].b;
+    if (it) {
+      it.invulnerable = a[1].k === "bool" && a[1].b;
+      // …and the SIM's rule too, now that an item can be attacked (issue #186).
+      if (it.simId >= 0) c.rt.hooks?.setItemInvulnerable?.(it.simId, it.invulnerable);
+    }
     return JNULL;
   });
   def(rt, "IsItemInvulnerable", (c, a) => jBool(item(c, a[0])?.invulnerable ?? false));

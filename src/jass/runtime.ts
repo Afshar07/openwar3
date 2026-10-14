@@ -560,6 +560,7 @@ export interface ItemSnapshot {
   holder: number; // sim id of the unit carrying it (0 = lying on the ground)
   slot: number; // inventory slot when carried, else -1
   owner: number; // GetItemPlayer — the holder's slot, or 15 (Neutral Passive) on the ground
+  life: number; // GetWidgetLife — hit points left on the ground, the type's whole HP when carried
 }
 
 /** A map destructible's live state (src/world/mapDestructibles.ts). `id` is its war3map.doo
@@ -874,6 +875,10 @@ export interface EngineHooks {
    *  rather than a flag the script reads back: see SimWorld.setItemDroppable for the game's
    *  own wording of it and for what "leave" covers. */
   setItemDroppable?(itemId: number, flag: boolean): void;
+  /** SetItemInvulnerable — an item no attack may break (SimWorld.issueAttackItem). */
+  setItemInvulnerable?(itemId: number, flag: boolean): void;
+  /** SetWidgetLife on an item — its hit points on the ground; 0 breaks it. */
+  setItemLife?(itemId: number, life: number): void;
   /** SetItemPosition — move a ground item; on a CARRIED item WC3 drops it there. */
   setItemPosition?(itemId: number, x: number, y: number): void;
   /** The item TYPE's data (GetItemLevel / GetItemType / IsItemIdPowerup / …). */

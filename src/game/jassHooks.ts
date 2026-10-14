@@ -290,6 +290,8 @@ export function simHooks(sim: SimWorld, teamOf: (player: number) => number): Par
     itemInfo: (id) => sim.itemSnapshot(id),
     setItemCharges: (id, charges) => void sim.setItemCharges(id, charges),
     setItemDroppable: (id, flag) => void sim.setItemDroppable(id, flag),
+    setItemInvulnerable: (id, flag) => sim.setItemInvulnerable(id, flag),
+    setItemLife: (id, life) => sim.setItemLife(id, life),
     // StoreUnit — what a chapter writes into the game cache for the next one (docs/campaigns.md).
     // Pure world: it only READS a unit. Its twin `restoreUnit` is not here, because putting one
     // back means creating it, and creating belongs to the authority.
@@ -305,7 +307,7 @@ export function simHooks(sim: SimWorld, teamOf: (player: number) => number): Par
     unitInventorySize: (unitId) => sim.inventorySizeOf(unitId),
     unitItemInSlot: (unitId, slot) => sim.itemInSlot(unitId, slot),
     enumItems: () =>
-      sim.groundItems().map((it) => ({ id: it.id, typeId: it.itemId, charges: it.charges, x: it.x, y: it.y, holder: 0, slot: -1, owner: neutralSlot(PlayerSlot.NeutralPassive) })),
+      sim.groundItems().map((it) => ({ id: it.id, typeId: it.itemId, charges: it.charges, x: it.x, y: it.y, holder: 0, slot: -1, owner: neutralSlot(PlayerSlot.NeutralPassive), life: it.hp })),
     // Neutral-building stock (issue #57): Blizzard.j stocks the Marketplace itself, off its own
     // 30s timer — these just hand its natives the shelves. See src/jass/natives/stock.ts.
     addToStock: (shopId, wareId, kind, count, max) => void sim.addToStock(shopId, wareId, kind, count, max),

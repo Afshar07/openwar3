@@ -318,7 +318,8 @@ export function applyWorldSnapshot(world: ApplyWorld, snap: WorldSnapshot, creat
     if (rec && rec.entangledBy !== u.id) rec.entangledBy = u.id;
   }
   // Ground items follow the units' create/remove rule (an item in the dark is ABSENT, not
-  // remembered — snapshot.ts). `charges` does not cross: pickup and pawn are host-judged.
+  // remembered — snapshot.ts). `charges` does not cross: pickup and pawn are host-judged, and
+  // nor do its hit points — breaking one is the host's call too (SimWorld.damageItem).
   const createdItems: WorldSnapshot["items"] = [];
   const sentItems = new Set<number>();
   for (const it of snap.items) {
@@ -328,7 +329,7 @@ export function applyWorldSnapshot(world: ApplyWorld, snap: WorldSnapshot, creat
       rec.x = it.x;
       rec.y = it.y;
     } else {
-      world.items.set(it.id, { id: it.id, itemId: it.itemId, x: it.x, y: it.y, charges: 0 });
+      world.items.set(it.id, { id: it.id, itemId: it.itemId, x: it.x, y: it.y, charges: 0, hp: 0, maxHp: 0 });
       createdItems.push(it);
     }
   }

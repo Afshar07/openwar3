@@ -190,6 +190,9 @@ export interface SimProjectile extends MissileFlight {
    *  was teleported, or climbed into a hold: where it was last seen. The missile stops homing (`targetId` is cleared), flies on to this spot and
    *  dissipates there with nothing delivered — see missileDisjointed. */
   lost?: { x: number; y: number };
+  /** The ground ITEM this shot was loosed at (issueAttackItem): it flies at the item's spot
+   *  (`lost`, or an artillery `area`) and its roll comes off the item's hit points on landing. */
+  itemId?: number;
   attackType?: AttackType; // attacker's weapon attack type, carried so the damage-table
   // multiplier is correct even if the attacker dies before the arrow lands
   /** The firing weapon's impact base, carried for the same reason `attackType` is: the shot
@@ -420,7 +423,7 @@ export interface HeroKill {
 /** How many hero deaths `SimWorld.heroKills` keeps — far more than a pass can miss. */
 const HERO_KILL_LOG = 32;
 
-export type SimOrder = "idle" | "move" | "attackmove" | "patrol" | "hold" | "attack" | "attacktree" | "attackground" | "follow" | "harvest" | "return" | "repair" | "cast" | "getitem" | "garrison" | "load" | "unload";
+export type SimOrder = "idle" | "move" | "attackmove" | "patrol" | "hold" | "attack" | "attacktree" | "attackitem" | "attackground" | "follow" | "harvest" | "return" | "repair" | "cast" | "getitem" | "garrison" | "load" | "unload";
 
 /** A learned/innate ability on a unit. `code` is the base ability code (dispatch
  *  key — see data/abilities). `level` 0 = a hero ability not yet learned. */
@@ -849,6 +852,13 @@ export interface SimItem {
   x: number;
   y: number;
   charges: number; // charges carried onto the ground (restored when picked back up)
+  /** Hit points while it lies on the ground — `ItemData.slk` `HP`, 75 on every stock item. An
+   *  item is a WIDGET and any unit whose weapon names `item` in its Targets Allowed may strike
+   *  it until it breaks (issue #186; issueAttackItem). Full again whenever it is set down. */
+  hp: number;
+  maxHp: number;
+  /** `SetItemInvulnerable` — a map's quest item that must not be broken. */
+  invulnerable?: boolean;
 }
 
 /**
@@ -887,6 +897,9 @@ export interface ItemSnapshot {
   /** GetItemPlayer: the holder's owner, or Neutral Passive (15) for an item nobody
    *  carries — WC3 files every unowned item under that slot. */
   owner: number;
+  /** GetWidgetLife: what is left of it on the ground (SimItem.hp); a carried item cannot be
+   *  struck and reads its type's whole `HP`. */
+  life: number;
 }
 
 /** An item manipulated by a unit (EVENT_(PLAYER_)UNIT_PICKUP/DROP/USE/SELL_ITEM —
@@ -1153,6 +1166,8 @@ export type QueuedOrder =
   // The Attack command aimed at a TREE (issueAttackTree). A tree is not a unit, so it has its
   // own order rather than a `targetId` every attack path would look up and fail to find.
   | { kind: "attacktree"; treeId: number }
+  /** The Attack command aimed at an ITEM lying on the ground (issueAttackItem). */
+  | { kind: "attackitem"; itemId: number }
   // ATTACK GROUND — an artillery unit's shells at a SPOT, "until they are told to stop or are
   // given another order" (Units\CommandStrings.txt [CmdAttackGround]). `treeId` when the spot is
   // a tree the unit was pointed at: the order then ends with the tree (issueAttackGround).
@@ -1548,6 +1563,10 @@ export interface SimUnit {
   swingGround?: { x: number; y: number } | null;
   /** The tree an `attacktree` order is swinging at (issueAttackTree), or 0. */
   treeTargetId: number;
+  /** The ground ITEM an `attackitem` order is striking (issueAttackItem), or 0. */
+  itemTargetId: number;
+  /** The ITEM the in-flight swing is aimed at, or 0 — tickAttackItem's twin of `swingTreeId`. */
+  swingItemId: number;
   /** Where an `attackground` order is shelling (issueAttackGround), and the tree it was aimed
    *  at when it was aimed at one (0 otherwise). */
   groundAim?: { x: number; y: number; treeId: number } | null;
@@ -9042,6 +9061,8 @@ export class SimWorld {
       | "swingWeapon"
       | "swingTreeId"
       | "treeTargetId"
+      | "itemTargetId"
+      | "swingItemId"
       | "manaRegen"
       | "hpRegen"
       | "lifesteal"
@@ -9185,6 +9206,8 @@ export class SimWorld {
       swingWeapon: null,
       swingTreeId: 0,
       treeTargetId: 0,
+      itemTargetId: 0,
+      swingItemId: 0,
       // Which medium it moves through, straight off the unit's own `movetype` — see
       // SimUnit.waterborne. Derived rather than passed because it is a fact about the TYPE,
       // and every caller that spawns a unit would otherwise have to remember to look it up.
@@ -10372,6 +10395,7 @@ export class SimWorld {
     u.swingFollowThrough = false;
     u.swingTargetId = 0;
     u.swingTreeId = tree.id;
+    u.swingItemId = 0;
     u.swingGround = null;
     u.swingWeapon = w;
     u.swingCrit = false; // crit, bash and backstab are all blows on a UNIT
@@ -10396,6 +10420,161 @@ export class SimWorld {
     }
     this.trees.delete(tree.id);
     this.noteFelled(tree);
+  }
+
+  /**
+   * The Attack command aimed at an ITEM lying on the ground (issue #186): "items have 75 hit
+   * points and can be destroyed by attacking them directly". An item is a WIDGET — common.j's
+   * `item extends widget`, beside `unit` and `destructable` — and `ItemData.slk` gives every
+   * stock row an `HP` of 75. A right-click on one PICKS IT UP (issueGetItem); it is only the
+   * Attack command, A and a click on the item, that strikes it, and nothing auto-acquires one.
+   *
+   * Who may is the data's answer: a weapon slot whose Targets Allowed names `item`
+   * (weaponVsItem) — `[hfoo] targs1 = ground,structure,debris,item,ward`, the Rifleman's, the
+   * Archer's and the Mortar Team's alike (571 of UnitWeapons.slk's 837 rows) — melee or ranged.
+   * False when nothing the unit carries may strike an item, or the item is invulnerable.
+   */
+  issueAttackItem(id: number, itemId: number): boolean {
+    const u = this.units.get(id);
+    const it = this.items.get(itemId);
+    if (!u || !it || it.invulnerable || u.ethereal || u.hexed || !this.weaponVsItem(u) || this.castLocked(u)) return false;
+    const w = this.weaponVsItem(u)!;
+    const far = Math.hypot(it.x - u.x, it.y - u.y) - u.radius > w.range;
+    if (far && !this.canPursue(u)) return false; // a tower cannot walk to it ([Errors] Notinrange)
+    // The same order twice is one order (see issueAttack): a repeat must not throw away the
+    // swing it is already committed to.
+    if (u.order === "attackitem" && u.itemTargetId === itemId) return true;
+    this.clearGuardPost(u);
+    u.order = "attackitem";
+    u.itemTargetId = itemId;
+    u.targetId = null;
+    u.inCombat = false;
+    u.resKind = null;
+    u.working = false;
+    u.atNode = false;
+    u.noCollision = false; // manual control restores collision
+    u.stuckT = 0;
+    u.stuckRetries = 0;
+    u.waitT = 0;
+    u.nodeRetries = 0;
+    this.cancelSwing(u);
+    this.detachBuilder(id);
+    if (far) this.pathTo(u, it.x, it.y); // arriveAtNode stops the walk the moment the item is in reach
+    else this.settle(u);
+    return true;
+  }
+
+  /** The weapon `u` would strike an ITEM with — the first enabled slot whose Targets Allowed
+   *  names `item` — or null. */
+  weaponVsItem(u: SimUnit): SimWeapon | null {
+    if (this.raising(u)) return null;
+    for (const w of u.weapons) if (w.enabled && w.targets.includes("item")) return w;
+    return null;
+  }
+
+  /** Walk into reach of the item an `attackitem` order names, then strike it on the weapon's
+   *  own cooldown — engage's rhythm (face, commit, strike at the damage point in tickSwing),
+   *  aimed at an item. The order ends when the item is gone: broken, picked up, or moved. */
+  private tickAttackItem(u: SimUnit): void {
+    const it = this.items.get(u.itemTargetId);
+    const w = it ? this.weaponVsItem(u) : null;
+    if (!it || !w || it.invulnerable || u.ethereal || u.hexed) {
+      this.stop(u.id);
+      return;
+    }
+    if (u.disarmed) { // rooted: hold the order, swing nothing (SimUnit.disarmed)
+      this.cancelSwing(u);
+      if (u.moving) this.settle(u);
+      return;
+    }
+    // Committed to a swing: stand through the wind-up, exactly as engage does.
+    if (u.swingLeft >= 0) {
+      if (u.moving) this.settle(u);
+      u.inCombat = true;
+      return;
+    }
+    const reach = u.radius + w.range; // hull to a point — an item has no body to reach the edge of
+    if (this.pinned(u) && Math.hypot(it.x - u.x, it.y - u.y) > reach) {
+      this.settle(u); // netted: the order stands, and is carried out once the net comes off
+      u.atNode = false;
+      return;
+    }
+    if (!this.arriveAtNode(u, it.x, it.y, reach)) {
+      u.inCombat = false;
+      return;
+    }
+    const dist = Math.hypot(it.x - u.x, it.y - u.y);
+    // Parked as near as the ground allows and still out of reach: it cannot be carried out.
+    if (dist > reach + ATTACK_LEASH) {
+      this.stop(u.id);
+      return;
+    }
+    if (dist - u.radius < this.deadZone(w)) { // inside a siege weapon's dead zone
+      u.inCombat = false;
+      return;
+    }
+    u.inCombat = true;
+    if (u.cooldownLeft <= 0) u.desiredFacing = Math.atan2(it.y - u.y, it.x - u.x);
+    if (!this.facesTarget(u, FACING_EPS) || u.cooldownLeft > 0 || this.fading(u)) return;
+    u.cooldownLeft = w.cooldown;
+    u.swingLeft = Math.max(0, w.damagePoint);
+    u.swingBroken = false;
+    u.swingFollowThrough = false;
+    u.swingTargetId = 0;
+    u.swingTreeId = 0;
+    u.swingItemId = it.id;
+    u.swingGround = null;
+    u.swingWeapon = w;
+    u.swingCrit = false; // crit, bash and backstab are all blows on a UNIT
+    u.swingBash = false;
+    u.swingSlam = false;
+    u.desiredFacing = u.facing;
+    u.swingSeq++; // renderer restarts the attack clip so the blow lines up
+  }
+
+  /** A swing at an item reached its fire frame: the weapon's own delivery, aimed at the item —
+   *  a shell or a missile flies to it (and may arrive to find it picked up), a hitscan or a
+   *  melee blow lands now. */
+  private loosedAtItem(u: SimUnit, w: SimWeapon, itemId: number): void {
+    const it = this.items.get(itemId);
+    if (!it) return; // somebody picked it up, or broke it first — the swing whiffs
+    this.attackSwings.push(u.id);
+    this.breakInvisibility(u); // attacking reveals, whatever was struck
+    if (isArtillery(w)) {
+      this.spawnGroundShell(u, it.x, it.y, w).itemId = it.id;
+    } else if (launchesMissile(w.weaponType)) {
+      this.spawnItemMissile(u, it, w);
+    } else if (w.ranged) {
+      if (w.missileArt) this.spellEffects.push({ art: w.missileArt, x: it.x, y: it.y, targetId: 0, z: w.impactZ });
+      this.damageItem(it.id, this.rollDamage(w));
+    } else if (Math.hypot(it.x - u.x, it.y - u.y) - u.radius <= w.range + w.rangeBuffer) {
+      this.damageItem(it.id, this.rollDamage(w)); // melee connects out to the Range Motion Buffer, as on a unit
+    }
+  }
+
+  /** Take `amount` off a ground item's hit points, and BREAK it at 0. No damage table: an item's
+   *  `armor` column is a SOUND (`Wood` on all 273 stock rows — the material the blow clangs on,
+   *  as a tree's is), not a defence type, so the roll lands whole, exactly as on a trunk
+   *  (strikeTree). A broken item plays its own Death clip where it lay (removeGroundItem). */
+  damageItem(itemId: number, amount: number): void {
+    const it = this.items.get(itemId);
+    if (!it || it.invulnerable || amount <= 0) return;
+    it.hp -= amount;
+    if (it.hp <= 0) this.removeGroundItem(it.id, true);
+  }
+
+  /** `SetItemInvulnerable` — refuses every strike at the item from now on (issueAttackItem). */
+  setItemInvulnerable(itemId: number, flag: boolean): void {
+    const it = this.items.get(itemId);
+    if (it) it.invulnerable = flag;
+  }
+
+  /** `SetWidgetLife` on a ground item: its hit points, capped at its type's; 0 breaks it. */
+  setItemLife(itemId: number, life: number): void {
+    const it = this.items.get(itemId);
+    if (!it) return;
+    it.hp = Math.min(it.maxHp, life);
+    if (it.hp <= 0) this.removeGroundItem(it.id, true);
   }
 
   /**
@@ -10519,6 +10698,7 @@ export class SimWorld {
     u.swingFollowThrough = false;
     u.swingTargetId = 0;
     u.swingTreeId = 0;
+    u.swingItemId = 0;
     u.swingGround = { x: g.x, y: g.y };
     u.swingWeapon = w;
     u.swingCrit = false; // crit, bash and backstab are all blows on a UNIT
@@ -11578,6 +11758,7 @@ export class SimWorld {
       case "stop": this.stop(id); return true;
       case "attack": return this.issueAttack(id, o.targetId, o.force, true, o.solo); // a QueuedOrder is always a commanded attack (issue #83)
       case "attacktree": return this.issueAttackTree(id, o.treeId);
+      case "attackitem": return this.issueAttackItem(id, o.itemId);
       case "attackground": return this.issueAttackGround(id, o.x, o.y, o.treeId);
       case "follow": return this.issueFollow(id, o.targetId, o.offX, o.offY);
       case "harvest": return this.issueHarvest(id, o.res, o.nodeId, o.ax, o.ay);
@@ -18828,6 +19009,9 @@ export class SimWorld {
         case "attacktree":
           this.tickAttackTree(u);
           break;
+        case "attackitem":
+          this.tickAttackItem(u);
+          break;
         case "attackground":
           this.tickAttackGround(u);
           break;
@@ -19818,6 +20002,7 @@ export class SimWorld {
     u.desiredFacing = u.facing;
     u.swingWeapon = w; // the strike lands with the slot it was launched from
     u.swingTreeId = 0; // …at a unit, not a trunk
+    u.swingItemId = 0; // …nor an item
     u.swingGround = null; // …nor a spot on the ground
     // Roll this swing's procs now, before the clip is picked (see swingCrit/swingSlam).
     // Critical Strike is only ever applied by dealDamage, so only a melee swing rolls it —
@@ -20440,6 +20625,12 @@ export class SimWorld {
       this.strikeTree(u, w, treeId);
       return;
     }
+    if (u.swingItemId) {
+      const itemId = u.swingItemId;
+      u.swingItemId = 0;
+      this.loosedAtItem(u, w, itemId);
+      return;
+    }
     // An Attack Ground shot: the shell goes at the spot the swing was committed to, with the
     // same fire-frame noise and the same reveal as a shot at anybody.
     if (u.swingGround) {
@@ -20509,6 +20700,7 @@ export class SimWorld {
     // it for a person's unit anyway.
     u.swingLeft = -1;
     u.swingTreeId = 0;
+    u.swingItemId = 0;
     u.swingGround = null;
   }
 
@@ -20882,7 +21074,7 @@ export class SimWorld {
    * where that ground is. No orb rides it — an orb is a blow ON A UNIT (`resolveOrb` asks the
    * target), and there is none — and there is nothing to disjoint from, so no teleport stamp.
    */
-  private spawnGroundShell(u: SimUnit, x: number, y: number, w: SimWeapon): void {
+  private spawnGroundShell(u: SimUnit, x: number, y: number, w: SimWeapon): SimProjectile {
     const id = this.nextProjectileId++;
     const [lx, ly, lz0] = launchPoint(u, w.launchX, w.launchY, w.launchZ);
     const lz = lz0 + u.flyHeight;
@@ -20908,6 +21100,39 @@ export class SimWorld {
         ? { dist: w.spillDist, radius: w.spillRadius, loss: w.damageLoss, ox: lx, oy: ly }
         : undefined,
       area: this.shellArea(w, x, y),
+    };
+    this.projectiles.set(id, proj);
+    this.spawnedProjectiles.push({ id, art: proj.art, x: proj.x, y: proj.y, z: proj.z });
+    return proj;
+  }
+
+  /** A MISSILE loosed at an item on the ground: no unit to home on, so it flies at the item's
+   *  spot the way a missile that has lost its target does (`lost`, tickLostProjectile), and
+   *  lands its roll on the item if the item is still lying there (`itemId`). */
+  private spawnItemMissile(u: SimUnit, it: SimItem, w: SimWeapon): void {
+    const id = this.nextProjectileId++;
+    const [lx, ly, lz0] = launchPoint(u, w.launchX, w.launchY, w.launchZ);
+    const lz = lz0 + u.flyHeight;
+    const proj: SimProjectile = {
+      id,
+      x: lx,
+      y: ly,
+      z: lz,
+      sourceId: u.id,
+      targetId: 0, // a spot, not a unit — a client's copy flies at the snapshot's tx/ty
+      speed: w.missileSpeed > 0 ? w.missileSpeed : 900,
+      damage: this.rollDamage(w),
+      art: w.missileArt,
+      attackType: w.attackType,
+      weaponSound: w.weaponSound,
+      startZ: lz,
+      impactZ: w.impactZ,
+      startDist: Math.hypot(it.x - lx, it.y - ly),
+      arc: w.missileArc,
+      sourceOwner: u.owner,
+      sourceTeam: u.team,
+      lost: { x: it.x, y: it.y },
+      itemId: it.id,
     };
     this.projectiles.set(id, proj);
     this.spawnedProjectiles.push({ id, art: proj.art, x: proj.x, y: proj.y, z: proj.z });
@@ -21147,6 +21372,7 @@ export class SimWorld {
     p.x = l.x;
     p.y = l.y;
     this.projectileImpacts.push({ id: p.id, x: l.x, y: l.y, z: p.impactZ });
+    if (p.itemId) this.damageItem(p.itemId, p.damage);
     this.removeProjectile(p.id);
   }
 
@@ -21169,6 +21395,7 @@ export class SimWorld {
     p.y = a.aimY;
     this.projectileImpacts.push({ id: p.id, x: a.aimX, y: a.aimY, z: p.impactZ });
     this.applyAreaSplash(p);
+    if (p.itemId) this.damageItem(p.itemId, p.damage); // the item it was thrown at (no splash share: it is the aim)
     this.removeProjectile(p.id);
   }
 
@@ -23683,7 +23910,8 @@ export class SimWorld {
    *  taken before the drop still refers to it (7.18). */
   private spawnGroundItem(itemId: string, x: number, y: number, charges: number, reuseId = 0): SimItem {
     const [sx, sy] = this.snapItemPos(x, y);
-    const it: SimItem = { id: reuseId || this.nextItemId++, itemId, x: sx, y: sy, charges };
+    const maxHp = Math.max(1, this.itemReg?.get(itemId)?.maxHp ?? 75); // ItemData "HP" — the loader's own default
+    const it: SimItem = { id: reuseId || this.nextItemId++, itemId, x: sx, y: sy, charges, hp: maxHp, maxHp };
     this.items.set(it.id, it);
     this.itemSpawns.push(it);
     return it;
@@ -25352,12 +25580,12 @@ export class SimWorld {
   itemSnapshot(id: number): ItemSnapshot | null {
     const ground = this.items.get(id);
     // PLAYER_NEUTRAL_PASSIVE (common.j player 15) owns everything nobody carries.
-    if (ground) return { id, typeId: ground.itemId, charges: ground.charges, x: ground.x, y: ground.y, holder: 0, slot: -1, owner: 15 };
+    if (ground) return { id, typeId: ground.itemId, charges: ground.charges, x: ground.x, y: ground.y, holder: 0, slot: -1, owner: 15, life: ground.hp };
     for (const u of this.units.values()) {
       const slot = u.inventory.findIndex((h) => h?.id === id);
       if (slot >= 0) {
         const held = u.inventory[slot]!;
-        return { id, typeId: held.itemId, charges: held.charges, x: u.x, y: u.y, holder: u.id, slot, owner: jassOwnerOf(u) };
+        return { id, typeId: held.itemId, charges: held.charges, x: u.x, y: u.y, holder: u.id, slot, owner: jassOwnerOf(u), life: this.itemReg?.get(held.itemId)?.maxHp ?? 75 };
       }
     }
     return null;
