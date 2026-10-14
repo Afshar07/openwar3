@@ -22601,7 +22601,12 @@ export class SimWorld {
     // Corruption's ribbon, the Mask of Death's VampiricAuraTarget, Feedback's
     // SpellBreakerAttack). Distinct from `Targetart`, which for an orb is the persistent
     // model worn on the carrier's weapon and never a one-shot (see orbAttachments).
-    if (def.specialArt) this.spellEffects.push({ art: def.specialArt, x: target.x, y: target.y, targetId: target.id, z: 0 });
+    // …except where the data says otherwise: a LIFE STEAL flashes on the one it HEALS.
+    // ItemAbilityFunc's own words over `[AIva]` are "special art played on hero when ability
+    // fires", and its model is the Vampiric Aura's own VampiricAuraTarget — the drink, worn by
+    // the drinker, exactly as the aura's `[BUav] Specialart` is (issue #193).
+    const on = code === "AIva" ? attacker : target;
+    if (def.specialArt) this.spellEffects.push({ art: def.specialArt, x: on.x, y: on.y, targetId: on.id, z: 0 });
   }
 
   /** The missile model an orb lends the shot it rides — the orb's own `Missileart`, which

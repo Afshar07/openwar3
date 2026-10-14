@@ -34,7 +34,8 @@ const AIob = abil("AIob", "AIob", { duration: 3, heroDuration: 1, data: [6, NaN,
 // Orb of Corruption (`ocor` → AIcb): DataA 5, DataB 4 armour, Dur 5.
 const AIcb = abil("AIcb", "AIcb", { duration: 5, heroDuration: 5, data: [5, 4, NaN, NaN, 2] }, { targetFlags: ["ground", "air", "ward"] });
 // Mask of Death (`modt` → AIva): DataA 0.5 life stolen per attack, and NO DataE.
-const AIva = abil("AIva", "AIva", { data: [0.5] }, { targetFlags: ["air", "ground", "enemy"] });
+// Its `[AIva] Specialart` is VampiricAuraTarget — "special art played on hero when ability fires".
+const AIva = abil("AIva", "AIva", { data: [0.5] }, { specialArt: "VampiricAuraTarget", targetFlags: ["air", "ground", "enemy"] });
 // Searing Arrows (`AHfa`): DataA 10 damage, Cost 8 a shot.
 const AHfa = abil("AHfa", "AHfa", { cost: 8, castRange: 600, data: [10] }, { missileArt: "searingarrow", targetFlags: ["air", "ground", "structure", "enemy", "neutral"] });
 // Cold Arrows (`AHca`): DataA 5 damage, DataB/DataC 0.3 move/attack slow, Dur 6/1, Cost 8 a
@@ -170,6 +171,22 @@ console.log("\nwhat the winning orb actually does");
   const foe = unit(w, { owner: 1, team: 1 });
   w.applyOrbEffect(hero, foe, w.resolveOrb(hero, foe), 40);
   check("Mask of Death heals half the damage dealt", hero.hp, 520);
+  // …and the drink flashes on the HERO, not on the unit it drank from (issue #193).
+  const fx = w.drainSpellEffects().filter((e) => e.art === "VampiricAuraTarget");
+  check("…flashing VampiricAuraTarget on the carrier", fx.map((e) => e.targetId), [hero.id]);
+}
+{
+  // "make sure that mask of death only works when fighting units and not when attacking
+  // buildings" (issue #193): `targs1` air,ground,enemy names no `structure`, so on a
+  // building the Mask is not the blow's orb at all — no heal, no flash.
+  const w = world();
+  const hero = unit(w, { isHero: true, hp: 500, inventory: bag([[0, "modt"]]) });
+  const farm = unit(w, { owner: 1, team: 1, building: { footprint: 2 }, typeId: "hhou" });
+  const orb = w.resolveOrb(hero, farm);
+  check("on a building the Mask is no orb", orb?.def.id ?? null, null);
+  w.applyOrbEffect(hero, farm, orb, 40);
+  check("…heals nothing", hero.hp, 500);
+  check("…and flashes nothing", w.drainSpellEffects().length, 0);
 }
 {
   // Feedback burns 20 off a unit and 4 off a hero, dealing that much damage.
