@@ -50,7 +50,8 @@ import { modelPickVolumes, rayVolume, rebaseVolumes, type CollisionShapeNode, ty
 import { autoArmed, type UnitRegistry, type UnitDef } from "../data/units";
 import { ArmorType, AttackType, isNeutralSlot, MoveType, neutralSlot, PlayerSlot, PrimaryAttribute } from "../data/enums";
 import { MELEE, dataNum, gameNum, xpToReachLevel } from "../data/gameplayConstants";
-import { type AbilityRegistry, type AbilityDef } from "../data/abilities";
+import { type AbilityRegistry, type AbilityDef, type AbilityLevel } from "../data/abilities";
+import { AURA_BUFFS } from "../sim/spells";
 import { resolveTipRefs } from "../data/tipRefs";
 import { disabledIconPath } from "../data/commandStrings";
 import { observePlayer, type ObserverPlayerView } from "./observerView";
@@ -6214,14 +6215,49 @@ export class RtsController {
    *  would hit, and the green tree highlight. It used to read `armedCast` directly, which
    *  is why an item aimed at an area — a Staff of Negation is "Dispels all magical effects
    *  in a target area" (`ItemStrings [sneg]`) — armed with none of it. */
-  armedAoe(): { area: number; flags: string[] } | null {
+  armedAoe(): { area: number; flags: string[]; ward: boolean } | null {
     const cast = this.armedCast;
-    if (cast?.target === "point" && cast.area) {
-      return { area: cast.area, flags: this.abilityDefByCode(cast.code)?.targetFlags ?? [] };
-    }
+    if (cast?.target === "point" && cast.area) return this.aoeOf(this.abilityDefByCode(cast.code), cast.area);
     const item = this.orderMode === "item" ? this.armedItem : null;
     if (item?.mode === "usepoint" && item.area) {
-      return { area: item.area, flags: (item.abilityId ? this.abilities.get(item.abilityId) : undefined)?.targetFlags ?? [] };
+      return this.aoeOf(item.abilityId ? this.abilities.get(item.abilityId) : undefined, item.area);
+    }
+    return null;
+  }
+
+  /** armedAoe's answer for one ability: whose `targs1` decides who lights up — the ability's
+   *  own, or the aura of the ward it drops (see wardAura). */
+  private aoeOf(def: AbilityDef | undefined, area: number): { area: number; flags: string[]; ward: boolean } {
+    const ward = def && !aoeCursorRadius(def) ? this.wardAura(def) : null;
+    return { area, flags: ward?.flags ?? def?.targetFlags ?? [], ward: !!ward };
+  }
+
+  /** The radius of the `SpellAreaOfEffect` circle an ability or an item arms with —
+   *  `aoeCursorRadius`, or failing that the reach of the aura the WARD it drops will broadcast. */
+  aimArea(def: AbilityDef, level: AbilityLevel | undefined = def.levelData[0]): number {
+    return aoeCursorRadius(def, level) || (this.wardAura(def, level)?.area ?? 0);
+  }
+
+  /**
+   * The aura a ward-dropping ability's WARD will broadcast, or null — what its aiming circle
+   * previews (issue #188).
+   *
+   * A Healing Ward is placed with the circle up and the units it will mend lit green, like
+   * any area spell, though neither of its rows names an area: `[Ahwd]`/`[AIhw]` carry `Area1`
+   * "-" and `UnitID1` = `ohwd`, and the radius is the ward's own — `ohwd` abilList `Aoar`,
+   * `Area1` 500, the aura it stands there broadcasting. So the circle is read off the unit
+   * the row summons rather than off the row, and only when that unit IS a ward
+   * (UnitBalance `type`) carrying an aura: the Sentry Ward, the Serpent Ward and the Stasis
+   * Trap carry none and are placed with a bare cursor.
+   */
+  private wardAura(def: AbilityDef, level: AbilityLevel | undefined = def.levelData[0]): { area: number; flags: string[] } | null {
+    if (def.target !== "point" || !level?.summon) return null;
+    const ward = this.registry.get(level.summon);
+    if (!ward?.classification.includes("ward")) return null;
+    for (const id of ward.abilities) {
+      const aura = this.abilities.get(id);
+      const area = aura?.levelData[0]?.area ?? 0;
+      if (aura && area > 0 && AURA_BUFFS[aura.code]) return { area, flags: aura.targetFlags };
     }
     return null;
   }
@@ -7291,7 +7327,7 @@ export class RtsController {
       return;
     }
     if (aim && aimed) {
-      this.armedItem = { slot, mode: aim === "point" ? "usepoint" : "useunit", abilityId: aimed.id, area: aoeCursorRadius(aimed) };
+      this.armedItem = { slot, mode: aim === "point" ? "usepoint" : "useunit", abilityId: aimed.id, area: this.aimArea(aimed) };
       this.orderMode = "item";
       return;
     }
@@ -8006,6 +8042,13 @@ export class RtsController {
     if (!aoe) return [];
     const caster = this.primary !== null ? this.sim.units.get(this.primary) : undefined;
     if (!caster) return [];
+    if (aoe.ward) {
+      // A ward's aura is the WARD's, not the caster's: the Hero who drops it stands in its
+      // circle like anybody else (no `self` exclusion — casterId 0), and a friendly aura goes to
+      // the ward's own side alone, so the `neutral` in Aoar's flags lights no critter
+      // (SimWorld.applyAuras' `alliedAura`).
+      return this.sim.areaEffectTargets(0, caster.team, aoe.flags, wx, wy, aoe.area).filter((id) => !this.sim.units.get(id)?.neutralPassive);
+    }
     return this.sim.areaEffectTargets(caster.id, caster.team, aoe.flags, wx, wy, aoe.area);
   }
 

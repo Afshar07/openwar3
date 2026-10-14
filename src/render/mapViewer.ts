@@ -54,7 +54,7 @@ import { loadUberSplatRegistry, type UberSplatDef, type UberSplatRegistry } from
 import { loadLightningRegistry } from "../data/lightning";
 import { specialFxPhaseAt, type SpecialFxClips } from "./specialFxClock";
 import { pickEffectSequence, yawPitchRollQuat } from "./effectAnim";
-import { loadAbilityRegistry, mdlPath, type AbilityRegistry, type AbilityDef, type BuffFx, isRepairCode, KNOWN_ABILITIES, TREE_UPGRADE_ABILITY, requiredHeroLevel, aoeCursorRadius, morphFlags, MORPH_FLAG_PERMANENT, MORPH_FLAG_REQUIRES_PAYMENT, type AbilityLevel, iconAt, isStance } from "../data/abilities";
+import { loadAbilityRegistry, mdlPath, type AbilityRegistry, type AbilityDef, type BuffFx, isRepairCode, KNOWN_ABILITIES, TREE_UPGRADE_ABILITY, requiredHeroLevel, morphFlags, MORPH_FLAG_PERMANENT, MORPH_FLAG_REQUIRES_PAYMENT, type AbilityLevel, iconAt, isStance } from "../data/abilities";
 import { isDesktopApp } from "../assets/nativeInstall";
 import { loadCommandStrings, disabledIconPath, placeholderIcon, type CommandStrings } from "../data/commandStrings";
 import { resolveTipRefs } from "../data/tipRefs";
@@ -8255,9 +8255,10 @@ export class MapViewerScene {
     const su = this.rts?.selectedSimUnit();
     const ab = su?.abilities.find((a) => a.code === code && a.level >= 1);
     const def = ab ? this.abilities.get(ab.id) : undefined;
-    // Through `aoeCursorRadius` rather than off `levelData[…].area` directly, so a spell and
-    // an aimed ITEM answer "how big is the circle" the same way (see rts.useInventorySlot).
-    return def ? aoeCursorRadius(def, def.levelData[Math.min(ab!.level, def.levelData.length) - 1]) : 0;
+    // Through `aimArea` rather than off `levelData[…].area` directly, so a spell and an aimed
+    // ITEM answer "how big is the circle" the same way (see rts.useInventorySlot) — the
+    // Witch Doctor's Healing Ward and the Healing Wards item alike (rts.wardAura).
+    return def && this.rts ? this.rts.aimArea(def, def.levelData[Math.min(ab!.level, def.levelData.length) - 1]) : 0;
   }
 
   /** Time the harvest-/attack-order flashes (terrain-conforming ground rings, blinking
@@ -11983,6 +11984,12 @@ export class MapViewerScene {
       // at 0 regen), and it showed as an aura button nobody could press. No stock unit carries
       // an item ability in its abilList, so nothing stock is touched.
       if (def.isItem && !def.orderOn && !def.orderOff) continue;
+      // …and a WARD wears its passives without showing them. UnitBalance `type` = "Ward" is
+      // the classification whose units take no orders from the card (selectionCanAttack), and
+      // what a Healing Ward carries is exactly that: `ohwd` abilList `Aoar`, the aura it was
+      // dropped for, whose row has an Art and no Tip, no Ubertip and no Buttonpos — a button
+      // in the top-left corner that names itself and does nothing (issue #188).
+      if (su.ward && def.target === "passive") continue;
       const lvl = def.levelData[Math.min(ab.level, def.levelData.length) - 1];
       // A PERMANENT form has no second face at all: a Destroyer still lists `Aave` in its
       // abilList, but "Once morphed, the Destroyer cannot turn back into an Obsidian Statue"
