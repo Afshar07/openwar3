@@ -827,7 +827,13 @@ body.hud-tooltip-skinned .hud-chatbar::after {
   gap: 4px;
   pointer-events: auto;
   z-index: 5;
+  /* Long enough now (heroes, items, the clock) to need to scroll on a short window. */
+  max-height: calc(100% - 12px);
+  overflow-y: auto;
 }
+/* An author `display` outranks the UA sheet's `[hidden]` (see .unit-hpbar-garrison). */
+.hud-cheats[hidden],
+.hud-collider-legend[hidden] { display: none; }
 .hud-cheat-btn {
   font-family: var(--game-font);
   font-size: 11px;

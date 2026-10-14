@@ -12,6 +12,7 @@ import { simHooks, authorityHooks, visionHooks, rosterHooks, mineForScript, MINE
 import type { EngineHooks } from "../jass/runtime";
 import { armorSoundFrom } from "../data/unitFieldCodes";
 import type { SimView } from "./simView";
+
 export type { PlacedRef };
 import {
   type AnimSet,
@@ -48,7 +49,7 @@ import type { HeightSampler, FootprintMaxSampler } from "./heightmap";
 import { modelPickVolumes, rayVolume, rebaseVolumes, type CollisionShapeNode, type PickVolume } from "../render/modelCollision";
 import { autoArmed, type UnitRegistry, type UnitDef } from "../data/units";
 import { ArmorType, AttackType, isNeutralSlot, MoveType, neutralSlot, PlayerSlot, PrimaryAttribute } from "../data/enums";
-import { MELEE, gameNum, xpToReachLevel } from "../data/gameplayConstants";
+import { MELEE, dataNum, gameNum, xpToReachLevel } from "../data/gameplayConstants";
 import { type AbilityRegistry, type AbilityDef } from "../data/abilities";
 import { resolveTipRefs } from "../data/tipRefs";
 import { disabledIconPath } from "../data/commandStrings";
@@ -65,6 +66,9 @@ import { type UpgradeRegistry } from "../data/upgrades";
 import type { SoundBoard, SoundCategory } from "../audio/sounds";
 import { WorldOverlays, healthBarsAlways, type HoverLine, type BarAbility, type BarSpec, type CrewLabelSpec } from "../render/worldOverlays";
 import { INSANE_HARVEST_FACTOR, MELEE_INSANE } from "../ai/ids";
+
+/** What the single-player dev tools can do to the local player's side (RtsController.cheat). */
+export type CheatKind = "gold" | "lumber" | "food" | "fastbuild" | "godmode" | "day" | "night";
 
 // Ties the headless SimWorld to the rendered map (plan §5 vertical slice):
 // seeds movable units from the loaded map, syncs sim state → model instances
@@ -9078,8 +9082,28 @@ export class RtsController {
   }
 
 
-  /** Debug cheats (the bottom-right buttons): top up the local player's economy. */
-  cheat(kind: "gold" | "lumber" | "food" | "fastbuild"): boolean {
+  /** Debug cheats (the bottom-right buttons, or their typed twins in chat): top up the
+   *  local player's economy, God mode, or set the clock. Returns the resulting on/off state
+   *  of a toggle ("fastbuild", "godmode"); false for the one-shots.
+   *
+   *  SINGLE PLAYER ONLY: a networked match refuses every cheat here, whoever asks — the
+   *  panel and the chat both gate on it too, and this is the last door. */
+  cheat(kind: CheatKind): boolean {
+    if (this.networked) return false;
+    if (kind === "godmode") {
+      // `whosyourdaddy` — invulnerable, one-hit kills (SimWorld.godPlayers).
+      const gods = this.sim.godPlayers;
+      if (gods.has(this.localPlayer)) gods.delete(this.localPlayer);
+      else gods.add(this.localPlayer);
+      return gods.has(this.localPlayer);
+    }
+    if (kind === "day" || kind === "night") {
+      // `riseandshine` / `lightsout`: wind the clock to the morning or the evening — the
+      // game's own Dawn and Dusk hours (UI\MiscData.txt [Misc], 6.00 and 18.00), the exact
+      // moment each half of the day begins.
+      this.sim.timeOfDay = dataNum(kind === "day" ? "Dawn" : "Dusk");
+      return false;
+    }
     if (kind === "fastbuild") {
       this.sim.fastBuild = !this.sim.fastBuild; // builds/trains complete in ~1s
       return this.sim.fastBuild;
@@ -9097,6 +9121,7 @@ export class RtsController {
   /** Debug cheats acting on the current selection: refill HP or MP to full, or
    *  clear every ability (and item) cooldown, on each selected living unit. */
   cheatSelected(kind: "hp" | "mp" | "cooldown"): void {
+    if (this.networked) return;
     for (const id of this.selected) {
       const u = this.sim.units.get(id);
       if (!u || u.hp <= 0) continue;

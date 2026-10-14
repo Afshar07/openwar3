@@ -3750,6 +3750,14 @@ export class SimWorld {
   // Debug cheat: when true, construction + unit training complete in ~1 second
   // (any build time is compressed to one second), regardless of builders present.
   fastBuild = false;
+  /**
+   * Debug cheat, `whosyourdaddy`'s "God mode": the players listed here take NO damage and
+   * kill whatever they hit in one blow — attacks and spells alike, which is how the original
+   * cheat plays. Keyed on the OWNER, so a unit trained after it is switched on is covered too.
+   * Only the single-player dev tools ever fill it (RtsController.cheat); a networked match
+   * refuses every cheat, so nothing here has to be agreed between machines.
+   */
+  readonly godPlayers = new Set<number>();
   // Injected by the game layer: is world point (x,y) currently VISIBLE (not fogged)
   // to `team`? Idle units only auto-acquire enemies their team can actually see —
   // WC3 units never aggro a target hidden in the fog of war (issue #17). Defaults to
@@ -13497,7 +13505,7 @@ export class SimWorld {
     for (const s of shields) {
       if (s.holder.hp <= 0) continue;
       for (const t of this.unitsInAreaInternal(s.holder.x, s.holder.y, s.radius)) {
-        if (t === s.holder || t.hp <= 0 || t.building || t.invulnerable) continue;
+        if (t === s.holder || t.hp <= 0 || t.building || t.invulnerable || this.godProtected(t)) continue;
         t.hp -= s.dps * dt; // spell damage — no armor reduction
         this.breakItemRegen(t); // "hit by a spell which does damage" — see breakItemRegen
         if (t.hp <= 0) this.kill(t, s.killerId);
@@ -13941,7 +13949,7 @@ export class SimWorld {
       // `<Advc,DataB1>` for the damage. (The Kodo's says `DataC1` — that slot is `Dev3`
       // "Maximum Creep Level" and is Blizzard's own typo, invisible because both are 5.)
       const lvl = this.passiveLevelData(u, "Advc");
-      prey.hp -= (lvl ? this.dataOf(lvl, 1, 5) : 5) * dt;
+      if (!this.godProtected(prey)) prey.hp -= (lvl ? this.dataOf(lvl, 1, 5) : 5) * dt;
       this.breakItemRegen(prey); // being digested is being damaged — see breakItemRegen
       if (prey.hp <= 0) { u.devouring = 0; this.kill(prey, u.id); }
     }
@@ -22545,7 +22553,7 @@ export class SimWorld {
     const share = target.linkShare;
     const per = (dmg * share) / members.length; // equal slice for every linked unit
     for (const m of members) {
-      if (m === target) continue;
+      if (m === target || this.godProtected(m)) continue;
       m.hp -= per; // already post-armor; spirit-shared damage isn't reduced again
       this.breakItemRegen(m); // …and a share is damage: it takes the linked unit's salve with it
       if (m.hp <= 0) this.kill(m);
@@ -22874,12 +22882,18 @@ export class SimWorld {
     return 0;
   }
 
+  /** Is `u` owned by a player with the God mode cheat on (`godPlayers`)? */
+  private godProtected(u: SimUnit | undefined): boolean {
+    return !!u && this.godPlayers.size > 0 && this.godPlayers.has(u.owner);
+  }
+
   /** Apply FINAL (post-reduction) damage: death, return fire, and (for physical
    *  hits) the impact SFX. Spell damage calls this directly with recordHit=false —
    *  WC3 ability damage ignores the armor value and plays its own effects. Returns
    *  the HP removed (0 if the target was invulnerable). */
   private landDamage(target: SimUnit, amount: number, attackerId: number, recordHit: boolean, weaponSound = "", raised: DamageBlow | null = null): number {
     if (target.invulnerable) return 0; // Divine Shield / Avatar: immune to damage
+    if (this.godProtected(target)) return 0; // `whosyourdaddy`: the cheater's units take nothing
     // The script's DAMAGING event, for a blow that did not come through a path which already
     // raised it before its own reductions (the attack, UnitDamageTarget): a spell's, a splash's,
     // an orb's — damage the engine lands as it is, so its "before resistances" is this amount.
@@ -22904,8 +22918,12 @@ export class SimWorld {
     // Placed with the sleep break, i.e. BEFORE the mana shield: being hit is being hit even
     // when a shield eats the blow.
     if (amount > 0) this.breakItemRegen(target);
+    // `whosyourdaddy`'s other half: a blow FROM the cheater is a one-hit kill. Taken before the
+    // Mana Shield, or a shielded Naga would soak the killing blow into her mana.
+    const godBlow = amount > 0 && this.godPlayers.size > 0 && this.godProtected(this.units.get(attackerId));
+    if (godBlow) amount = Math.max(amount, target.hp);
     // Mana Shield (Naga): absorb incoming damage into mana at `value` mana per hp.
-    amount = this.absorbWithManaShield(target, amount);
+    else amount = this.absorbWithManaShield(target, amount);
     if (amount <= 0) return 0;
     if (recordHit) this.hits.push({ attackerId, targetId: target.id, weaponSound, x: target.x, y: target.y });
     this.noteAttacked(target, attackerId); // "The battle has been joined." / "Our town is under siege!"

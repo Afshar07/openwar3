@@ -13,7 +13,7 @@ import type { MinimapPing } from "../jass/runtime";
 import { escapeHtml, wc3StripMarkup, wc3ToHtml } from "./wc3Text";
 
 import { CHAT_MAX_LENGTH, sanitizeChat, type ChatTarget } from "../game/chat";
-import type { HeroBarEntry } from "../game/rts";
+import type { CheatKind, HeroBarEntry } from "../game/rts";
 import { allyButtonSkin, type AllyColorMode } from "../game/allyColor";
 import type { MinimapDot } from "../game/minimapView";
 import { CONSOLE_BAND_H, type ConsoleResources } from "./consoleUi";
@@ -444,9 +444,14 @@ export interface HudDriver {
    *  game says they differ (the inventory cover) and share where it says they share (the
    *  queue border and the bars, which every race takes from `[Default]`). */
   skinPath(key: string): string;
-  /** Debug cheat: top up gold/lumber/food, or toggle fast build/train. Returns
-   *  the resulting on/off state (only meaningful for "fastbuild"). */
-  cheat(kind: "gold" | "lumber" | "food" | "fastbuild"): boolean;
+  /** Debug cheat: top up gold/lumber/food, toggle fast build/train or God mode, or set
+   *  the clock to day/night. Returns the resulting on/off state (only meaningful for the
+   *  toggles, "fastbuild" and "godmode"). */
+  cheat(kind: CheatKind): boolean;
+  /** May the dev tools act at all? SINGLE PLAYER ONLY — one human seat and no wire. A LAN or
+   *  online match answers false for its whole length, and the panel can then neither be shown
+   *  nor pressed. */
+  cheatsAllowed(): boolean;
   /** Debug cheat on the current selection: refill HP/MP to full, or clear every
    *  ability + item cooldown, on each selected unit. */
   cheatSelected(kind: "hp" | "mp" | "cooldown"): void;
@@ -465,6 +470,11 @@ export interface HudDriver {
   /** Debug: spawn `typeId` at the camera centre, maxed to level 6 with every skill at
    *  full rank and full mana — for casting a hero's whole kit on camera. */
   spawnTestHero(typeId: string): void;
+  /** Every item type in the registry (the map's own .w3t ones included), for the "Spawn
+   *  Item" dropdown: rawcode, display name and its `class` (Permanent, Charged, …). */
+  itemList(): Array<{ id: string; name: string; classType: string }>;
+  /** Debug: drop a new item of `typeId` on the ground at the camera centre. */
+  spawnTestItem(typeId: string): void;
 }
 
 /**
@@ -1481,13 +1491,11 @@ export class GameHud {
       this.buildConsole(skin),
       this.buildHeroBar(),
       this.buildAutoCameraBox(),
-      // The cheat panel is DEVELOPMENT ONLY, and it is gated the way every other dev-only
-      // thing in the app is (src/dev/devBoot.ts): `import.meta.env.DEV` is a compile-time
-      // constant that Vite folds to `false` in a build, so a packaged OpenWar3 has no
-      // +5000 Gold button, no Spawn Hero and no collider overlay to find. Even on the dev
-      // server it appears only with `?dev` on the URL (the same switch devBoot.ts reads), so
-      // a plain localhost match looks like the shipped game.
-      ...(import.meta.env.DEV && new URLSearchParams(location.search).has("dev") ? [this.buildCheatPanel()] : []),
+      // The dev tools. Built in every match but SHOWN only in single player (`cheatsAllowed`,
+      // re-asked every frame — the LAN wire is attached after the HUD is built), and only once
+      // asked for: typing `toolsofthetrade` in chat toggles them (toggleDevTools), and the dev
+      // server opens with them up when `?dev` is on the URL (the switch devBoot.ts reads).
+      this.buildCheatPanel(),
       this.buildMessageLog(),
       this.buildChatLog(),
       this.buildChatBar(),
@@ -1681,6 +1689,7 @@ export class GameHud {
 
   frame(dtMs: number): void {
     if (this.root.hidden) return;
+    this.syncCheatPanel();
     this.dotsT += dtMs;
     this.textT += dtMs;
     // Refresh the info panel immediately when the selection changes, so the
@@ -2084,25 +2093,58 @@ export class GameHud {
     return wrapper as unknown as HTMLDivElement;
   }
 
+  /** Flip the dev tools panel (the chat's `toolsofthetrade`). Returns the new state; the
+   *  panel only actually shows while `cheatsAllowed` holds (frame). */
+  toggleDevTools(): boolean {
+    this.devToolsOn = !this.devToolsOn;
+    this.syncCheatPanel();
+    return this.devToolsOn;
+  }
+
+  /** Light a toggle's button when it was flipped from somewhere else (a typed cheat). */
+  markCheat(kind: CheatKind, on: boolean): void {
+    this.cheatButtons.get(kind)?.classList.toggle("active", on);
+  }
+
+  /** Show the panel exactly when it is asked for AND the match is single player. */
+  private syncCheatPanel(): void {
+    if (!this.cheatPanel) return;
+    const hidden = !(this.devToolsOn && this.driver.cheatsAllowed());
+    if (this.cheatPanel.hidden !== hidden) this.cheatPanel.hidden = hidden;
+  }
+
   /** A small floating panel of debug cheats in the bottom-right corner: top up
-   *  gold/lumber/food and a Fast Build toggle (builds + trains finish in ~1s).
+   *  gold/lumber/food, Fast Build (builds + trains finish in ~1s), God mode, the clock,
+   *  and spawning heroes and items.
    *
-   *  DEV SERVER ONLY, and only with `?dev` on the URL — the call site is behind
-   *  `import.meta.env.DEV`, so none of this is built into a packaged game. */
+   *  SINGLE PLAYER ONLY. The panel is hidden whenever `cheatsAllowed` is false, a click
+   *  on it is swallowed in that case as well, and the controller refuses each cheat in a
+   *  networked match on its own — three doors, so no one of them has to be the only one. */
   private buildCheatPanel(): HTMLDivElement {
     const panel = document.createElement("div");
     panel.className = "hud-cheats";
-    const mk = (label: string, kind: "gold" | "lumber" | "food" | "fastbuild") => {
+    panel.hidden = true;
+    this.cheatPanel = panel;
+    // Capture phase on the panel runs before any button's own handler.
+    panel.addEventListener("click", (e) => {
+      if (this.driver.cheatsAllowed()) return;
+      e.stopImmediatePropagation();
+      e.preventDefault();
+    }, true);
+    const mk = (label: string, kind: CheatKind) => {
       const b = document.createElement("button");
       b.className = "hud-cheat-btn";
       b.textContent = label;
       b.onclick = () => {
         const on = this.driver.cheat(kind);
-        if (kind === "fastbuild") b.classList.toggle("active", on);
+        if (kind === "fastbuild" || kind === "godmode") b.classList.toggle("active", on);
       };
+      this.cheatButtons.set(kind, b);
       return b;
     };
     panel.append(mk("+5000 Gold", "gold"), mk("+5000 Lumber", "lumber"), mk("+Food", "food"), mk("Fast Build", "fastbuild"));
+    // `whosyourdaddy`, `riseandshine` and `lightsout` — the original game's cheats.
+    panel.append(mk("God Mode", "godmode"), mk("Set Day", "day"), mk("Set Night", "night"));
 
     // Selection cheats: refill the selected unit(s)' HP/MP or wipe their cooldowns.
     const mkSel = (label: string, kind: "hp" | "mp" | "cooldown") => {
@@ -2197,6 +2239,32 @@ export class GameHud {
       if (heroSel.value) this.driver.spawnTestHero(heroSel.value);
     };
     if (heroes.length) panel.append(heroSel, spawnBtn);
+
+    // "Spawn Item": any item type on the ground at the camera centre, grouped by its class.
+    const itemSel = document.createElement("select");
+    itemSel.className = "hud-cheat-select";
+    const items = this.driver.itemList();
+    let lastClass: string | null = null;
+    let itemGroup: HTMLOptGroupElement | null = null;
+    for (const it of items) {
+      if (it.classType !== lastClass) {
+        itemGroup = document.createElement("optgroup");
+        itemGroup.label = it.classType || "Other";
+        itemSel.append(itemGroup);
+        lastClass = it.classType;
+      }
+      const opt = document.createElement("option");
+      opt.value = it.id;
+      opt.textContent = `${wc3StripMarkup(it.name) || it.id} (${it.id})`;
+      (itemGroup ?? itemSel).append(opt);
+    }
+    const itemBtn = document.createElement("button");
+    itemBtn.className = "hud-cheat-btn";
+    itemBtn.textContent = "Spawn Item";
+    itemBtn.onclick = () => {
+      if (itemSel.value) this.driver.spawnTestItem(itemSel.value);
+    };
+    if (items.length) panel.append(itemSel, itemBtn);
     return panel;
   }
 
@@ -2868,6 +2936,12 @@ export class GameHud {
    */
   /** The observer HUD, for a watcher only (issue #168). */
   private observerHud: ObserverHud | null = null;
+  /** The dev tools panel (buildCheatPanel), and whether the player has asked for it — on by
+   *  default only on the dev server with `?dev` on the URL. Shown when both this and
+   *  `cheatsAllowed` hold. */
+  private cheatPanel: HTMLDivElement | null = null;
+  private readonly cheatButtons = new Map<CheatKind, HTMLButtonElement>();
+  private devToolsOn = import.meta.env.DEV && new URLSearchParams(location.search).has("dev");
   /** The match clock under the medallion, for a player (a watcher's is the observer HUD's). */
   private matchClock: HTMLDivElement | null = null;
   private autoCamBox: { root: HTMLElement; box: HTMLElement; check: HTMLElement; paint: (pressed: boolean) => void } | null = null;

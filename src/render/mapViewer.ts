@@ -3043,7 +3043,7 @@ export class MapViewerScene {
    *  on camera for verification. Not a gameplay path; only the debug UI reaches it. */
   private async spawnTestHero(typeId: string): Promise<void> {
     const def = this.registry.get(typeId);
-    if (!def || !this.rts) return;
+    if (!def || !this.rts || !this.cheatsAllowed) return;
     const world = this.rts.simWorld;
     const simId = await this.spawnUnit(def, this.target[0], this.target[1], this.localPlayer, this.teamOf(this.localPlayer));
     if (simId === null) return;
@@ -9313,6 +9313,15 @@ export class MapViewerScene {
           .map((d) => ({ id: d.id, name: d.name, race: d.race }))
           .sort((a, b) => a.race.localeCompare(b.race) || a.name.localeCompare(b.name)),
       spawnTestHero: (typeId) => void this.spawnTestHero(typeId),
+      itemList: () =>
+        this.items
+          .all()
+          .map((d) => ({ id: d.id, name: d.name, classType: d.classType }))
+          .sort((a, b) => a.classType.localeCompare(b.classType) || a.name.localeCompare(b.name) || a.id.localeCompare(b.id)),
+      spawnTestItem: (typeId) => {
+        if (this.cheatsAllowed) this.rts?.simWorld.createItem(typeId, this.target[0], this.target[1]);
+      },
+      cheatsAllowed: () => this.cheatsAllowed,
     };
     this.consoleUi?.dispose();
     // Built BEFORE the HUD so the HUD's own layers (the day/night medallion that hangs in the
@@ -9446,6 +9455,43 @@ export class MapViewerScene {
     return !this.multiplayerMatch;
   }
 
+  /**
+   * May the dev tools and the typed cheats act? The original game's rule — cheats work in
+   * single player and NEVER online — drawn on the WIRE: a match with no MatchLink is played
+   * on this machine and nowhere else (a skirmish, a custom game, a campaign chapter), and
+   * every LAN or online room has one from its first frame, even one whose only human is the
+   * host (fdfLanLobby `matchLinkFrom`). Not `singlePlayer`: that counts `user` SEATS, and the
+   * `?dev` boot leaves the seats it does not fill as empty `user` slots, so it reads two.
+   */
+  private get cheatsAllowed(): boolean {
+    return !!this.rts && !this.rts.networked;
+  }
+
+  /**
+   * A typed cheat code, the way the original takes them: the WHOLE chat line, any case, and
+   * never sent as chat. Answered with the game's own `CHEATENABLED`/`CHEATDISABLED` line
+   * (GlobalStrings.fdf). Single player only — in any other match the line is ordinary chat.
+   *
+   * `toolsofthetrade` is OURS (it opens the dev tools panel); the other three are the
+   * original game's `whosyourdaddy`, `riseandshine` and `lightsout`.
+   */
+  private typedCheat(text: string): boolean {
+    if (!this.cheatsAllowed || !this.rts) return false;
+    const code = text.trim().toLowerCase();
+    let on = true; // the clock cheats are one-shots, and always "enabled"
+    if (code === "toolsofthetrade") on = this.hud?.toggleDevTools() ?? false;
+    else if (code === "whosyourdaddy") {
+      on = this.rts.cheat("godmode");
+      this.hud?.markCheat("godmode", on);
+    }
+    else if (code === "riseandshine") this.rts.cheat("day");
+    else if (code === "lightsout") this.rts.cheat("night");
+    else return false;
+    const key = on ? "CHEATENABLED" : "CHEATDISABLED";
+    this.hud?.showMessage(this.globalStrings?.strings.get(key) ?? (on ? "Cheat enabled!" : "Cheat disabled!"), -1);
+    return true;
+  }
+
   /** A player's display label — the lobby name, as the owner line and the Allies rows use. */
   private playerLabel(player: number): string {
     return this.playerNames.get(player) ?? `Player ${player + 1}`;
@@ -9485,6 +9531,7 @@ export class MapViewerScene {
    * chat: it is the only confirmation the message went anywhere).
    */
   private sendChat(text: string, target: ChatTarget): void {
+    if (this.typedCheat(text)) return;
     target = this.chatTargetFor(target);
     const link = this.rts?.matchLinkHandle ?? null;
     // On a CLIENT nothing is shown yet: the host decides who hears this, ourselves included,
@@ -16044,7 +16091,7 @@ export class MapViewerScene {
   private checkCheatCode(key: string): void {
     if (key.length !== 1 || !/[a-z]/i.test(key)) return;
     this.cheatBuf = (this.cheatBuf + key.toLowerCase()).slice(-16);
-    if (this.cheatBuf.endsWith("iseedeadpeople")) {
+    if (this.cheatBuf.endsWith("iseedeadpeople") && this.cheatsAllowed) {
       this.rts?.toggleRevealAll();
       this.cheatBuf = "";
     }
