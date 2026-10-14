@@ -375,5 +375,22 @@ const from = (src, over = {}) => ({
     u.buffs.map((b) => `${b.kind}:${b.group}`).join(","), "stun:,stun:possession");
 }
 
+// ==========================================================================================
+// A FROST SLOW IS NOT DISPELLED (issue #181). The generic Slowed buff `Bfro` — Frost Attack,
+// Frost Breath, Frost Nova, the Orb of Frost — is "dispellable=no" on Liquipedia's buff card.
+// ==========================================================================================
+{
+  const w = world();
+  const d = dryad(w, { x: 0, y: 0 });
+  const wyrm = add(w, { owner: 1, team: 1, x: -400, y: 0 });
+  const chilled = add(w, { x: 300, y: 0 });
+  chilled.buffs = [from(wyrm, { kind: "slow", group: "frostattack", timeLeft: 10, buffId: "Bfro" })];
+  check("a friendly unit under Frost Attack is not autocast at", w.tickAutocast(d), false);
+  check("…and the Dryad keeps her mana", d.mana, 200);
+  chilled.buffs.push(from(wyrm, { kind: "slow", group: "slow", timeLeft: 9, buffId: "Bslo" }));
+  w.dispelUnit(chilled);
+  check("a dispel takes the Slow and leaves the frost", chilled.buffs.map((b) => b.buffId).join(","), "Bfro");
+}
+
 console.log(`\n${failed ? `${failed} FAILED` : "all passed"}`);
 process.exit(failed ? 1 : 0);

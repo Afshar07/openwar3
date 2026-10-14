@@ -51,7 +51,7 @@ import { autoArmed, type UnitRegistry, type UnitDef } from "../data/units";
 import { ArmorType, AttackType, isNeutralSlot, MoveType, neutralSlot, PlayerSlot, PrimaryAttribute } from "../data/enums";
 import { MELEE, dataNum, gameNum, xpToReachLevel } from "../data/gameplayConstants";
 import { type AbilityRegistry, type AbilityDef, type AbilityLevel } from "../data/abilities";
-import { AURA_BUFFS } from "../sim/spells";
+import { AURA_BUFFS, SLOWED_BUFF } from "../sim/spells";
 import { resolveTipRefs } from "../data/tipRefs";
 import { disabledIconPath } from "../data/commandStrings";
 import { observePlayer, type ObserverPlayerView } from "./observerView";
@@ -418,6 +418,7 @@ interface Entry {
   aoeHi?: boolean; // last AoE-target green-tint state applied (avoids redundant setVertexColor)
   illus?: boolean; // last Mirror-Image blue-wash state applied (owner/allies only)
   raised?: boolean; // last Animate Dead tint state applied
+  frost?: boolean; // last frost-slow (Bfro) tint state applied — see FROST_TINT
   fade?: number; // last ghost fade applied (invisible/ethereal) — see INVIS_ALPHA
   /** How long the invisibility now coming on takes in total, captured the first frame this
    *  entry saw it — a buff carries what is LEFT of its transition, never what it started
@@ -465,6 +466,12 @@ export const ILLUSION_TINT = [0.22, 0.42, 1.9] as const;
 // 0–255), as the developer read it off the World Editor. A multiply like the illusion wash, so
 // the type's own tint and the fog dimming still compose underneath it.
 export const RAISED_TINT = [60 / 255, 40 / 255, 40 / 255] as const;
+// The cold a FROST slow leaves on its target: Liquipedia's Slowed page (the generic `Bfro` buff
+// every frost source hangs — Frost Attack, Frost Breath, Frost Nova, the Orb of Frost) says
+// "The target appears blue, while this buff is active". No table carries the colour (MiscData
+// and MiscGame name only the slow's two magnitudes), so this number is OURS: a light multiply,
+// well short of the illusion wash, so the unit reads as chilled rather than as a copy.
+export const FROST_TINT = [0.7, 0.82, 1.25] as const;
 
 // Green multiply-tint on a unit's whole mesh while it's a valid target of an armed
 // AoE spell (issue #20) — the same idea as the dark-blue "about to be built" ghost
@@ -2260,8 +2267,12 @@ export class RtsController {
     // an alpha written anywhere else would be clobbered on the next re-emit.
     const fade = this.ghostAlpha(e, u, dt);
     const raised = u.raisedBy !== "";
-    if (e.fogTintB === b && e.aoeHi === hi && e.fade === fade && e.illus === illus && e.raised === raised) return; // unchanged since last tick
+    // …and a unit under a frost slow wears the cold (FROST_TINT). Read off the buff ROW, which
+    // crosses the wire with every buff, so a client needs nothing new to draw it.
+    const frost = u.buffs.some((x) => x.buffId === SLOWED_BUFF);
+    if (e.fogTintB === b && e.aoeHi === hi && e.fade === fade && e.illus === illus && e.raised === raised && e.frost === frost) return; // unchanged since last tick
     e.raised = raised;
+    e.frost = frost;
     e.fogTintB = b;
     e.aoeHi = hi;
     e.illus = illus;
@@ -2274,7 +2285,8 @@ export class RtsController {
     const g = hi ? AOE_TARGET_TINT : ([1, 1, 1] as const);
     const m = illus ? ILLUSION_TINT : ([1, 1, 1] as const);
     const r = raised ? RAISED_TINT : ([1, 1, 1] as const);
-    inst.setVertexColor([base[0] * b * g[0] * m[0] * r[0], base[1] * b * g[1] * m[1] * r[1], base[2] * b * g[2] * m[2] * r[2], base[3] * fade]);
+    const f = frost ? FROST_TINT : ([1, 1, 1] as const);
+    inst.setVertexColor([base[0] * b * g[0] * m[0] * r[0] * f[0], base[1] * b * g[1] * m[1] * r[1] * f[1], base[2] * b * g[2] * m[2] * r[2] * f[2], base[3] * fade]);
   }
 
   /**

@@ -1027,7 +1027,7 @@ export const DISPEL_CODES = new Set(["Aprg", "Adis", "Aadm", "Advm"]);
  * on their Grunt.
  *
  * Two exclusions, both because the cast would achieve nothing: a buff that `survivesDispel` (Doom,
- * and every stun — `dispelUnit` keeps exactly those), and an AURA, which is a buff with `timeLeft` Infinity and
+ * a frost slow and every stun — `dispelUnit` keeps exactly those), and an AURA, which is a buff with `timeLeft` Infinity and
  * is therefore back the tick after the dispel lands. A buff whose source is GONE — a Bloodlust
  * from a dead Shaman — cannot be placed and does not count; that is the safe direction, since
  * the cost of missing one is a dispel not cast.
@@ -1046,8 +1046,8 @@ export const DISPEL_CODES = new Set(["Aprg", "Adis", "Aadm", "Advm"]);
  * rather than off `MISC_GAME`, and the data set underfoot answers it (docs/editions.md).
  */
 /**
- * Does this buff SURVIVE a dispel? Two kinds do: the one flagged `undispellable` (Doom), and
- * every STUN — the developer's rule, "stun cannot be removed via dispel": a Storm Bolt, a War
+ * Does this buff SURVIVE a dispel? Three kinds do: the one flagged `undispellable` (Doom), the
+ * frost Slowed buff (`SLOWED_BUFF`, "dispellable=no"), and every STUN — the developer's rule, "stun cannot be removed via dispel": a Storm Bolt, a War
  * Stomp or a Bash holds for its whole duration whatever Dispel Magic, Abolish Magic, Purge,
  * Devour Magic or a scripted auto-dispel lands on it. The one stun that DOES go is the Staff of
  * Sanctuary's (`untilHealed`), because it is half of a pair that ends together: its other half
@@ -1063,9 +1063,18 @@ export const DISPEL_CODES = new Set(["Aprg", "Adis", "Aadm", "Advm"]);
  * `autoDispel` query and `worthDispelling` below — so the autocast never spends mana on an
  * effect the cast would leave standing.
  */
-export function survivesDispel(b: { kind: BuffKind; group?: string; undispellable?: boolean; untilHealed?: boolean }): boolean {
-  return !!b.undispellable || (b.kind === "stun" && !b.untilHealed && !NOT_A_STUN.has(b.group ?? ""));
+export function survivesDispel(b: { kind: BuffKind; group?: string; buffId?: string; undispellable?: boolean; untilHealed?: boolean }): boolean {
+  return !!b.undispellable || b.buffId === SLOWED_BUFF || (b.kind === "stun" && !b.untilHealed && !NOT_A_STUN.has(b.group ?? ""));
 }
+/**
+ * The generic **Slowed** buff, `Bfro` — the BuffID of every frost source in the game: Frost
+ * Attack (`Afra`, the Nerubian Tower and the Frost Wyrm), Frost Breath (`Afrb`), Frost Nova,
+ * the Orb of Frost and the creep Frost Armors. Liquipedia's buff card (Template:Infobox_Buff/
+ * Slowed) states `dispellable=no`, and its page says "The target appears blue, while this buff is
+ * active" (rts.ts FROST_TINT). Keyed on the buff ROW rather than on an ability, because that is
+ * what the frost sources share — and what a map's own frost ability names too.
+ */
+export const SLOWED_BUFF = "Bfro";
 const NOT_A_STUN: ReadonlySet<string> = new Set(["cyclone"]);
 
 /**
