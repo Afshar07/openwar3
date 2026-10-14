@@ -97,7 +97,9 @@ export interface MatchChannel {
 export interface DialogMessage {
   k: "dlg";
   message: string;
-  buttons: { text: string; quit: boolean }[];
+  /** `hotkey` is the button's DialogAddButton key (GetLocalizedHotkey's char code), so the
+   *  recipient's buttons answer the keyboard the way the authority's own would. */
+  buttons: { text: string; quit: boolean; hotkey?: number }[];
   /**
    * This dialog is the END of that player's game, not just something their script wants shown.
    *

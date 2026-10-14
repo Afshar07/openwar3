@@ -20,6 +20,7 @@ import { stampFootprints, stampFootprint, unstampFootprint, decodePathTex, footp
 import { parseMapUnits, GOLD_MINE_ID, START_LOCATION_ID } from "../world/mapUnits";
 import { frameModel, loadMapScript, type MapScriptEngine } from "../jass/index";
 import { learnOrderStrings } from "../jass/orders";
+import { localizedHotkey } from "../jass/natives/text";
 import { setWidePlayerTable } from "../data/enums";
 import { ScriptFrameOverlay } from "../ui/scriptFrames";
 import { EVENT_PLAYER_END_CINEMATIC, EVENT_PLAYER_LEAVE } from "../jass/interpreter";
@@ -2807,7 +2808,7 @@ export class MapViewerScene {
           handleId: -1, // not the script's; nothing looks it up
           message: msg.message,
           buttons: msg.buttons.map((b, i) => ({
-            handleId: -(i + 2), dialogId: -1, text: b.text, hotkey: 0, quit: b.quit, doScoreScreen: false,
+            handleId: -(i + 2), dialogId: -1, text: b.text, hotkey: b.hotkey ?? 0, quit: b.quit, doScoreScreen: false,
           })),
           visibleFor: new Set([this.localPlayer]),
           revision: 0,
@@ -4334,7 +4335,7 @@ export class MapViewerScene {
         const sent = this.rts?.relayDialog(p, {
           k: "dlg",
           message: d.message,
-          buttons: d.buttons.map((b) => ({ text: b.text, quit: b.quit })),
+          buttons: d.buttons.map((b) => ({ text: b.text, quit: b.quit, hotkey: b.hotkey })),
           // Whether this screen is the end of the MATCH, decided by the AUTHORITY rather than
           // guessed by the recipient — a map raising a quest popup for a remote player must not
           // drop that player off the wire mid-match, and neither must their own defeat while
@@ -4358,7 +4359,7 @@ export class MapViewerScene {
       const over = this.observerGameOver();
       for (const o of this.observers) {
         this.rts?.relayDialog(o.id, {
-          k: "dlg", message: over.message, buttons: over.buttons.map((b) => ({ text: b.text, quit: b.quit })), over: true,
+          k: "dlg", message: over.message, buttons: over.buttons.map((b) => ({ text: b.text, quit: b.quit, hotkey: b.hotkey })), over: true,
         });
       }
       if (this.observer && !rt.dialogs.some((d) => d.visibleFor.has(this.localPlayer))) {
@@ -9928,7 +9929,7 @@ export class MapViewerScene {
     // "%s has left the game." — said of the leaver by every route that removes one.
     if (this.hostSeat !== null) this.announce(fillSlots(s("PLAYER_LEFT_GAME", "%s has left the game."), [this.playerLabel(this.hostSeat)]));
     const quit = (text: string): DialogObj["buttons"][number] =>
-      ({ handleId: -3, dialogId: -1, text, hotkey: 0, quit: true, doScoreScreen: false });
+      ({ handleId: -3, dialogId: -1, text, hotkey: localizedHotkey(text), quit: true, doScoreScreen: false });
     if (this.observer) {
       this.observerOverRaised = true;
       this.remoteDialog = this.observerGameOver();
@@ -9940,7 +9941,7 @@ export class MapViewerScene {
       this.remoteDialog = {
         handleId: -1, message: s("GAMEOVER_VICTORY_MSG", "Victory!"),
         buttons: [
-          { handleId: -2, dialogId: -1, text: s("GAMEOVER_CONTINUE_GAME", "Continue Game"), hotkey: 0, quit: false, doScoreScreen: false },
+          { handleId: -2, dialogId: -1, text: s("GAMEOVER_CONTINUE_GAME", "Continue Game"), hotkey: localizedHotkey(s("GAMEOVER_CONTINUE_GAME", "Continue Game")), quit: false, doScoreScreen: false },
           quit(s("GAMEOVER_QUIT_GAME", "Quit Game")),
         ],
         visibleFor: new Set([this.localPlayer]), revision: 0,
@@ -9964,8 +9965,8 @@ export class MapViewerScene {
     return {
       handleId: -1, message: s("GAMEOVER_GAME_OVER", "Game over."),
       buttons: [
-        { handleId: -2, dialogId: -1, text: s("GAMEOVER_CONTINUE_GAME", "Continue Game"), hotkey: 0, quit: false, doScoreScreen: false },
-        { handleId: -3, dialogId: -1, text: s("GAMEOVER_QUIT_GAME", "Quit Game"), hotkey: 0, quit: true, doScoreScreen: false },
+        { handleId: -2, dialogId: -1, text: s("GAMEOVER_CONTINUE_GAME", "Continue Game"), hotkey: localizedHotkey(s("GAMEOVER_CONTINUE_GAME", "Continue Game")), quit: false, doScoreScreen: false },
+        { handleId: -3, dialogId: -1, text: s("GAMEOVER_QUIT_GAME", "Quit Game"), hotkey: localizedHotkey(s("GAMEOVER_QUIT_GAME", "Quit Game")), quit: true, doScoreScreen: false },
       ],
       visibleFor: new Set([this.localPlayer]), revision: 0,
     };

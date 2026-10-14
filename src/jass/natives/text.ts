@@ -174,11 +174,19 @@ export function registerTextNatives(rt: Runtime): void {
   // colour run when there is one; otherwise fall back to the first meaningful character.
   def(rt, "GetLocalizedHotkey", (c, a) => {
     const key = asStr(a[0]);
-    const s = (c.rt.hooks?.localizedString?.(key) ?? key).trim();
-    const marked = /\|[cC][0-9a-fA-F]{8}(.)/.exec(s);
-    const ch = marked ? marked[1] : s.replace(/\|[cC][0-9a-fA-F]{8}|\|[rRnN]/g, "").trim()[0];
-    return jInt(ch ? ch.charCodeAt(0) : 0);
+    return jInt(localizedHotkey(c.rt.hooks?.localizedString?.(key) ?? key));
   });
+}
+
+/** GetLocalizedHotkey's answer for an already-localized string: the char code of its
+ *  accelerator letter (see above), 0 when it has none. Exported for the dialogs the ENGINE
+ *  raises itself — the victory screen a match with no script still gets — which must answer
+ *  the same keys blizzard.j's own MeleeVictoryDialogBJ gives its buttons. */
+export function localizedHotkey(text: string): number {
+  const s = text.trim();
+  const marked = /\|[cC][0-9a-fA-F]{8}(.)/.exec(s);
+  const ch = marked ? marked[1] : s.replace(/\|[cC][0-9a-fA-F]{8}|\|[rRnN]/g, "").trim()[0];
+  return ch ? ch.charCodeAt(0) : 0;
 }
 
 /** FNV-1a 32-bit, returned as a signed int (JASS `integer` is 32-bit signed). */

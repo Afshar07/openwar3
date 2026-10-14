@@ -96,6 +96,13 @@ export class GameDialogOverlay {
       });
       const textOverrides: Record<string, string> = { ScriptDialogText: d.message };
       d.buttons.forEach((b, i) => (textOverrides[textName(i)] = b.text));
+      // Each button's KEY is the one the script handed DialogAddButton — MeleeVictoryDialogBJ
+      // passes GetLocalizedHotkey("GAMEOVER_CONTINUE_GAME"), the letter its caption gilds
+      // ("|CFFFFFFFFC|Rontinue Game"). The template's own ControlShortcutKey is one key for
+      // every clone, so it is overridden per button; a button added with 0 has no key at all,
+      // and is given an empty override rather than inheriting the template's.
+      const shortcutOverrides: Record<string, string> = {};
+      d.buttons.forEach((b, i) => (shortcutOverrides[buttonName(i)] = b.hotkey > 0 ? String.fromCharCode(b.hotkey) : ""));
 
       // The SCRIM first, and the panel mounted INSIDE it — see EscMenu.build: `modalOver`
       // (ui/modal.ts) asks whether a scrim CONTAINS the screen, so a panel that is its own
@@ -120,6 +127,7 @@ export class GameDialogOverlay {
         buildRoot: (lib) => this.rootFrame(lib, d),
         handlers,
         textOverrides,
+        shortcutOverrides,
       });
       prev?.dispose();
       this.screen = screen;
