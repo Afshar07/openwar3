@@ -101,8 +101,8 @@ export function registerDialogNatives(rt: Runtime): void {
 
   // --- the game-over path --------------------------------------------------------
   // EndGame is what a quit button does. `doScoreScreen` asks for the post-game score
-  // screen (UI\FrameDef\Glue\ScoreScreen.fdf) — we don't build one, so we leave the
-  // match either way and say so rather than silently ignoring the flag.
+  // screen (UI\FrameDef\Glue\ScoreScreen.fdf, docs/score-screen.md), which the renderer
+  // puts up on the way out of a finished game.
   def(rt, "EndGame", (c, a) => {
     c.rt.hooks?.endGame?.(truthy(a[0]));
     return JNULL;

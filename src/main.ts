@@ -39,6 +39,8 @@ import { applyHotkeyOptions } from "./data/hotkeys";
 import { applyScrollOptions } from "./render/scrollOptions";
 import { GlueManager, type GlueScreenDef } from "./ui/glue";
 import { mountLoadingScreen, type LoadingScreen } from "./ui/loadingScreen";
+import { mountScoreScreen, scoreScreenMusic } from "./ui/scoreScreen";
+import type { ScoreTable } from "./game/scoreTable";
 import { mountLoadGate, type GateLoad } from "./ui/gate";
 import { setFdfClickSound, type FdfScreen } from "./ui/fdf/render";
 import { GlueAudio } from "./ui/glueAudio";
@@ -182,7 +184,8 @@ async function enterMap(bytes: Uint8Array, name: string): Promise<string> {
   if (vfs) {
     show("map");
     if (!mapScene) mapScene = await MapViewerScene.create(mapCanvas, vfs, sounds);
-    mapScene.onExit = () => exitToMenu(); // F10 → End Game leaves the match
+    // F10 → End Game, or a Quit button — with the score table when the game it leaves is OVER.
+    mapScene.onExit = (scores) => exitToMenu(scores);
     // A campaign chapter is completed when its script declares the local player the winner —
     // that, and only that, opens the next one.
     mapScene.onLocalVictory = () => {
@@ -1091,8 +1094,11 @@ function endMatch(): void {
 }
 
 /** Leave the current match (F10 → End Game): tear down the map scene and return to
- *  the main menu over its animated 3D scene. A fresh scene is built next game. */
-function exitToMenu(): void {
+ *  the main menu over its animated 3D scene. A fresh scene is built next game.
+ *
+ *  `scores` puts the SCORE SCREEN between the two (issue #199) — only ever handed over for a game
+ *  that is finished (MapViewerScene.finalScores), and dismissed by its OK. */
+function exitToMenu(scores: ScoreTable | null = null): void {
   endMatch();
   // …and back onto the MELEE tables. The menus read object data too — the Custom Game screen's
   // map previews, the hotkey editor's cards, every tooltip — and the set a chapter left behind
@@ -1105,12 +1111,47 @@ function exitToMenu(): void {
   // you back on the campaign screen, with the chapter you just finished now behind you.
   const campaign = pendingCampaign;
   pendingCampaign = null;
-  void showMenuBackground(vfs).then(() => {
+  const toMenu = (): void => void showMenuBackground(vfs).then(() => {
     if (!vfs) return;
     // glue.show() plays the chrome's Birth itself, so the DOM and the panel arrive together.
     if (campaign && campaignState) void glue.show(campaignScreen(vfs));
     else void glue.show(mainMenuScreen(vfs));
   });
+  lastScores = scores ?? lastScores;
+  if (scores && vfs) void showScoreScreen(vfs, scores).then(toMenu);
+  else toMenu();
+}
+
+/**
+ * The score screen (ui/scoreScreen.ts), up on the loading screen's layer and canvas — the other
+ * full-window picture that stands between the menus and a match, and idle whenever this one is.
+ * Resolves on OK. A screen that cannot be built (the install lacks its art) is skipped rather
+ * than leaving the player on a black window.
+ */
+/** The last score table shown — kept for the `window.openwar3.scoreScreen()` probe, which puts the
+ *  screen back up without playing a match to its end again. */
+let lastScores: ScoreTable | null = null;
+
+async function showScoreScreen(vfs: DataSource, table: ScoreTable): Promise<void> {
+  show("none");
+  try {
+    let done: () => void = () => {};
+    const ok = new Promise<void>((resolve) => { done = resolve; });
+    const screen = await mountScoreScreen({
+      container: loadingLayer, canvas: loadingCanvas, vfs, table,
+      localPlayer: table.viewer, onOk: () => done(),
+    });
+    loadingCanvas.hidden = false;
+    // The featured race's VictoryMusic / DefeatMusic (war3skins) under it, as the reference plays.
+    const music = scoreScreenMusic(vfs, table, table.viewer);
+    if (music) sounds?.playMusic(music);
+    await ok;
+    glueAudio?.click();
+    screen.dispose();
+  } catch (err) {
+    console.warn("[OpenWar3] score screen unavailable:", err);
+  }
+  loadingCanvas.hidden = true;
 }
 
 // Boot flow (issue #54): the WC3 menus are constructed from the install's own
@@ -1230,4 +1271,12 @@ if (import.meta.env.DEV && new URLSearchParams(location.search).has("dev")) {
   mainMenu: () => glue.screen,
   menuScene: () => menuScene,
   mapScene: () => mapScene, // the live match, for the two-client LAN harness's eval probes
+  // The score screen again, over whatever is up, on the last table (or one handed in) — a probe
+  // for laying it out without finishing a match each time. Resolves on its OK.
+  scoreScreen: (table?: ScoreTable) => {
+    const vfs = resolver.installSource;
+    const t = table ?? lastScores;
+    return vfs && t ? showScoreScreen(vfs, t) : Promise.resolve();
+  },
+  lastScores: () => lastScores,
 };

@@ -46,6 +46,7 @@ import {
 } from "../data/gameplayConstants";
 import { perfNow, simProfile } from "./profile";
 import { flyHeight, type MissileFlight } from "./missile";
+import { HERO_KILL_VALUE, MatchStats } from "./matchStats";
 import { SPELL_HANDLERS, ITEM_INVULN_GROUP, AURA_BUFFS, SELF_INVIS_GROUP, BLADESTORM_GROUP, FIELD_PIERCES_SPELL_IMMUNITY, POLARITY_SPELLS, HEAL_SPELLS, MANA_TARGET_SPELLS, NO_SUMMON_TARGET, DISPEL_CODES, REPLENISH_BAR, replenishRefusal, survivesDispel, clockedBuff, worthDispelling, invisTransition, waveSchedule, WAVE_FIELDS, fx, buffIdOf, spellShieldBuff, drainTag, DRAIN_GROUP, CANNIBALIZE_GROUP, POSSESSION_GROUP, type SpellApi, type SimBuffInit, type SpellFieldInit, type CastContext, type WaveOptions, type RaiseOptions } from "./spells";
 /** The buff group a Tornado's toss is applied under — both halves, so the invulnerability's wipe
  *  spares the stun it came with (clearStatusForInvulnerable). See tickTornado. */
@@ -3937,6 +3938,9 @@ export class SimWorld {
   /** Seconds since the match began. Shop restock schedules run on THIS clock, not on when a
    *  shop was raised — see initShopStock. */
   elapsed = 0;
+  /** What the score screen prints, counted as the match is played (sim/matchStats.ts). Only the
+   *  authority's ever fills: a LAN client's sim never steps. */
+  readonly stats = new MatchStats();
   private itemSpawns: SimItem[] = []; // new ground items the renderer must model
   private itemRemovals: Array<{ id: number; died: boolean }> = []; // ground items picked up/destroyed (drop their model)
   // PowerUp items consumed on pickup this frame: the renderer plays the granted ability's
@@ -5001,6 +5005,7 @@ export class SimWorld {
     if (!this.takeStock(shop, itemId)) return "nostock";
     stash.gold -= def.gold;
     stash.lumber -= def.lumber;
+    this.stats.item(player); // Items Obtained (sim/matchStats.ts) — a powerup off a shelf too
     // A POWERUP bought is a powerup USED: a Tome of Experience off a shelf lands on the patron
     // the instant it is paid for, exactly as one walked over does (`pickUpItem`) — it is never
     // carried, so it has no slot to wait in and nothing to press. Handed to the inventory like
@@ -7396,6 +7401,7 @@ export class SimWorld {
       // The mine gives up the whole take; upkeep keeps back its share of what is banked.
       const banked = Math.floor(gold * this.upkeepShare(u.owner));
       this.stashOf(u.owner).gold += banked;
+      this.stats.mined(u.owner, banked, gold - banked); // the score screen's columns (matchStats.ts)
       // Paid where the gold is dug — the crewed mine IS the drop-off for both races that work
       // one, so the "+N" belongs on it and not on some hall the money never travels to.
       this.floatCredit("gold", banked, u.owner, u);
@@ -7640,6 +7646,7 @@ export class SimWorld {
             this.applyUnitSwap(u.owner, job.unitId); // rtma: morph existing units (Headhunter→Berserker)
           } else if (job.kind === "upgrade") {
             this.morphUnit(u, job.unitId);
+            this.stats.upgraded(u.owner, this.scoreValue(job.unitId)); // the score screen (matchStats.ts)
           } else if (job.kind === "revive") {
             const f = this.fallen.get(job.heroId);
             if (f) this.completeRevive(u, b, f, job.buyer);
@@ -7717,6 +7724,24 @@ export class SimWorld {
     this.buildCompletions.push({ buildingId: u.id, owner: u.owner });
     this.noticeWire?.built.push({ buildingId: u.id, owner: u.owner });
     this.noteConstruct(u.id, "finish"); // EVENT_(PLAYER_)UNIT_CONSTRUCT_FINISH
+    this.stats.gained(u.owner, this.scoreValue(u.typeId), true); // Buildings Produced (matchStats.ts)
+  }
+
+  /** What a unit type is worth on the score screen: its gold + lumber (sim/matchStats.ts). A
+   *  hero's is its hero price, whatever the altar actually charged for it. */
+  scoreValue(typeId: string): number {
+    const def = this.unitReg?.get(typeId);
+    return (def?.goldCost ?? 0) + (def?.lumberCost ?? 0);
+  }
+
+  /** A unit came to belong to `owner` without being trained or built here — created by the
+   *  script (the melee starting units among them), placed with the map, or summoned (worth
+   *  nothing: "summoned units yield no Unit Score"). Called by the controller, which is where
+   *  those births happen (game/rts.ts). */
+  noteGained(id: number, summoned = false): void {
+    const u = this.units.get(id);
+    if (!u || u.isIllusion || this.raising(u)) return;
+    this.stats.gained(u.owner, summoned ? 0 : this.scoreValue(u.typeId), !!u.building);
   }
 
   /** Transform a finished building into its upgraded form in place (Town Hall → Keep, Scout
@@ -10100,7 +10125,13 @@ export class SimWorld {
     const b = this.units.get(buildingId);
     const t = this.units.get(trainedId);
     if (!b || !t) return;
+    // Units Produced and its value (sim/matchStats.ts) — every birth through this drain but a
+    // revive, whose hero was counted the first time it arrived.
+    if (!revive) this.stats.gained(t.owner, this.scoreValue(t.typeId), !!t.building);
     if (!revive && this.shopWaresOf(buildingId).units.includes(t.typeId)) {
+      // Mercenaries Hired: a unit bought off a neutral building. A Tavern's HERO is not one —
+      // it lands in Heroes Used like any other hero.
+      if (!t.isHero) this.stats.hired(t.owner);
       if (this.captureSellUnits) this.sellUnitEvents.push({ shop: eventInfo(b), sold: eventInfo(t) });
       return;
     }
@@ -12485,6 +12516,10 @@ export class SimWorld {
     if (!best) return -1;
     best.entangledBy = -1; // claimed while the model is in flight (see entangleMine)
     this.entangleRequests.push({ mineId: best.id, unitId, x: best.x, y: best.y, owner, team, casterId: 0, instant: true });
+    // Counted HERE: this mine is never constructed, so `finishConstruction` never sees it — and
+    // its 225 + 210 is what makes the Undead opening Unit Score the article's 1005, not 570
+    // (sim/matchStats.ts).
+    this.stats.gained(owner, this.scoreValue(unitId), true);
     return best.id;
   }
 
@@ -16502,6 +16537,7 @@ export class SimWorld {
     // `SuspendHeroXP` is read HERE and nowhere else: it stops the crediting, not the levelling,
     // so `SetHeroLevel` on a suspended hero still works and the bar keeps what it had.
     if (!hero.isHero || hero.isIllusion || hero.xpSuspended || hero.level >= MAX_HERO_LEVEL() || amount <= 0) return;
+    const before = hero.xp;
     hero.xp += amount;
     while (hero.level < MAX_HERO_LEVEL() && hero.xp >= xpToReachLevel(hero.level + 1)) {
       this.levelUp(hero, eyeCandy);
@@ -16514,6 +16550,9 @@ export class SimWorld {
         break;
       }
     }
+    // Experience Gained, and Hero Score with it (sim/matchStats.ts) — what the bar actually
+    // moved, so a creep's dropped overshoot is not counted.
+    this.stats.xp(hero.owner, hero.xp - before);
     this.mirrorXpToIllusions(hero);
   }
 
@@ -19027,6 +19066,7 @@ export class SimWorld {
 
   tick(dt: number): void {
     this.elapsed += dt;
+    this.stats.tick(dt, this.foodUsedOf); // the score screen's Largest Army sample
     if (this.dawnDusk && !this.timeOfDaySuspended && !this.eclipse) {
       this.timeOfDay = (this.timeOfDay + dt * gameHoursPerSec() * this.timeOfDayScale) % dataNum("DayHours");
     }
@@ -22148,6 +22188,7 @@ export class SimWorld {
     // lumber has no round trip to optimise and why a wisp on a tree is worth what it is.
     if (w.deliversInPlace) {
       this.stashOf(u.owner).lumber += w.lumberPerChop;
+      this.stats.harvested(u.owner, w.lumberPerChop);
       // The credit floats on the TREE, because for a Wisp the tree is the whole delivery
       // (see docs/night-elf.md) — there is no hall for it to arrive at later.
       this.floatCredit("lumber", w.lumberPerChop, u.owner, tree);
@@ -22263,6 +22304,9 @@ export class SimWorld {
     const lumber = Math.floor(w.carryLumber * factor);
     stash.gold += gold;
     stash.lumber += lumber;
+    // The score screen's Gold Mined / Lumber Harvested, and what upkeep kept back (matchStats.ts).
+    this.stats.mined(u.owner, gold, Math.floor(w.carryGold * factor) - gold);
+    this.stats.harvested(u.owner, lumber);
     // The load lands where you can SEE it land (issue #116) — the credit the game's
     // `GoldText*`/`LumberText*` rows were written for in the first place.
     //
@@ -23871,6 +23915,14 @@ export class SimWorld {
     if (denier && denier.id !== u.id && u.owner >= 0 && denier.owner >= 0 && !this.hostile(denier, u)) {
       this.combatTexts.push({ kind: "deny", unitId: 0, x: u.x, y: u.y, text: "!", colorSlot: u.owner, forPlayer: -1 });
     }
+    // The score screen's kill columns (sim/matchStats.ts): Units Killed counts enemy AND neutral
+    // units, a deny is not a kill, and the value lands in the killer's Unit Score — a hero's by
+    // its level. `killerUnit` so a Lightning Shield's dead caster is still credited.
+    const credit = killerId ? this.killerUnit(killerId) : undefined;
+    if (credit && credit.id !== u.id && credit.owner >= 0 && !credit.isCreep && this.hostile(credit, u)) {
+      const value = u.isHero ? HERO_KILL_VALUE * Math.max(1, u.level) : this.scoreValue(u.typeId);
+      this.stats.destroyed(credit.owner, value, !!u.building, u.isHero);
+    }
     this.deathBlast(u); // `Adda` — goblin land mines and sappers take the neighbours with them
     this.orbDeathEffects(u); // Black Arrow raises its minion, Incinerate goes off
     this.refundPendingBuild(u); // died before its building went up → refund the cost
@@ -24470,6 +24522,7 @@ export class SimWorld {
     const def = this.itemReg.get(it.itemId);
     if (!def) { this.removeGroundItem(it.id); return true; }
     if (def.powerup) {
+      this.stats.item(u.owner); // Items Obtained (sim/matchStats.ts) — a tome walked over counts
       this.noteItem(u, it, "pickup");
       this.applyPowerup(u, def, it.id);
       // A consumed powerup DIES where it lay — it doesn't just vanish. Playing the model's
@@ -24485,6 +24538,7 @@ export class SimWorld {
     u.inventory[slot] = { id: it.id, itemId: it.itemId, charges: it.charges, cooldownLeft: this.itemCooldownOn(u, it.itemId) };
     this.removeGroundItem(it.id);
     this.noteItem(u, it, "pickup");
+    this.stats.item(u.owner); // Items Obtained (sim/matchStats.ts)
     this.recomputeStats(u); // reflect any stat bonus immediately
     return true;
   }

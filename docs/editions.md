@@ -236,4 +236,5 @@ still open.
 ## Known gaps
 
 - Reign of Chaos's melee AI scripts are adapted, not ported.
-- `ScoreScreenVictory_V0` and the other score-screen keys are unread, as their `_V1` twins are.
+- The score screen reads `ScoreScreenVictory`/`VictoryMusic`/`DefeatMusic` with `skinVersionSuffix()`,
+  so Reign of Chaos gets its `_V0` pictures; that path has not been looked at on a RoC client.

@@ -1081,8 +1081,8 @@ Victory dialog**; "Continue Game" dismisses it and the game plays on, "Quit Game
 match down. A 4-player `CreateLeaderboardBJ` board sits top-right in the game's own chrome, sorted by value, each
 row in its player's real colour (screenshots).
 
-> **What's still not on screen:** the **score screen** (`EndGame(true)` leaves the match rather than showing
-> `Glue\ScoreScreen.fdf`). *(Timer dialogs render — 7.21; **multiboards** render — 7.22.)*
+> The **score screen** follows a finished game's quit (`EndGame(true)`, `DialogAddQuitButton(d, true, …)`) —
+> see [`score-screen.md`](score-screen.md). *(Timer dialogs render — 7.21; **multiboards** render — 7.22.)*
 
 ## The trigger's audio output — sounds + music (7.20 — done, live)
 

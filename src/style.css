@@ -4061,3 +4061,7 @@ body.in-game .load-gate { display: none; }
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* The SCORE SCREEN (issue #199) shares the loading screen's layer and canvas (main.ts
+   showScoreScreen): its DOM sits over the canvas exactly as the loading screen's does. */
+.fdf-screen.fdf-score { z-index: 9; }

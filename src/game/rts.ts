@@ -56,6 +56,7 @@ import { REINCARNATION_BODY } from "../sim/world";
 import { resolveTipRefs } from "../data/tipRefs";
 import { disabledIconPath } from "../data/commandStrings";
 import { observePlayer, type ObserverPlayerView } from "./observerView";
+import { researchableFor, scoreRow, type ScoreRow, type ScoreSeat } from "./scoreTable";
 import { type ItemRegistry } from "../data/items";
 import { workerProfileFor, harvestAbilityOf, depotRoleFor, isHarvestCode, type PlayableRace } from "../data/races";
 import { MeleeAi, AI_SCRIPT_RACES } from "../ai";
@@ -1625,6 +1626,27 @@ export class RtsController {
     }, player);
   }
 
+  /**
+   * One player's line of the SCORE SCREEN (issue #199, game/scoreTable.ts) — what the sim counted
+   * (sim/matchStats.ts) plus the two things read off the world at the end: the heroes the player
+   * fielded, living and fallen, and its research. The seat facts are the caller's (the renderer
+   * owns names, colours and who won). Only meaningful on the AUTHORITY; a LAN client is handed
+   * the host's table instead.
+   */
+  scoreRowFor(seat: Omit<ScoreSeat, "tally" | "heroes" | "research">): ScoreRow {
+    const heroes = [...this.sim.units.values()]
+      .filter((u) => u.owner === seat.player && u.isHero && !u.isIllusion)
+      .map((u) => ({ typeId: u.typeId, icon: this.registry.get(u.typeId)?.icon ?? "", level: u.level, xp: u.xp }));
+    for (const f of this.sim.fallenHeroesOf(seat.player)) {
+      heroes.push({ typeId: f.typeId, icon: this.registry.get(f.typeId)?.icon ?? "", level: f.level, xp: f.xp });
+    }
+    const research = new Map(this.sim.tech?.researchedBy(seat.player) ?? []);
+    return scoreRow(
+      { ...seat, tally: this.sim.stats.of(seat.player), heroes, research },
+      researchableFor(seat.race, this.tech, this.upgrades),
+    );
+  }
+
   /** Seconds of match played — the observer's clock. A LAN client's own sim never steps, so it
    *  reads the host's time off the newest payload. */
   matchSeconds(): number {
@@ -2675,6 +2697,9 @@ export class RtsController {
     const team = creep ? NEUTRAL_HOSTILE_TEAM : passive ? NEUTRAL_PASSIVE_TEAM : teamOf(player);
     const simId = this.reserveUnitId();
     this.addSimUnit(def, x, y, facing, owner, team, 0, simId); // exists NOW
+    // The score screen counts what a script hands a player too — the melee starting units are
+    // exactly this, and are what each race's opening Unit Score is made of (sim/matchStats.ts).
+    if (!creep && !passive) this.sim.noteGained(simId);
     const su = this.sim.units.get(simId);
     if (su && creep) {
       // The same guard behaviour a map-placed creep gets: it holds the ground it was made on,
@@ -4109,6 +4134,7 @@ export class RtsController {
     // returns -1 when it doesn't. A pre-placed unit needs its reserved id at CREATION.
     const simId = this.addSimUnit(def, loc[0], loc[1], facing, owner, team, 0, this.placed.reserveIdAt(loc[0], loc[1], def.id));
     this.attachInstance(simId, unit.instance, def);
+    this.sim.noteGained(simId); // the score screen's Units/Buildings Produced (sim/matchStats.ts)
     // A pre-placed BUILDING takes ownership of the footprint the map loader stamped for
     // it, so levelling it reopens the ground — WarChasers' gnoll huts are exactly this.
     if (def.isBuilding) this.adoptPlacedFootprint(simId, loc[0], loc[1]);

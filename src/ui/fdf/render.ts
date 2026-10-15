@@ -757,8 +757,13 @@ function paintHighlight(el: HTMLElement, f: FdfFrame, ctx: RenderCtx): void {
 /** Composite a named HIGHLIGHT frame's alpha file as a full-box overlay layer. */
 function appendCheck(el: HTMLElement, f: FdfFrame, name: string | undefined, cls: string, ctx: RenderCtx): void {
   const highlight = name ? findByName(f, name) : undefined;
-  const art = highlight ? texture(highlight, "HighlightAlphaFile", ctx) : null;
-  if (!art) return;
+  const raw = highlight ? texture(highlight, "HighlightAlphaFile", ctx) : null;
+  if (!raw) return;
+  // An ADD tick is light, not paint — the score screen's sort boxes wear
+  // `scorescreen-tab-hilight.blp`, a gold smear on OPAQUE black, which drawn as it stands put a
+  // black bar over the header box it was meant to light (see `addedLight`).
+  const add = highlight && strProp(highlight, "HighlightAlphaMode")?.toUpperCase() === "ADD";
+  const art = add ? addedLight(raw) : raw;
   const layer = document.createElement("div");
   layer.className = cls;
   layer.style.background = `url(${art.toDataURL()}) center/100% 100% no-repeat`;
@@ -1322,6 +1327,35 @@ function intensityAsAlpha(src: HTMLCanvasElement): HTMLCanvasElement {
   out.width = src.width;
   out.height = src.height;
   out.getContext("2d")?.putImageData(img, 0, 0);
+  return out;
+}
+
+/**
+ * An ADD layer as close to ADDING as a layer that cannot see its backdrop gets.
+ *
+ * `intensityAsAlpha` alone composites a texel as `rgb·a + under·(1−a)` with `a = max(rgb)`, which
+ * for a dim glow is roughly rgb² — the score screen's sort highlight (a smear that peaks around
+ * half brightness) came out as a barely-there tint where the reference shows a clear gold bar.
+ * Stretching each texel's colour to full brightness, keeping its hue, makes that `rgb + under·(1−a)`:
+ * exactly the light ADD would put there, at the cost of dimming what is under it by the same
+ * fraction. The DOM layer is in its own stacking context over a WebGL canvas, so a real blend
+ * mode has nothing beneath it to add to. A file with a real alpha channel is left alone.
+ */
+function addedLight(src: HTMLCanvasElement): HTMLCanvasElement {
+  const out = intensityAsAlpha(src);
+  if (out === src) return src;
+  const g = out.getContext("2d");
+  if (!g) return out;
+  const img = g.getImageData(0, 0, out.width, out.height);
+  const d = img.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const peak = d[i + 3];
+    if (peak === 0) continue;
+    d[i] = Math.round((d[i] * 255) / peak);
+    d[i + 1] = Math.round((d[i + 1] * 255) / peak);
+    d[i + 2] = Math.round((d[i + 2] * 255) / peak);
+  }
+  g.putImageData(img, 0, 0);
   return out;
 }
 

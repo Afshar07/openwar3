@@ -40,6 +40,7 @@ import { FogState, VISION_CELL, type VisionMap } from "../sim/vision";
 import { RtsController, ILLUSION_TINT, RAISED_TINT, type RtsHost, type SelectionInfo, type PlacedRef } from "../game/rts";
 import type { Instance as RtsInstance } from "../game/rts";
 import type { MatchLinkSetup } from "../game/matchLink";
+import type { ScoreRow, ScoreTable } from "../game/scoreTable";
 import { unitSnapshot, unitSnapshots } from "../game/jassHooks";
 import { SoundBoard } from "../audio/sounds";
 import { VoiceChat } from "../audio/voiceChat";
@@ -1318,6 +1319,15 @@ export class MapViewerScene {
   /** Seats whose game is already over — `RemovePlayer` (a defeat, a leave) — so a defeated
    *  player hanging up afterwards is not made to leave a second time (`peerLeft`). */
   private playersOut = new Set<number>();
+  /** Each seat's `PLAYER_GAME_RESULT_*` as `RemovePlayer` stated it — which name plate the
+   *  score screen gives it (issue #199). */
+  private gameResults = new Map<number, number>();
+  /** The SEATED players — the score screen's rows. A map's neutral and rescuable players ride in
+   *  the config too and are nobody's seat (see ui/loadingScreen.ts `rosterRows`). */
+  private scoreSeats: Array<{ id: number; team: number }> = [];
+  /** The HOST's score table, as it arrived with the screen that ended this client's game. A LAN
+   *  client's sim never steps, so it has counted nothing of its own (sim/matchStats.ts). */
+  private remoteScores: ScoreTable | null = null;
   /**
    * **The pause, in three independent sources.**
    *
@@ -1380,8 +1390,11 @@ export class MapViewerScene {
   private lastFrameAt = 0;
   /** The LAN authority's clock when Chrome stops the render loop — see startBackgroundPump. */
   private bgPump: Worker | null = null;
-  /** Called when the player picks "End Game" — host tears the match down. */
-  onExit: (() => void) | null = null;
+  /** Called when the player leaves the match — host tears the match down. `scores` is the SCORE
+   *  SCREEN's table when the way out asks for one (issue #199): a quit whose game is OVER. A
+   *  match left while it is still being played gets no score screen, and neither does a quit
+   *  button its script added with `doScoreScreen` false. */
+  onExit: ((scores: ScoreTable | null) => void) | null = null;
   /** The LOCAL player's game ended in a win — `RemovePlayer(p, PLAYER_GAME_RESULT_VICTORY)`,
    *  which `CustomVictoryBJ` calls before it shows anything. A campaign uses it to open the
    *  next chapter (src/data/campaignProgress.ts); a skirmish has nobody listening. */
@@ -2653,6 +2666,9 @@ export class MapViewerScene {
     this.matchRaces = races;
     this.randomSeats = new Set(config.slots.filter((s) => s.random || s.race === "random").map((s) => s.id));
     this.meleeTeams = new Map(config.slots.map((s) => [s.id, s.team]));
+    this.scoreSeats = config.slots
+      .filter((s) => s.controller === "user" || s.controller === "computer")
+      .map((s) => ({ id: s.id, team: s.team }));
     // Who an observer watches (issue #168): every seat in the match, with the race it resolved
     // to. Handed to the controller on BOTH sides of the wire — the host builds a watcher's lane
     // from it and a watcher's own HUD reads it.
@@ -2806,11 +2822,12 @@ export class MapViewerScene {
           this.matchEnded = true;
           this.rts?.endMatchWire();
         }
+        if (msg.scores) this.remoteScores = msg.scores; // the host's count (finalScores)
         this.remoteDialog = {
           handleId: -1, // not the script's; nothing looks it up
           message: msg.message,
           buttons: msg.buttons.map((b, i) => ({
-            handleId: -(i + 2), dialogId: -1, text: b.text, hotkey: b.hotkey ?? 0, quit: b.quit, doScoreScreen: false,
+            handleId: -(i + 2), dialogId: -1, text: b.text, hotkey: b.hotkey ?? 0, quit: b.quit, doScoreScreen: b.score === true,
           })),
           visibleFor: new Set([this.localPlayer]),
           revision: 0,
@@ -3405,13 +3422,12 @@ export class MapViewerScene {
         this.hud?.refreshAllyColorButton();
         this.hud?.refreshCreepButton();
       },
-      // The quit button of the victory/defeat dialog. `doScoreScreen` asks for WC3's
-      // post-game score screen (Glue\ScoreScreen.fdf) — we don't build one yet, so both
-      // paths simply leave the match.
-      endGame: () => {
+      // The quit button of the victory/defeat dialog. `doScoreScreen` asks for the post-game
+      // score screen (docs/score-screen.md) — handed over only if this machine's game is over.
+      endGame: (doScoreScreen) => {
         this.showDialog(null);
         this.scriptPaused = false; // CustomVictoryDialogBJ's own PauseGame, released with it
-        this.onExit?.();
+        this.onExit?.(doScoreScreen ? this.finalScores() : null);
       },
       // …and the defeat dialog's Restart: the same map, from the top, carrying whatever
       // difficulty the script has just set (Reduce Difficulty is this button, one rung down).
@@ -3419,7 +3435,7 @@ export class MapViewerScene {
         this.showDialog(null);
         this.scriptPaused = false; // CustomDefeatRestartBJ releases it too, but not through us
         if (this.onRestart) this.onRestart(this.gameDifficulty);
-        else this.onExit?.(); // nobody here can re-run a map (a lone map, a test boot)
+        else this.onExit?.(null); // nobody here can re-run a map (a lone map, a test boot)
       },
       // …and its campaign twin: Continue on a chapter that named a next level. The match is
       // over either way — the difference is only what the player is handed next, so both
@@ -3428,7 +3444,7 @@ export class MapViewerScene {
         this.showDialog(null);
         this.scriptPaused = false;
         if (this.onChangeLevel) this.onChangeLevel(mapName);
-        else this.onExit?.(); // nobody owns a campaign here (a lone map, a test boot)
+        else this.onExit?.(null); // nobody owns a campaign here (a lone map, a test boot)
       },
       // RemovePlayer(p, PLAYER_GAME_RESULT_*) — blizzard.j's own "this player's game is over",
       // called by CustomVictoryBJ/CustomDefeatBJ before either of them shows anything. Recorded
@@ -3445,6 +3461,8 @@ export class MapViewerScene {
         const PLAYER_GAME_RESULT_DEFEAT = 1;
         if (result !== PLAYER_GAME_RESULT_DEFEAT) this.matchDecided = true;
         this.playersOut.add(player);
+        this.gameResults.set(player, result); // the score screen's gold plate is a VICTORY
+
         // A campaign chapter is "completed" exactly when its own script declares the local
         // player the winner — the same signal, read for a different reason.
         if (result === PLAYER_GAME_RESULT_VICTORY && player === this.localPlayer) this.onLocalVictory?.();
@@ -4249,7 +4267,9 @@ export class MapViewerScene {
         engine?.interp.fireDialogClick(button.handleId, button.dialogId, this.localPlayer);
         if (button.quit) {
           this.scriptPaused = false; // as above: the dialog's own PauseGame goes with it
-          this.onExit?.();
+          // `DialogAddQuitButton(d, doScoreScreen, …)` — the melee victory and defeat screens
+          // both pass true, which is what puts the score screen between the match and the menu.
+          this.onExit?.(button.doScoreScreen ? this.finalScores() : null);
         }
       },
     });
@@ -4334,10 +4354,15 @@ export class MapViewerScene {
         if (p === this.localPlayer) continue; // ours; rendered below, not relayed
         const stamp = `${d.handleId}:${d.revision}`;
         if (this.relayedDialogs.get(p) === stamp) continue;
+        // The score table rides the dialog that ENDS that player's game (issue #199): the client
+        // counted nothing itself, and it hangs up on the `over` stamp, so a later payload could
+        // not be relied on to bring it.
+        const scores = this.playersOut.has(p) || this.matchDecided ? this.scoreTable() : null;
         const sent = this.rts?.relayDialog(p, {
           k: "dlg",
           message: d.message,
-          buttons: d.buttons.map((b) => ({ text: b.text, quit: b.quit, hotkey: b.hotkey })),
+          buttons: d.buttons.map((b) => ({ text: b.text, quit: b.quit, hotkey: b.hotkey, ...(b.doScoreScreen ? { score: true } : {}) })),
+          ...(scores ? { scores } : {}),
           // Whether this screen is the end of the MATCH, decided by the AUTHORITY rather than
           // guessed by the recipient — a map raising a quest popup for a remote player must not
           // drop that player off the wire mid-match, and neither must their own defeat while
@@ -4360,8 +4385,11 @@ export class MapViewerScene {
       this.observerOverRaised = true;
       const over = this.observerGameOver();
       for (const o of this.observers) {
+        const scores = this.scoreTable();
         this.rts?.relayDialog(o.id, {
-          k: "dlg", message: over.message, buttons: over.buttons.map((b) => ({ text: b.text, quit: b.quit, hotkey: b.hotkey })), over: true,
+          k: "dlg", message: over.message, over: true,
+          buttons: over.buttons.map((b) => ({ text: b.text, quit: b.quit, hotkey: b.hotkey, ...(b.doScoreScreen ? { score: true } : {}) })),
+          ...(scores ? { scores } : {}),
         });
       }
       if (this.observer && !rt.dialogs.some((d) => d.visibleFor.has(this.localPlayer))) {
@@ -9397,11 +9425,13 @@ export class MapViewerScene {
     this.installGamepad();
     this.mountScriptUi(ui);
     this.gameMenu?.dispose();
-    const endGame = (): void => {
+    const endGame = (scores = true): void => {
       this.gameMenu?.hide();
       this.playerPaused = false;
       this.syncPanelPause();
-      this.onExit?.();
+      // Leaving through the menu AFTER the game is over (Continue Game, then F10 → End Game)
+      // still shows the scores; leaving mid-match does not — `finalScores` answers null then.
+      this.onExit?.(scores ? this.finalScores() : null);
     };
     this.gameMenu = new EscMenu(ui, this.vfs, SKIN_SECTION[this.localRace], {
       // Return to Game puts back only what OPENING the menu took away. A match somebody
@@ -9416,7 +9446,7 @@ export class MapViewerScene {
       // process (electron/main.mjs `window-all-closed`), whose `before-quit` also takes a LAN
       // host's relay down cleanly. A browser tab cannot close itself unless a script opened
       // it, so there the button does the nearest honest thing and leaves the match.
-      onExitProgram: () => (isDesktopApp() ? window.close() : endGame()),
+      onExitProgram: () => (isDesktopApp() ? window.close() : endGame(false)),
       // Pause Game / Resume Game — ONE button, and in a LAN match the request crosses the
       // wire before anything here moves (see `askPause`).
       onPause: () => {
@@ -9796,6 +9826,7 @@ export class MapViewerScene {
     from.lumber -= sentLumber;
     to.gold += sentGold;
     to.lumber += sentLumber;
+    sim.stats.traded(fromPlayer, toPlayer, sentGold, sentLumber); // Resources Traded (sim/matchStats.ts)
     if (toPlayer === this.localPlayer) this.noteResourcesFrom(fromPlayer, sentGold, sentLumber);
   }
 
@@ -9986,7 +10017,7 @@ export class MapViewerScene {
     // "%s has left the game." — said of the leaver by every route that removes one.
     if (this.hostSeat !== null) this.announce(fillSlots(s("PLAYER_LEFT_GAME", "%s has left the game."), [this.playerLabel(this.hostSeat)]));
     const quit = (text: string): DialogObj["buttons"][number] =>
-      ({ handleId: -3, dialogId: -1, text, hotkey: localizedHotkey(text), quit: true, doScoreScreen: false });
+      ({ handleId: -3, dialogId: -1, text, hotkey: localizedHotkey(text), quit: true, doScoreScreen: true });
     if (this.observer) {
       this.observerOverRaised = true;
       this.remoteDialog = this.observerGameOver();
@@ -10010,6 +10041,42 @@ export class MapViewerScene {
   }
 
   /**
+   * The SCORE SCREEN's table (issue #199), or null while this machine's game is still on.
+   *
+   * "Over" is the local seat's own `RemovePlayer` (a victory, a defeat, a tie), the whole match
+   * being decided, or — on a LAN client, whose script never runs — the authority's say-so
+   * arriving with the dialog that ended it (`matchEnded`). A watcher's game is over when the
+   * match is. The developer's rule, and WC3's: the scores are the end of a FINISHED game, so a
+   * player who walks out of one still being played goes straight back to the menu.
+   */
+  finalScores(): ScoreTable | null {
+    const over = this.observer
+      ? this.matchDecided || this.matchEnded
+      : this.playersOut.has(this.localPlayer) || this.matchDecided || this.matchEnded;
+    if (!over) return null;
+    const table = this.remoteScores ?? this.scoreTable();
+    return table ? { ...table, viewer: this.observer ? null : this.localPlayer } : null;
+  }
+
+  /** Build the table off this machine's own sim — the AUTHORITY's (single player, or the LAN
+   *  host), the only one that has counted anything. */
+  private scoreTable(): ScoreTable | null {
+    const rts = this.rts;
+    if (!rts || rts.frozenClient) return null;
+    // `PLAYER_GAME_RESULT_VICTORY` = 0 (Scripts\common.j) — see `playerGameOver`.
+    const PLAYER_GAME_RESULT_VICTORY = 0;
+    const rows: ScoreRow[] = this.scoreSeats.map((seat) => rts.scoreRowFor({
+      player: seat.id,
+      name: this.playerLabel(seat.id),
+      race: this.matchRaces.get(seat.id) ?? "human",
+      team: seat.team,
+      color: rts.playerColor(seat.id),
+      won: this.gameResults.get(seat.id) === PLAYER_GAME_RESULT_VICTORY,
+    }));
+    return { rows, elapsed: rts.matchSeconds(), viewer: null };
+  }
+
+  /**
    * The screen a WATCHER is shown when the match ends: the victory screen's shape —
    * `MeleeVictoryDialogBJ`'s Continue Game and Quit Game — under "Game over." rather than
    * "Victory!" or a defeat, since an observer neither won nor lost. The message is the one
@@ -10023,7 +10090,7 @@ export class MapViewerScene {
       handleId: -1, message: s("GAMEOVER_GAME_OVER", "Game over."),
       buttons: [
         { handleId: -2, dialogId: -1, text: s("GAMEOVER_CONTINUE_GAME", "Continue Game"), hotkey: localizedHotkey(s("GAMEOVER_CONTINUE_GAME", "Continue Game")), quit: false, doScoreScreen: false },
-        { handleId: -3, dialogId: -1, text: s("GAMEOVER_QUIT_GAME", "Quit Game"), hotkey: localizedHotkey(s("GAMEOVER_QUIT_GAME", "Quit Game")), quit: true, doScoreScreen: false },
+        { handleId: -3, dialogId: -1, text: s("GAMEOVER_QUIT_GAME", "Quit Game"), hotkey: localizedHotkey(s("GAMEOVER_QUIT_GAME", "Quit Game")), quit: true, doScoreScreen: true },
       ],
       visibleFor: new Set([this.localPlayer]), revision: 0,
     };
@@ -13677,6 +13744,8 @@ export class MapViewerScene {
         // because this is the first moment the summon has an id to hand a script — after the
         // illusion is set up, so `IsUnitIllusion(GetSummonedUnit())` already answers true.
         if (su && s.sourceId) world.noteSummon(s.sourceId, simId);
+        // Units Produced counts a summon, and its Unit Score does not (sim/matchStats.ts).
+        if (su) world.noteGained(simId, true);
         // …and a hidden ward starts the clock on its fade (Sentry Ward, Stasis Trap).
         if (su && s.cloakAfter !== undefined) world.cloakSummon(su, s.cloakAfter);
         // …and a Mechanical Critter passes for a neutral one with the enemy (SimUnit.critterGuise).

@@ -1,3 +1,4 @@
+import type { ScoreTable } from "./scoreTable";
 import { snapshotFor, type FxSnapshot, type SnapshotViewer, type SnapshotWorld, type UnitSnapshot, type WatchedPlayer, type WorldSnapshot } from "./snapshot";
 import { decodeSnapshot, encodeSnapshot, type WireSnapshot } from "./snapshotWire";
 import { divergence, describeDivergence, type Divergence } from "./divergence";
@@ -99,7 +100,7 @@ export interface DialogMessage {
   message: string;
   /** `hotkey` is the button's DialogAddButton key (GetLocalizedHotkey's char code), so the
    *  recipient's buttons answer the keyboard the way the authority's own would. */
-  buttons: { text: string; quit: boolean; hotkey?: number }[];
+  buttons: { text: string; quit: boolean; hotkey?: number; score?: boolean }[];
   /**
    * This dialog is the END of that player's game, not just something their script wants shown.
    *
@@ -109,6 +110,10 @@ export interface DialogMessage {
    * mid-match. The host knows because it saw `RemovePlayer` for that seat.
    */
   over?: boolean;
+  /** The SCORE SCREEN's table (issue #199), on the dialog that ends the recipient's game. Only
+   *  the authority counts (sim/matchStats.ts), so this is the only way a client has one; `score`
+   *  on a quit button is its `DialogAddQuitButton` doScoreScreen flag. */
+  scores?: ScoreTable;
 }
 
 export function isDialogMessage(data: unknown): data is DialogMessage {

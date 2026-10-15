@@ -197,6 +197,12 @@ used is the one inside `Chains_silver.blp`.
   wikitext is nothing but template transclusions, so read it through the wiki API
   (`api.php?action=parse&page=…&prop=text`); Liquipedia's API needs `curl --compressed` or it
   answers "406 Gzip encoding is required"; reddit and YouTube are unreachable from the dev box.
+- **The score screen's columns** — [warcraft3.info 394, "Warcraft 3: beyond APM, A brief exploration
+  of in-game statistics"](https://warcraft3.info/articles/394/warcraft-3-beyond-apm-a-brief-exploration-of-in-game-statistics)
+  (AlbZ, 201 620 W3Champions score screens): Unit Score is resources spent plus the value destroyed,
+  Hero Score is XP × 10, the four starting Unit Scores, "Units Killed … ignores denies", Tech
+  Percentage's per-race denominators. Written up in [`score-screen.md`](score-screen.md). Gotcha: the
+  page is JS-rendered and its body is empty to a plain fetch — read `/api/v1/articles/394` instead.
 - **Orders / command system** overview: [WC3 basic commands & orders (YouTube)](https://www.youtube.com/watch?v=EehNLL7yYng)
 - **Core game rules (buildings, workers, rally, upkeep, etc.)** — the official
   classic WC3 "basics" pages are the ground truth for how the game actually works;
