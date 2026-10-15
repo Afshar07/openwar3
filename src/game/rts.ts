@@ -8833,7 +8833,8 @@ export class RtsController {
     if (!this.fxEffects.length) return this.fxEffects;
     // A `global` effect (a reveal's marker, SimSpellEffect.global) is everybody's, fog or no fog,
     // and a `team` one (the Inferno's meteor) is its caster's side's.
-    const out = this.fxEffects.filter((e) => e.global || e.team === this.localTeam || this.fxShown(this.fxEffectAt(e)));
+    // The same door as the wire's (MatchLink.tickHost): only a STAMPED effect passes on its team.
+    const out = this.fxEffects.filter((e) => e.global || (e.team !== undefined && e.team === this.localTeam) || this.fxShown(this.fxEffectAt(e)));
     this.fxEffects = [];
     return out;
   }

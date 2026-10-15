@@ -822,7 +822,11 @@ export class MatchLink {
       // eyes-on-the-spot — the same "in your eyes or absent" rule items and missiles use.
       if (due) {
         snap.fx = {
-          effects: this.fxBuf.effects.filter((e) => e.global || e.team === viewer.team || !viewer.fogBlocksAt(e)), // …a reveal's marker to everybody, a `team` one to its side
+          // …a reveal's marker to everybody, a `team` one to its side. The `team` test asks that the
+          // effect WAS stamped: an unstamped one must never pass on a match, and a viewer that
+          // carries no team (the loopback harness's stub did not, after #201) would otherwise
+          // match every unstamped burst — `undefined === undefined` — and leak it through fog.
+          effects: this.fxBuf.effects.filter((e) => e.global || (e.team !== undefined && e.team === viewer.team) || !viewer.fogBlocksAt(e)),
           splats: this.fxBuf.splats.filter((e) => !viewer.fogBlocksAt(e)),
           // A bolt is AoI-tested at its caster's end (`sx`/`sy`) — the same eyes-on-the-spot
           // rule as everything else here, applied to the end the spell was cast from.

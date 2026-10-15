@@ -393,7 +393,10 @@ function worldAt(hp) {
   };
   return { units: new Map([[1, u]]), mines: new Map(), items: new Map(), timeOfDay: 12, dawnDusk: true, stashOf: () => ({ gold: 500, lumber: 150 }) };
 }
-const seer = { seesFor: () => true, fogHides: () => false, fogBlocksClick: () => false, invisHides: () => false, fogBlocksAt: () => false };
+// `team` is part of SnapshotViewer since #201 (a spell effect stamped with its caster's side
+// reaches that side through fog) — a stub without one matched every UNSTAMPED effect on
+// `undefined === undefined` and leaked it past the fog filter.
+const seer = { seesFor: () => true, fogHides: () => false, fogBlocksClick: () => false, invisHides: () => false, fogBlocksAt: () => false, team: 0 };
 // `commandsApplied` is the input-parity stamp every snapshot carries (item F5). 0 here: these
 // worlds are built by hand and nobody has commanded them, which is what makes the drift checks
 // below comparable at all.
@@ -842,7 +845,7 @@ console.log("\nspell fx ride due broadcasts, filtered per recipient, and never r
   const peerLink = new MatchLink(channelFor(peer), 1, SEATS);
 
   // A viewer whose eyes end at x=500 — the far burst must not cross to it.
-  const halfBlind = { ...seer, fogBlocksAt: (p) => p.x > 500 };
+  const halfBlind = { ...seer, fogBlocksAt: (p) => p.x > 500, team: 1 };
   const fxSources = {
     viewers: () => [{ player: 0, viewer: seer }, { player: 1, viewer: halfBlind }, { player: 2, viewer: seer }],
     ghostsFor: () => [],
@@ -866,6 +869,18 @@ console.log("\nspell fx ride due broadcasts, filtered per recipient, and never r
   hostLink.tickHost(0.05, worldAt(420), fxSources, 4);
   await tick();
   check("a flushed burst never plays twice", peerLink.latest()?.fx.effects, []);
+
+  // #201: an effect stamped with its CASTER's side reaches that side through fog (an Inferno
+  // Stone meteor thrown past night sight), and still not the other side's eyes.
+  fxThisTick.push(
+    { ...EMPTY_FX, effects: [{ art: "InfernalBirth.mdx", x: 900, y: 900, targetId: 0, z: 0, team: 1 }] },
+    { ...EMPTY_FX, effects: [{ art: "EnemyMeteor.mdx", x: 900, y: 900, targetId: 0, z: 0, team: 0 }] },
+  );
+  hostLink.tickHost(0.005, worldAt(420), fxSources, 5);
+  hostLink.tickHost(0.05, worldAt(420), fxSources, 6);
+  await tick();
+  check("a burst stamped with this recipient's team crosses its fog; the other side's does not",
+    peerLink.latest()?.fx.effects.map((e) => e.art), ["InfernalBirth.mdx"]);
 }
 
 console.log("deaths ride EVERY send — the expedited payload that carries the absence carries the collapse");
