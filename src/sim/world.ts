@@ -26196,10 +26196,17 @@ export class SimWorld {
     // Hold onto the current target while it's still hostile, alive, and within
     // reach; otherwise re-scan (throttled) for the nearest in-range enemy.
     const reach = w.range + (u.inCombat ? ATTACK_LEASH : 0);
-    let t = u.targetId !== null ? this.units.get(u.targetId) : undefined;
+    // A CLOAKED unit on Hold strikes nothing of its own accord — the same rule acquireRange
+    // states for every other automatic path, which this one never asked. It matters most for
+    // Hide (`Ashm`, and the Cloak of Shadows' copy of it): the press puts the unit on Hold and
+    // its Ubertip is "Stops the unit from auto-acquiring enemies", yet an enemy standing inside
+    // weapon range was struck at once and the meld spent on it (issue #202). An explicit
+    // attack order is not Hold, so choosing to strike from hiding still works.
+    const cloaked = u.cloaked;
+    let t = !cloaked && u.targetId !== null ? this.units.get(u.targetId) : undefined;
     if (t && !this.canAttack(u, t)) t = undefined; // nothing in hand for it (air/ground/structure)
     if (t && (!this.hostile(u, t) || t.invulnerable || Math.hypot(t.x - u.x, t.y - u.y) - u.radius - t.radius > reach || this.cliffApart(u, t))) t = undefined;
-    if (!t) {
+    if (!t && !cloaked) {
       u.acquireT -= dt;
       if (u.acquireT <= 0) {
         u.acquireT = ACQUIRE_PERIOD;

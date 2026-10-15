@@ -331,5 +331,51 @@ const stillMelded = (u) => u.buffs.some((b) => b.kind === "invisible");
   check("…an Archer by day does not", casts, 0);
 }
 
+// HIDE STOPS THE UNIT FROM AUTO-ACQUIRING ENEMIES ([Ashm] Ubertip) — issue #202. The press puts
+// the unit on Hold, and Hold's own scan (tickHold) strikes anything inside weapon range. A
+// hero who pressed Hide beside an enemy swung at it at once and spent the meld on it. Run
+// through a real world: the same Hold, with and without the meld on, beside the same enemy.
+{
+  const { PathingGrid } = require(join(REPO, ".sim-build", "src", "sim", "pathing.js"));
+  const WEAPON = () => ({
+    enabled: true, targets: ["ground", "air", "structure"], ranged: false,
+    damage: 12, baseDamage: 12, dice: 1, baseDice: 1, sides: 6,
+    cooldown: 1.2, baseCooldown: 1.2, range: 90, baseRange: 90, rangeBuffer: 250,
+    damagePoint: 0.4, baseDamagePoint: 0.4, backswing: 0.3, baseBackswing: 0.3,
+    spillDist: 0, spillRadius: 0, baseSpillDist: 0, baseSpillRadius: 0, damageLoss: 0,
+    acquire: 500, attackType: "normal", missileArt: "", missileSpeed: 0,
+    launchX: 0, launchY: 0, launchZ: 0, impactZ: 0,
+  });
+  const spec = (id, owner, x, y, armed = true) => {
+    const weapons = armed ? [WEAPON()] : [];
+    return {
+      id, owner, team: owner, typeId: "hfoo", x, y, facing: 0,
+      hp: 100000, maxHp: 100000, mana: 0, maxMana: 0, manaRegen: 0, hpRegen: 0,
+      speed: 270, turnRate: 6, radius: 16, scale: 1, armor: 0, armorType: "medium", defUp: 0,
+      sightDay: 3000, sightNight: 3000, flying: false, mechanical: false, invulnerable: false, race: "human",
+      isBuilding: false, foodCost: 2, goldCost: 0, lumberCost: 0, upgrades: [], moveType: "foot", collisionSize: 16,
+      canFlee: true, targetedAs: "ground", deathTime: 2, name: "Footman", worker: null, depotGold: false, depotLumber: false,
+      castPoint: 0, castBackswing: 0, weapons, oldWeapons: weapons,
+    };
+  };
+  const swungAt = (hide) => {
+    const w = new SimWorld(new PathingGrid({ width: 96, height: 96, flags: new Uint8Array(96 * 96) }, [0, 0]), 2);
+    w.timeOfDay = 0; // midnight: a meld that dawn would end is not what this measures
+    const u = w.add(spec(1, 0, 1500, 1500));
+    // Unarmed, so the only blow that can land on it is the hider's — inside 90 of weapon range.
+    const foe = w.add(spec(2, 1, 1560, 1500, false));
+    w.issueHold(1);
+    w.tick(1 / 60); // let add()'s placement settle, or the snap onto the grid reads as a step out of hiding
+    if (hide) {
+      u.buffs.push({ kind: "invisible", group: "shadowmeld", timeLeft: Infinity, sourceId: 1, value: 0, value2: 0, art: "", fx: [], delay: 1.5, meld: true });
+      w.dropAggression(u); // what the press does as it lands (castImmediate → resolveCast)
+    }
+    for (let i = 0; i < 180; i++) w.tick(1 / 60);
+    return foe.hp < foe.maxHp || u.targetId === 2;
+  };
+  check("a unit on Hold strikes an enemy inside weapon range", swungAt(false), true);
+  check("…but not while it is hiding (fading in or melded)", swungAt(true), false);
+}
+
 console.log(`\n${failed ? `${failed} FAILED` : "all passed"}`);
 process.exit(failed ? 1 : 0);

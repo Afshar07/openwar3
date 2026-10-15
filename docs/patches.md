@@ -418,7 +418,9 @@ data corrected the transcription in ways no amount of reading the notes could ha
   `Requires`. A RETAIL 2.0.4.23745 install's own tables (`patch-extract.mjs --install`, the
   `2.0.4.23745` checkpoint) agree with the chain on all four, so they are 3.0.0's, and out of scope.
 - **The Cloak of Shadows' by-day icon** — the game names `BTNAmbushDay.blp`, which a 1.30.4
-  install does not have, so ours keeps `BTNCloak.blp`.
+  install does not have, so ours wears Shadowmeld's own `BTNAmbush.blp` (issue #202): the
+  button IS Hide, at Hide's place on the card, and the cloak's icon there read as a different
+  ability.
 
 ## The chain as it stands
 

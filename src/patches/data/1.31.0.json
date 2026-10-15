@@ -900,7 +900,7 @@
         "Units\\NightElfAbilityFunc.txt": {
           "AIhm": {
             "$base": "Ashm",
-            "Art": "ReplaceableTextures\\CommandButtons\\BTNCloak.blp"
+            "Art": "ReplaceableTextures\\CommandButtons\\BTNAmbush.blp"
           }
         },
         "Units\\NightElfAbilityStrings.txt": {
