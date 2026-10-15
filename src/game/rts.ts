@@ -6507,6 +6507,27 @@ export class RtsController {
   private static readonly REARM_ON_SHIFT = new Set(["move", "attack", "attackground", "patrol", "repair", "harvest"]);
 
   /**
+   * The command a shift-click (in the world or on the minimap) put back after spending it, or
+   * null. The SHIFT KEY is what keeps that command armed, so letting go of it is what puts it
+   * away and returns the card to its own buttons (issue #200) — the order-mode twin of the
+   * shift-queued building ghost (issue #123). A command merely pressed off the card is NOT
+   * marked, so a stray tap of shift while aiming one is not a cancel.
+   */
+  private shiftRearmed: RtsController["orderMode"] = null;
+
+  /**
+   * Shift came back up. Disarms the command a shift-click kept armed, if it is still the one
+   * armed, and answers whether it did — the caller then drops the console's highlight.
+   */
+  releaseShift(): boolean {
+    const mode = this.shiftRearmed;
+    this.shiftRearmed = null;
+    if (mode === null || this.orderMode !== mode) return false;
+    this.orderMode = null;
+    return true;
+  }
+
+  /**
    * A click that aims the armed command. Answers whether the command was SPENT — the caller
    * uses it to drop the console's highlight — so a refusal (which leaves the reticle up for
    * another try) and a shift-click (which leaves the command armed for the next target)
@@ -6521,6 +6542,7 @@ export class RtsController {
     // `armedCast`/`armedItem`/`armedLoad` belong to modes that are not on the list above.
     if (spent && rearm !== null) {
       this.orderMode = rearm;
+      this.shiftRearmed = rearm;
       return false;
     }
     return spent;
@@ -6945,6 +6967,7 @@ export class RtsController {
       this.groundOrder(mode, wx, wy, queued);
       if (rearm) {
         this.orderMode = mode;
+        this.shiftRearmed = mode;
         return "ignored";
       }
       return "ordered";

@@ -16345,6 +16345,10 @@ export class MapViewerScene {
         this.cardPage = "root";
         this.cancelPlacement();
       }
+      // …and a shift-QUEUED ORDER the same way (issue #200): shift-clicking an Attack, Move,
+      // Patrol… target keeps the command armed for the next one (REARM_ON_SHIFT), and letting
+      // go of shift is what puts it away and returns the command card to its home buttons.
+      if (k === "shift" && this.rts?.releaseShift()) this.hud?.clearOrderMode();
     });
     this.on(c, "contextmenu", (e: Event) => e.preventDefault());
     // Suppress the browser's middle-click autoscroll (it fires off mousedown, which
