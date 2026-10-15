@@ -8761,8 +8761,9 @@ export class RtsController {
   drainFxEffects(): typeof this.fxEffects {
     if (this.fxEffects.length > 400) this.fxEffects.splice(0, this.fxEffects.length - 400);
     if (!this.fxEffects.length) return this.fxEffects;
-    // A `global` effect (a reveal's marker, SimSpellEffect.global) is everybody's, fog or no fog.
-    const out = this.fxEffects.filter((e) => e.global || this.fxShown(this.fxEffectAt(e)));
+    // A `global` effect (a reveal's marker, SimSpellEffect.global) is everybody's, fog or no fog,
+    // and a `team` one (the Inferno's meteor) is its caster's side's.
+    const out = this.fxEffects.filter((e) => e.global || e.team === this.localTeam || this.fxShown(this.fxEffectAt(e)));
     this.fxEffects = [];
     return out;
   }

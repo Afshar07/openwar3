@@ -3563,6 +3563,13 @@ export interface SimSpellEffect {
    *  sees it because it is looking there, and the side being looked at sees it because being
    *  scouted is exactly what it is there to tell them. */
   global?: boolean;
+  /** Seen by THIS TEAM whatever its fog — `global`'s narrower twin: the art of a spell aimed at
+   *  a point its caster cannot see belongs to the side that aimed it. The Inferno Stone is why:
+   *  its 900 range is past every hero's NIGHT sight (800), so a meteor thrown to the edge of
+   *  the range after dark was dropped at the fog door and the Infernal stood up out of nothing
+   *  a second later, its own sight arriving only with it (issue #201). The enemy still sees
+   *  it only with eyes on the spot. */
+  team?: number;
   /** Fire the model's OWN `SND` event objects as its clip passes over them, every one of them
    *  at its own frame — rather than the single cue `sound` picks. `FlareTarget.mdx` is why:
    *  its four `SNDXAFL1..4` (AnimLookups → Flare1..4 → FlareTarget1..4.wav) are parked at
@@ -17949,7 +17956,10 @@ export class SimWorld {
     // nothing is being hit yet. Played for its WHOLE Birth (`life` 0): InfernalBirth.mdx's one
     // clip runs 3.13 s, the fall and then the burning crater, and the renderer's ordinary 2 s
     // one-shot cut it off in the middle of the landing.
-    if (def.effectArt) this.spellEffects.push({ art: def.effectArt, x, y, targetId: 0, z: 0, life: 0 });
+    // Seen by the caster's side even where it has no eyes (SimSpellEffect.team): the point is
+    // up to 900 away, a hero sees 800 at night, and the meteor is the only warning the caster
+    // gets of where the Infernal will stand.
+    if (def.effectArt) this.spellEffects.push({ art: def.effectArt, x, y, targetId: 0, z: 0, life: 0, team: caster.team });
     this.infernoDrops.push({
       t: Math.max(0, this.dataOf(lvl, 2, 1)), // DataC "Impact Delay"
       x, y,

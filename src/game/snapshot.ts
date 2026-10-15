@@ -123,6 +123,9 @@ export interface SnapshotViewer {
   /** No eyes on this spot at all — the test for things with their own pick paths, a mine
    *  and a ground item, neither of which is remembered the way a building is. */
   fogBlocksAt(p: { x: number; y: number }): boolean;
+  /** The team whose sight this is — an effect stamped with its caster's side
+   *  (SimSpellEffect.team) goes to that side's recipients whatever their fog. */
+  readonly team: number;
 }
 
 /** How much of a unit this recipient is entitled to.
