@@ -14279,6 +14279,9 @@ export class MapViewerScene {
           // …and the cue that names its WAV by LABEL instead, because the wav does not live
           // beside the art it plays with (a shop's `ReceiveGold` under the coin pile).
           if (fx.soundLabel) this.sounds?.playAbilitySound(fx.soundLabel, { x, y, z });
+          // …and one named by AnimSounds label: an SND event another model carries (Transmute's
+          // clink, off the PileofGold it no longer draws; SimSpellEffect.soundAnim).
+          if (fx.soundAnim) this.sounds?.playAnimSound(fx.soundAnim, { x, y, z });
           // …and the one named by PATH (Hex/Polymorph's air and ground poofs; SimSpellEffect).
           if (fx.soundFile) this.sounds?.playSpellFile(fx.soundFile, { x, y, z });
           // …and EVERY sound event the model parks in the clip it plays, each at its own frame

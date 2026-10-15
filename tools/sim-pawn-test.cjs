@@ -197,6 +197,9 @@ function check(what, got, want) {
   check("…the gold-credit coins", fx[0].art, "UI\\Feedback\\GoldCredit\\GoldCredit.mdx");
   check("…placed where the body stood", `${fx[0].targetId}@${fx[0].x},${fx[0].y}`, "0@1300,1000");
   check("…for its whole clip", fx[0].life, 1.334);
+  // The clink lived on PileofGold.mdx (`SNDxSTMI`), not on the bottle, so it has to come
+  // along by label now that the pile is not drawn.
+  check("…with the transmute clink", fx[0].soundAnim, "TransmuteMissileImpact");
 }
 
 console.log(failed ? `\n${failed} FAILED` : "\nall ok");

@@ -2564,6 +2564,13 @@ const ITEM_DROP_RANGE = (): number => gameNum("DropItemRange");
 const PAWN_GOLD_ART = "UI\\Feedback\\GoldCredit\\GoldCredit.mdx";
 const PAWN_GOLD_SOUND = "ReceiveGold";
 const PAWN_GOLD_FX_LIFE = 1.334;
+// …but the SOUND of a Transmute lived on that pile, not on the bottle: GoldBottleMissile.mdx
+// carries only its launch (`SNDXANSM`), and the clink of the body turning to gold is the
+// `SNDxSTMI` event at frame 0 of PileofGold's Birth — AnimLookups `STMI` →
+// AnimSounds `TransmuteMissileImpact` → Abilities\Spells\Other\Transmute\
+// AlchemistTransmuteDeath1.wav. Swapping the art for the coins dropped it, so it rides the
+// coins by label instead.
+const TRANSMUTE_IMPACT_SOUND = "TransmuteMissileImpact";
 // A move ordered within this distance of the unit only turns it in place (WC3
 // doesn't shuffle a unit a few pixels — it just pivots to face the point).
 const MOVE_MIN_DIST = 40;
@@ -3541,6 +3548,9 @@ export const REINCARNATION_BODY = "reincarnation";
  *                    statue and hovering somewhere near its feet.
  *   `soundLabel`   — an AbilitySounds.slk label fired with the model, for a cue whose WAV
  *                    does NOT live beside its art (a shop's `ReceiveGold`).
+ *   `soundAnim`    — an AnimSounds.slk label fired with the model: the cue a DIFFERENT model
+ *                    carries as an SND event, kept when that model is not the one drawn
+ *                    (Transmute's `TransmuteMissileImpact`, parked on PileofGold.mdx).
  *   `soundFile`    — a WAV PATH fired with the model, for a cue with no label at all that
  *                    the folder scan cannot pick out either: Hex and Polymorph's poof sounds
  *                    `PolymorphTarget1.wav` on a walker and `PolymorphTargetAir1.wav` on a
@@ -3555,6 +3565,7 @@ export interface SimSpellEffect {
   life?: number;
   sound?: boolean;
   soundLabel?: string;
+  soundAnim?: string;
   soundFile?: string;
   anim?: EffectAnim;
   attach?: string[];
@@ -7980,7 +7991,7 @@ export class SimWorld {
     this.kill(target, caster.id);
     this.meltId = 0;
     // …only if it actually went: a Tauren Chieftain's Reincarnation gets back up instead.
-    if (!this.units.has(target.id)) this.spellEffects.push({ art: PAWN_GOLD_ART, x, y, targetId: 0, z: 0, life: PAWN_GOLD_FX_LIFE });
+    if (!this.units.has(target.id)) this.spellEffects.push({ art: PAWN_GOLD_ART, x, y, targetId: 0, z: 0, life: PAWN_GOLD_FX_LIFE, soundAnim: TRANSMUTE_IMPACT_SOUND });
     return gold;
   }
 
