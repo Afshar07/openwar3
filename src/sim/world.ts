@@ -15418,6 +15418,13 @@ export class SimWorld {
     // An animation-cancelling seat (`cancelsBackswing`) gives its next order the tick the spell
     // goes off, as a skilled player does — and a fresh order is exactly what ends a recovery.
     if (this.cancelsBackswing.has(u.owner)) pc.backLeft = 0;
+    // A LOOPING gesture keeps the caster on the cast for as long as he performs it (issue #203).
+    // Ending the order at the backswing left the Alchemist IDLE 0.9s into a 3–5s spray, and an
+    // idle unit acquires: he went on swinging at whatever stood beside him while the gesture
+    // still read as spraying. Like a channel, a new order walks him out of it; unlike one, the
+    // spray itself is a field and keeps falling (loopingCastLength). Not a recovery, so an
+    // animation-cancelling seat does not skip it either.
+    pc.backLeft = Math.max(pc.backLeft, this.loopingCastLength(def, lvl));
     if (u.moving) this.settle(u);
     if (pc.channelLeft <= 0 && pc.backLeft <= 0) this.endCast(u, pc); // instant, no recovery
   }
@@ -15459,6 +15466,8 @@ export class SimWorld {
    * `[ANhs] Animnames = spell,looping` against a channel's `stand,channel`. Looping means the
    * caster keeps performing — HeroGoblinAlchemist.mdx authors that pose as "Spell Channel",
    * 2.0s and flagged looping — but nothing locks him in place, so he may walk out of it.
+   * While he performs he holds the CAST order (tickCast's backswing runs this long), so he
+   * does not acquire and swing at things beside him mid-spray (issue #203).
    *
    * How long he performs for is how long the SPRAY lasts, and that is `DataF` waves one
    * `DataB` second apart (3/4/5 seconds by rank) — the same schedule the handler hands the
