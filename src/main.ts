@@ -1096,8 +1096,8 @@ function endMatch(): void {
 /** Leave the current match (F10 → End Game): tear down the map scene and return to
  *  the main menu over its animated 3D scene. A fresh scene is built next game.
  *
- *  `scores` puts the SCORE SCREEN between the two (issue #199) — only ever handed over for a game
- *  that is finished (MapViewerScene.finalScores), and dismissed by its OK. */
+ *  `scores` puts the SCORE SCREEN between the two (issue #199) — handed over by every quit that
+ *  asks for one (MapViewerScene.leave), and dismissed by its OK. */
 function exitToMenu(scores: ScoreTable | null = null): void {
   endMatch();
   // …and back onto the MELEE tables. The menus read object data too — the Custom Game screen's

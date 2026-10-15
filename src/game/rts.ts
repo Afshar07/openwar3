@@ -56,7 +56,7 @@ import { REINCARNATION_BODY } from "../sim/world";
 import { resolveTipRefs } from "../data/tipRefs";
 import { disabledIconPath } from "../data/commandStrings";
 import { observePlayer, type ObserverPlayerView } from "./observerView";
-import { researchableFor, scoreRow, type ScoreRow, type ScoreSeat } from "./scoreTable";
+import { researchableFor, scoreRow, type ScoreRow, type ScoreSeat, type ScoreTable } from "./scoreTable";
 import { type ItemRegistry } from "../data/items";
 import { workerProfileFor, harvestAbilityOf, depotRoleFor, isHarvestCode, type PlayableRace } from "../data/races";
 import { MeleeAi, AI_SCRIPT_RACES } from "../ai";
@@ -8456,6 +8456,10 @@ export class RtsController {
     // renderer, which owns the world's clock — so both are passed straight through.
     link.onPauseAsked = (player, on) => this.onPauseAsked?.(player, on);
     link.onPauseRuled = (msg) => this.onPauseRuled?.(msg.on, msg.by, msg.left, msg.denied === true);
+    // The score table for a client leaving mid-match (issue #199): asked of the host, answered
+    // by the renderer, which owns the seat facts the table is built with.
+    link.onScoresAsked = (player) => this.onScoresAsked?.(player);
+    link.onScores = (scores) => this.onScores?.(scores);
     if (setup.isHost) {
       // The host is the only party that judges an arriving command. `CommandRouter` resolves
       // the relay's `from` stamp — which no client can forge — to a slot, and a command whose
@@ -8523,6 +8527,23 @@ export class RtsController {
 
   /** CLIENT: the host ruled. See mapViewer.takePauseRuling. */
   onPauseRuled: ((on: boolean, by: number, left: number, denied: boolean) => void) | null = null;
+
+  /** HOST: a client is leaving and wants the score table (MatchLink `scorereq`). */
+  onScoresAsked: ((player: number) => void) | null = null;
+  /** CLIENT: the host's score table arrived. */
+  onScores: ((scores: ScoreTable) => void) | null = null;
+
+  /** CLIENT: ask the host for the score table. False when there is no host to ask. */
+  askForScores(): boolean {
+    if (!this.matchLink || this.matchLinkIsHost) return false;
+    this.matchLink.askForScores();
+    return true;
+  }
+
+  /** HOST: answer a client's ask. */
+  sendScores(player: number, scores: ScoreTable): void {
+    if (this.matchLink && this.matchLinkIsHost) this.matchLink.sendScores(player, scores);
+  }
 
   /** Is a LAN match's wire attached? The renderer's background pump keys on this: a
    *  networked match must keep simulating when its window is hidden (the authority owes

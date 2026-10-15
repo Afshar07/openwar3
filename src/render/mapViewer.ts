@@ -2822,7 +2822,7 @@ export class MapViewerScene {
           this.matchEnded = true;
           this.rts?.endMatchWire();
         }
-        if (msg.scores) this.remoteScores = msg.scores; // the host's count (finalScores)
+        if (msg.scores) this.remoteScores = msg.scores; // the host's count (see `leave`)
         this.remoteDialog = {
           handleId: -1, // not the script's; nothing looks it up
           message: msg.message,
@@ -3427,7 +3427,7 @@ export class MapViewerScene {
       endGame: (doScoreScreen) => {
         this.showDialog(null);
         this.scriptPaused = false; // CustomVictoryDialogBJ's own PauseGame, released with it
-        this.onExit?.(doScoreScreen ? this.finalScores() : null);
+        void this.leave(doScoreScreen);
       },
       // …and the defeat dialog's Restart: the same map, from the top, carrying whatever
       // difficulty the script has just set (Reduce Difficulty is this button, one rung down).
@@ -3459,7 +3459,12 @@ export class MapViewerScene {
         // left the wire up would leave it up forever.
         const PLAYER_GAME_RESULT_VICTORY = 0;
         const PLAYER_GAME_RESULT_DEFEAT = 1;
-        if (result !== PLAYER_GAME_RESULT_DEFEAT) this.matchDecided = true;
+        if (result !== PLAYER_GAME_RESULT_DEFEAT) {
+          this.matchDecided = true;
+          // …and the score screen stops counting here, Continue Game or not (MatchStats.endedAt).
+          const sim = this.rts?.simWorld;
+          sim?.stats.freeze(sim.elapsed);
+        }
         this.playersOut.add(player);
         this.gameResults.set(player, result); // the score screen's gold plate is a VICTORY
 
@@ -4222,6 +4227,11 @@ export class MapViewerScene {
       this.rts.isPlayerOut = (player) => this.playersOut.has(player);
       // …and the same split for the pause: the host judges an ask, a client obeys a ruling.
       this.rts.onPauseAsked = (player, on) => this.rulePause(player, on);
+      // A client leaving mid-match asks for the score table it has no other way to get (`leave`).
+      this.rts.onScoresAsked = (player) => {
+        const table = this.scoreTable();
+        if (table) this.rts?.sendScores(player, table);
+      };
       this.rts.onPauseRuled = (on, by, left, denied) => this.takePauseRuling(on, by, left, denied);
     }
     // Everybody starts the match with a full allowance of pause timeouts.
@@ -4269,7 +4279,7 @@ export class MapViewerScene {
           this.scriptPaused = false; // as above: the dialog's own PauseGame goes with it
           // `DialogAddQuitButton(d, doScoreScreen, …)` — the melee victory and defeat screens
           // both pass true, which is what puts the score screen between the match and the menu.
-          this.onExit?.(button.doScoreScreen ? this.finalScores() : null);
+          void this.leave(button.doScoreScreen);
         }
       },
     });
@@ -9429,9 +9439,9 @@ export class MapViewerScene {
       this.gameMenu?.hide();
       this.playerPaused = false;
       this.syncPanelPause();
-      // Leaving through the menu AFTER the game is over (Continue Game, then F10 → End Game)
-      // still shows the scores; leaving mid-match does not — `finalScores` answers null then.
-      this.onExit?.(scores ? this.finalScores() : null);
+      // Every way out of the match through this menu shows the score screen, mid-match too —
+      // except Exit Program, which leaves the GAME (see `leave`).
+      void this.leave(scores);
     };
     this.gameMenu = new EscMenu(ui, this.vfs, SKIN_SECTION[this.localRace], {
       // Return to Game puts back only what OPENING the menu took away. A match somebody
@@ -10010,6 +10020,9 @@ export class MapViewerScene {
     // second `room-closed` not a second screen.
     if (this.matchEnded) return;
     this.matchEnded = true;
+    // The match is over however it ended, so the score screen stops counting (MatchStats.endedAt).
+    const sim = this.rts?.simWorld;
+    if (sim && !this.rts?.frozenClient) sim.stats.freeze(sim.elapsed);
     // A player's pause was the room's to rule, and nobody is left to rule its resume.
     this.playerPaused = false;
     if (this.remoteDialog?.buttons.some((b) => b.quit)) return; // already an ending
@@ -10041,28 +10054,41 @@ export class MapViewerScene {
   }
 
   /**
-   * The SCORE SCREEN's table (issue #199), or null while this machine's game is still on.
+   * Leave the match, through the SCORE SCREEN when `scores` asks for one (issue #199).
    *
-   * "Over" is the local seat's own `RemovePlayer` (a victory, a defeat, a tie), the whole match
-   * being decided, or — on a LAN client, whose script never runs — the authority's say-so
-   * arriving with the dialog that ended it (`matchEnded`). A watcher's game is over when the
-   * match is. The developer's rule, and WC3's: the scores are the end of a FINISHED game, so a
-   * player who walks out of one still being played goes straight back to the menu.
+   * Every quit shows it — a match still being played too, with the figures as they stand (the
+   * developer's rule). What does NOT is a quit that says so: a map's own quit button added with
+   * `doScoreScreen` false, `EndGame(false)`, and Exit Program.
+   *
+   * The table is the AUTHORITY's. On the host and in single player that is this machine's own
+   * sim; a LAN client counted nothing, so it uses the table the host sent with the dialog that
+   * ended its game, or — leaving mid-match, with no such dialog — asks the host for one and
+   * waits up to `SCORE_ASK_MS` before going without (its own seat facts, every figure 0: the
+   * room may already be gone, and a quit must never hang on a dead wire).
    */
-  finalScores(): ScoreTable | null {
-    const over = this.observer
-      ? this.matchDecided || this.matchEnded
-      : this.playersOut.has(this.localPlayer) || this.matchDecided || this.matchEnded;
-    if (!over) return null;
-    const table = this.remoteScores ?? this.scoreTable();
-    return table ? { ...table, viewer: this.observer ? null : this.localPlayer } : null;
+  private async leave(scores: boolean): Promise<void> {
+    if (!scores) return this.onExit?.(null);
+    let table = this.remoteScores ?? this.scoreTable();
+    if (!table && this.rts && !this.matchEnded && this.rts.askForScores()) {
+      table = await new Promise<ScoreTable | null>((resolve) => {
+        const timer = setTimeout(() => resolve(null), MapViewerScene.SCORE_ASK_MS);
+        this.rts!.onScores = (t) => { clearTimeout(timer); resolve(t); };
+      });
+    }
+    table ??= this.scoreTable(true);
+    this.onExit?.(table ? { ...table, viewer: this.observer ? null : this.localPlayer } : null);
   }
 
+  /** How long a LAN client leaving mid-match waits for the host's score table (`leave`). */
+  private static readonly SCORE_ASK_MS = 3000;
+
   /** Build the table off this machine's own sim — the AUTHORITY's (single player, or the LAN
-   *  host), the only one that has counted anything. */
-  private scoreTable(): ScoreTable | null {
+   *  host), the only one that has counted anything. `anyway` builds it on a client too, for the
+   *  seat facts alone (see `leave`). The clock is where the match was DECIDED once it has been
+   *  (MatchStats.endedAt), since nothing after that is counted. */
+  private scoreTable(anyway = false): ScoreTable | null {
     const rts = this.rts;
-    if (!rts || rts.frozenClient) return null;
+    if (!rts || (rts.frozenClient && !anyway)) return null;
     // `PLAYER_GAME_RESULT_VICTORY` = 0 (Scripts\common.j) — see `playerGameOver`.
     const PLAYER_GAME_RESULT_VICTORY = 0;
     const rows: ScoreRow[] = this.scoreSeats.map((seat) => rts.scoreRowFor({
@@ -10073,7 +10099,7 @@ export class MapViewerScene {
       color: rts.playerColor(seat.id),
       won: this.gameResults.get(seat.id) === PLAYER_GAME_RESULT_VICTORY,
     }));
-    return { rows, elapsed: rts.matchSeconds(), viewer: null };
+    return { rows, elapsed: rts.simWorld.stats.endedAt ?? rts.matchSeconds(), viewer: null };
   }
 
   /**

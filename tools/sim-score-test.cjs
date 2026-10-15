@@ -147,6 +147,24 @@ console.log("\nthe Largest Army sample");
   check("…and never comes down", s.of(0).largestArmy, 44);
 }
 
+console.log("\nnothing counts once the match is decided (Continue Game or not)");
+{
+  const s = new MatchStats();
+  s.mined(0, 10, 0);
+  s.freeze(312.5);
+  s.freeze(400); // a second decision does not move the clock
+  s.mined(0, 10, 0);
+  s.destroyed(0, 500, true, false);
+  s.gained(0, 135, false);
+  s.xp(0, 100);
+  s.item(0);
+  s.traded(0, 1, 50, 0);
+  s.tick(5, () => 99);
+  const t = s.of(0);
+  check("the tally stands where the match ended", [t.goldMined, t.buildingsRazed, t.unitsProduced, t.xpGained, t.itemsObtained, t.resourcesSent, t.largestArmy], [10, 0, 0, 0, 0, 0, 0]);
+  check("…and Elapsed Time with it", s.endedAt, 312.5);
+}
+
 console.log("\nupkeep, and trades");
 {
   const s = new MatchStats();

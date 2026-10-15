@@ -10,20 +10,23 @@ local race's victory picture (or the defeat one), and OK. Built from the game's 
 | the finished table (rows, Tech Percentage, Heroes Used) | [`src/game/scoreTable.ts`](../src/game/scoreTable.ts), `RtsController.scoreRowFor` |
 | the art (flat models in the 0.8 × 0.6 box) | [`src/render/scoreScreenScene.ts`](../src/render/scoreScreenScene.ts) |
 | the screen (FDF + stamped rows) | [`src/ui/scoreScreen.ts`](../src/ui/scoreScreen.ts) |
-| when it appears | `MapViewerScene.finalScores` → `onExit(scores)` → `main.ts` `exitToMenu` |
+| when it appears | `MapViewerScene.leave` → `onExit(scores)` → `main.ts` `exitToMenu` |
 
 ## When it appears — and when it does not
 
-**Only after a game that has ENDED** (the developer's rule, and WC3's). `finalScores` answers
-null until the local seat's own `RemovePlayer` has fired (victory, defeat, tie), the match is
-decided, or — on a LAN client, whose script never runs — the host's `over` stamp has arrived. So:
+**Every quit shows it** (the developer's rule), a match still being played included — the player
+is simply shown the figures as they stand. `MapViewerScene.leave(scores)` is the one door:
 
-- the melee victory/defeat dialog's **Quit Game** shows it: `DialogAddQuitButton(d, true, …)`, and
-  the `doScoreScreen` flag is honoured per button (a map's own quit button with `false` does not);
+- the melee victory/defeat dialog's **Quit Game**: `DialogAddQuitButton(d, true, …)`, and the
+  `doScoreScreen` flag is honoured per button (a map's own quit button with `false` skips it);
 - `EndGame(doScoreScreen)` honours the flag the same way (a campaign's `bj_changeLevelShowScores`
   is false, so a chapter goes straight back to the campaign screen);
-- **Continue Game, then F10 → End Game** still shows it — the game is over;
-- **F10 → End Game in a match still being played does not**, and neither does Exit Program.
+- **F10 → End Game → Quit**, mid-match or after Continue Game;
+- NOT Exit Program (it leaves the game, not the match), Restart, or a chapter's ChangeLevel.
+
+**Nothing is counted once the match is DECIDED** (`MatchStats.freeze`, called where `RemovePlayer`
+decides it and where the wire ends it): a winner who presses Continue Game and goes on razing is
+no longer playing the match the screen records, and Elapsed Time stops at the decision too.
 
 ## What each column counts
 
@@ -65,7 +68,15 @@ The page is JS-rendered; its text is at `https://warcraft3.info/api/v1/articles/
 Only the AUTHORITY counts (a LAN client's sim never steps). The host builds the table and sends
 it inside the relayed dialog that ends each client's game (`DialogMessage.scores`, plus a `score`
 flag per quit button) — not in a snapshot, because the client hangs up the moment that dialog
-arrives. The table is plain data; the receiving machine stamps `viewer` itself.
+arrives, and an opponent's running figures mid-match are scouting information. A client that
+quits MID-match has had no such dialog, so it ASKS (`scorereq` → `scores`, stamped by the relay
+like chat) and waits up to 3 s before going without (its own seat facts, figures 0 — a quit must
+never hang on a dead wire). The table is plain data; the receiving machine stamps `viewer` itself.
+
+Verified over the real relay with two headless clients (`?dev&map=EchoIsles&lan=host|join`): a
+client quitting mid-match got the host's figures in ~1.5 s; a defeated client's Quit showed the
+host's table with its own row in gold and the defeat art; the host, after Continue Game, kept
+mining and killed three creeps and its table did not move.
 
 ## The art, measured
 
@@ -91,6 +102,7 @@ so the scene is one orthographic window and the screen is mounted `stretchRoot`:
   — `fdf/render.ts` `addedLight` turns it into light, or it draws a black bar.
 - The FDF hangs a SCROLLBAR off the panel; it is removed, or the renderer makes the whole panel a
   scroll frame with a bar at the screen's edge. Twelve seats fit.
+- No Save Replay button: OpenWar3 records no replays yet, so both replay buttons are hidden.
 
 The reference opens on the FIRST column sorted highest-first (none of the shots has Teams lit),
 keeps that column's place across tabs, and Teams sorts by team. The ally-colour button recolours

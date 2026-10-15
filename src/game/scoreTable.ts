@@ -58,7 +58,7 @@ export interface ScoreTable {
   elapsed: number;
   /** Whose screen it is: that row is printed in gold and its race picks the picture and the
    *  music. Null for a watcher. Stamped by the machine SHOWING it, never by the host that counted
-   *  it (render/mapViewer.ts `finalScores`). */
+   *  it (render/mapViewer.ts `leave`). */
   viewer: number | null;
 }
 

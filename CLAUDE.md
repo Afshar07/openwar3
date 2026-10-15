@@ -878,12 +878,13 @@ data, or asset behaviour, **consult our sources** and cite what you used.
   post for the rest of the game.
 - **Score screen:** read [`docs/score-screen.md`](docs/score-screen.md) before touching
   [`src/sim/matchStats.ts`](src/sim/matchStats.ts), [`src/ui/scoreScreen.ts`](src/ui/scoreScreen.ts)
-  or `finalScores`. It appears ONLY after a game that has ENDED (a quit with `doScoreScreen`, or
-  leaving after Continue Game) — never for a match walked out of mid-play. No file says what a
-  column counts, so the rules are warcraft3.info 394's, and the one that proves them is that the
-  four starting Unit Scores (1005/965/945/825) come out of `UnitBalance.slk` EXACTLY. Only the
-  authority counts; a LAN client is handed the table inside the dialog that ends its game, not in
-  a snapshot, because it hangs up on that dialog. Two traps in the art: the sort highlight is an
+  or `MapViewerScene.leave`. EVERY quit shows it, mid-match too (the stats so far) — except a
+  quit button whose `doScoreScreen` is false and Exit Program — and NOTHING is counted once the
+  match is decided, Continue Game or not (`MatchStats.freeze`; the clock stops there too). No file
+  says what a column counts, so the rules are warcraft3.info 394's, and the one that proves them
+  is that the four starting Unit Scores (1005/965/945/825) come out of `UnitBalance.slk` EXACTLY.
+  Only the authority counts; a LAN client is handed the table inside the dialog that ends its
+  game, or ASKS for it (`scorereq`) when it quits mid-match — never in a snapshot. Two traps in the art: the sort highlight is an
   ADD texture on opaque black (`addedLight`), and the FDF's SCROLLBAR turns the panel into a
   scroll frame unless it is removed.
 - **Auto Camera (observers):** read [`docs/auto-camera.md`](docs/auto-camera.md) before touching

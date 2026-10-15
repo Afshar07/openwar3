@@ -82,6 +82,23 @@ function emptyTally(): PlayerTally {
 export class MatchStats {
   private readonly tallies = new Map<number, PlayerTally>();
   private sampleIn = 0;
+  /**
+   * The sim second the match was DECIDED, or null while it is still being played. From then on
+   * nothing is counted (the developer's rule): a winner who presses Continue Game and goes on
+   * razing what is left is no longer playing the match the screen is a record of, and the
+   * Elapsed Time stops where the match did.
+   */
+  endedAt: number | null = null;
+
+  /** The match is decided — see `endedAt`. The first call wins. */
+  freeze(elapsed: number): void {
+    if (this.endedAt === null) this.endedAt = elapsed;
+  }
+
+  /** A tally to WRITE to — or null once the match is decided, which is every mutator's gate. */
+  private live(player: number): PlayerTally | null {
+    return this.endedAt === null ? this.of(player) : null;
+  }
 
   of(player: number): PlayerTally {
     let t = this.tallies.get(player);
@@ -100,7 +117,8 @@ export class MatchStats {
   /** A unit or building came to belong to `player` — trained, hired, built, summoned, created by
    *  the script or placed with the map. `value` is its gold + lumber (0 for a summon). */
   gained(player: number, value: number, structure: boolean): void {
-    const t = this.of(player);
+    const t = this.live(player);
+    if (!t) return;
     t.valueGained += value;
     if (structure) t.buildingsProduced++;
     else t.unitsProduced++;
@@ -108,12 +126,14 @@ export class MatchStats {
 
   /** A building became a dearer one (Town Hall → Keep): the new type's value, no new building. */
   upgraded(player: number, value: number): void {
-    this.of(player).valueGained += value;
+    const t = this.live(player);
+    if (t) t.valueGained += value;
   }
 
   /** `killer` destroyed something of somebody it is hostile to — never a deny. */
   destroyed(killer: number, value: number, structure: boolean, hero: boolean): void {
-    const t = this.of(killer);
+    const t = this.live(killer);
+    if (!t) return;
     t.valueDestroyed += value;
     if (structure) t.buildingsRazed++;
     else t.unitsKilled++;
@@ -122,37 +142,42 @@ export class MatchStats {
 
   /** Gold banked from a mine: what arrived, and what the upkeep band took on the way. */
   mined(player: number, banked: number, taxed: number): void {
-    const t = this.of(player);
+    const t = this.live(player);
+    if (!t) return;
     t.goldMined += banked;
     t.upkeepLost += Math.max(0, taxed);
   }
 
   harvested(player: number, lumber: number): void {
-    this.of(player).lumberHarvested += lumber;
+    const t = this.live(player);
+    if (t) t.lumberHarvested += lumber;
   }
 
   xp(player: number, amount: number): void {
-    if (amount > 0) this.of(player).xpGained += amount;
+    const t = this.live(player);
+    if (t && amount > 0) t.xpGained += amount;
   }
 
   item(player: number): void {
-    this.of(player).itemsObtained++;
+    const t = this.live(player);
+    if (t) t.itemsObtained++;
   }
 
   hired(player: number): void {
-    this.of(player).mercenariesHired++;
+    const t = this.live(player);
+    if (t) t.mercenariesHired++;
   }
 
   traded(from: number, to: number, gold: number, lumber: number): void {
     const sum = Math.max(0, gold) + Math.max(0, lumber);
-    if (sum <= 0) return;
+    if (sum <= 0 || this.endedAt !== null) return;
     this.of(from).resourcesSent += sum;
     this.of(to).resourcesReceived += sum;
   }
 
   /** The Largest Army sample — `foodUsed` is asked of every counted player once a second. */
   tick(dt: number, foodUsed: ((player: number) => number) | null): void {
-    if (!foodUsed) return;
+    if (!foodUsed || this.endedAt !== null) return;
     this.sampleIn -= dt;
     if (this.sampleIn > 0) return;
     this.sampleIn = ARMY_SAMPLE_SECONDS;

@@ -310,6 +310,29 @@ export function isPauseStateMessage(data: unknown): data is PauseStateMessage {
  * `at` is never read on the echoing side beyond being copied back, so a peer that lies in it
  * can only lie to itself.
  */
+/**
+ * The SCORE SCREEN's table for a client leaving a match that is still being played (issue #199).
+ *
+ * Only the host counts (sim/matchStats.ts), and a client that quits mid-match has had no dialog
+ * to carry the table to it (`DialogMessage.scores`), so it ASKS: `scorereq` to the host, which
+ * answers that seat alone with `scores`. Stamped like chat — the host answers the relay's
+ * sender, so nobody can ask on another seat's behalf (and the table is the same for everyone).
+ */
+export interface ScoreRequestMessage {
+  k: "scorereq";
+}
+export interface ScoresMessage {
+  k: "scores";
+  scores: ScoreTable;
+}
+export function isScoreRequestMessage(data: unknown): data is ScoreRequestMessage {
+  return typeof data === "object" && data !== null && (data as { k?: unknown }).k === "scorereq";
+}
+export function isScoresMessage(data: unknown): data is ScoresMessage {
+  const d = data as { k?: unknown; scores?: { rows?: unknown } } | null;
+  return typeof d === "object" && d !== null && d.k === "scores" && Array.isArray(d.scores?.rows);
+}
+
 export interface PingMessage {
   k: "ping";
   at: number;
@@ -508,6 +531,12 @@ export class MatchLink {
   /** Client side: the host's ruling on the pause. Take it as given. */
   onPauseRuled: (msg: PauseStateMessage) => void = () => {};
 
+  /** Host side: this player is leaving and wants the score screen's table (`scorereq`). */
+  onScoresAsked: (player: number) => void = () => {};
+
+  /** Client side: the host's table, answering our `scorereq`. */
+  onScores: (scores: ScoreTable) => void = () => {};
+
   /** The last measured round trip to each peer, in ms — see PingMessage. */
   private readonly rtts = new Map<number, number>();
   private pingAccum = PING_EVERY; // the first probe goes out on the first tick
@@ -594,6 +623,13 @@ export class MatchLink {
       }
       // Client side: it IS stopped (or running again), and here is who did it.
       else if (isPauseStateMessage(data)) this.onPauseRuled(data);
+      // Host side: a player on their way out asking for the score table. Stamped, like chat.
+      else if (isScoreRequestMessage(data)) {
+        const player = this.seats.find((s) => s.peer === from)?.id;
+        if (player !== undefined) this.onScoresAsked(player);
+      }
+      // Client side: the table we asked for.
+      else if (isScoresMessage(data)) this.onScores(data.scores);
       // A probe: echo the sender's clock straight back to the sender. Theirs, not ours.
       else if (isPingMessage(data)) this.channel.send({ k: "pong", at: data.at } satisfies PongMessage, from);
       // Our probe come home: the clock it carries is the one we stamped.
@@ -646,6 +682,17 @@ export class MatchLink {
    *  ruling comes back — see `PauseStateMessage`. */
   askToPause(on: boolean): void {
     this.channel.send({ k: "pausereq", on } satisfies PauseRequestMessage, this.hostPeer);
+  }
+
+  /** Client side: ask the host for the score table before hanging up (`ScoreRequestMessage`). */
+  askForScores(): void {
+    this.channel.send({ k: "scorereq" } satisfies ScoreRequestMessage, this.hostPeer);
+  }
+
+  /** Host side: answer one player's `scorereq`. */
+  sendScores(player: number, scores: ScoreTable): void {
+    const peer = this.peerFor(player);
+    if (peer !== undefined) this.channel.send({ k: "scores", scores } satisfies ScoresMessage, peer);
   }
 
   /** Host side: tell the whole room how the match now stands. Broadcast, unlike a dialog or a
