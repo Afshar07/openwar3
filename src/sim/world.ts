@@ -7935,7 +7935,20 @@ export class SimWorld {
     stash.lumber += lumber;
     this.floatCredit("gold", gold, caster.owner, target);
     this.floatCredit("lumber", lumber, caster.owner, target);
+    // The body does not fall — it BECOMES the gold (issue #204): no Death clip, no corpse to
+    // raise or eat, and in its place the coins every credit in the game is drawn with
+    // (PAWN_GOLD_ART, UI\Feedback\GoldCredit — its one `stand` clip, reaped on its own
+    // length). Not `[BNtm] Specialart` PileofGold: see the note on PAWN_GOLD_ART. The bottle
+    // that delivered it has already played its own Death clip at the hit point (the spell
+    // rides a missile; see impactProjectile in the renderer). Placed, not attached: a moment
+    // from now there is nothing left to attach it to.
+    const x = target.x;
+    const y = target.y;
+    this.meltId = target.id;
     this.kill(target, caster.id);
+    this.meltId = 0;
+    // …only if it actually went: a Tauren Chieftain's Reincarnation gets back up instead.
+    if (!this.units.has(target.id)) this.spellEffects.push({ art: PAWN_GOLD_ART, x, y, targetId: 0, z: 0, life: PAWN_GOLD_FX_LIFE });
     return gold;
   }
 
@@ -14540,8 +14553,11 @@ export class SimWorld {
     // …and the ones that refuse a target for being too big (CREEP_LEVEL_CAP). Read off the
     // caster's own rank rather than a constant, because the cap is a data column: a map that
     // retunes `DataC` retunes what its Alchemist may melt down.
+    // A creep is anything NEUTRAL HOSTILE owns (team -1, the same reading awardKillXp's creep
+    // factor makes), not only the map-placed camps `isCreep` marks: a creep a trigger spawned
+    // or respawned is just as "too powerful" at level 7 (issue #204).
     const capColumn = CREEP_LEVEL_CAP[code];
-    if (capColumn !== undefined && target.isCreep) {
+    if (capColumn !== undefined && (target.isCreep || target.team === -1)) {
       const lvl = this.passiveLevelData(caster, code);
       const cap = lvl ? this.dataOf(lvl, capColumn, 0) : 0;
       if (cap > 0 && target.level > cap) return "Creeptoopowerful";
@@ -21599,6 +21615,9 @@ export class SimWorld {
   /** The unit a burst is striking this instant, so `kill` can make the death a splatter
    *  (applyAreaSplash). 0 the rest of the time. */
   private splatterId = 0;
+  /** The unit Transmute is melting this instant, so `kill` retires it with no Death clip and
+   *  no corpse (transmuteInternal). 0 the rest of the time. */
+  private meltId = 0;
 
   /** May a burst whose `splashTargs` is `flags` catch `t`, by ALLEGIANCE? No allegiance word
    *  at all — the whole siege roster — is everybody, the shooter's own side included; the
@@ -23927,9 +23946,12 @@ export class SimWorld {
     // …and so does a body an ARTILLERY burst killed (applyAreaSplash — "Units killed by
     // Artillery attacks splatter and do not leave corpses behind", Liquipedia's Weapon Types).
     // Not a building: a shelled Town Hall still collapses through its own Death clip.
-    if ((u.explodes || (this.splatterId === u.id && !u.building)) && !u.isHero) {
+    // …and a body TRANSMUTE melted goes the same way, minus the burst: it turned into the coins
+    // transmuteInternal puts where it stood (issue #204).
+    const melted = this.meltId === u.id;
+    if ((u.explodes || melted || (this.splatterId === u.id && !u.building)) && !u.isHero) {
       this.explodedDeaths.add(u.id);
-      const art = this.unitReg?.get(u.typeId)?.specialArt;
+      const art = melted ? "" : this.unitReg?.get(u.typeId)?.specialArt;
       if (art) this.spellEffects.push({ art, x: u.x, y: u.y, targetId: 0, z: 0 });
     } else this.spawnCorpse(u); // leave a decaying corpse (targetable by corpse spells)
     // A hero has fallen, and the whole army is told. Raised HERE rather than off the death

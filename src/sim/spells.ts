@@ -1152,6 +1152,12 @@ export const NO_SUMMON_TARGET: Record<string, string> = {
   AChx: "Notsummoned", // …and the creep row that shares its code
   Aply: "Notsummoned", // Sorceress — Polymorph
   ACpy: "Notsummoned", // …and its creep twin
+  // Transmute (issue #204) — the same refusal for a different reason: a summon has no
+  // `goldcost` to be melted down into (UnitBalance prices a Water Elemental at 0), so the
+  // ultimate would be a 45-second-cooldown kill that pays nothing, and the cheapest answer in
+  // the game to a Phoenix or an Infernal. Liquipedia (Alchemist): "Can not target summoned
+  // units."
+  ANtm: "Notsummoned",
 };
 
 /** Devour's shape, shared by the Kodo Beast (`Adev`) and the creeps (`ACdv`). The MAX CREEP
@@ -3308,7 +3314,9 @@ export const SPELL_HANDLERS: Record<string, Handler> = {
   // transaction, and both halves are the row's own numbers.
   ANtm: (api, caster, def, rank, ctx) => {
     const t = api.getUnit(ctx.targetId);
-    if (!t || t.isHero || t.building) return;
+    // Summons and illusions are refused at the order (NO_SUMMON_TARGET); asked again here
+    // because the bottle is in the air for a while and a script's order skips the button.
+    if (!t || t.isHero || t.building || t.isSummon || t.isIllusion) return;
     const lvl = def.levelData[rank - 1];
     if (def.targetArt) api.emitEffect(def.targetArt, t.x, t.y, t.id);
     // The two `unreal` columns this row carries are the price it pays for the body:

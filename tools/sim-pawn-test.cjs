@@ -180,5 +180,24 @@ function check(what, got, want) {
   check("…and no coins either", world.drainSpellEffects().length, 0);
 }
 
+// --- TRANSMUTE pays with the same coins, and leaves NO body (issue #204) ----------------
+// The victim becomes the gold: no Death clip, no corpse to raise or eat — the renderer is told
+// to retire it outright (diedExploded) — and the gold-credit coins stand where it was.
+{
+  world = newWorld();
+  const alch = hero(null);
+  const foe = unit({ typeId: "hfoo", owner: 1, team: 1, x: 1300, y: 1000, prevX: 1300, prevY: 1000, garrison: [] });
+  UNITS.get = ((get) => (id) => (id === "hfoo" ? { ...get(id), goldCost: 135 } : get(id)))(UNITS.get);
+  check("Transmute pays goldcost × 1.25", world.transmuteInternal(foe, alch, 1.25, 0), 169);
+  check("…the victim is gone", world.units.has(foe.id), false);
+  check("…without a corpse", world.corpses.size, 0);
+  check("…and without a Death clip", world.diedExploded(foe.id), true);
+  const fx = world.drainSpellEffects();
+  check("one effect plays", fx.length, 1);
+  check("…the gold-credit coins", fx[0].art, "UI\\Feedback\\GoldCredit\\GoldCredit.mdx");
+  check("…placed where the body stood", `${fx[0].targetId}@${fx[0].x},${fx[0].y}`, "0@1300,1000");
+  check("…for its whole clip", fx[0].life, 1.334);
+}
+
 console.log(failed ? `\n${failed} FAILED` : "\nall ok");
 process.exit(failed ? 1 : 0);
