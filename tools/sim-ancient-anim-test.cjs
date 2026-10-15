@@ -28,7 +28,7 @@ const { join } = require("node:path");
 const { existsSync } = require("node:fs");
 const REPO = join(__dirname, "..");
 require("node:fs").writeFileSync(join(REPO, ".sim-build", "package.json"), '{"type":"commonjs"}');
-const { buildAnimSet, animPropsFor, findBirthFields, applyAnimProps, pickSequence } = require(join(REPO, ".sim-build", "src", "render", "unitAnims.js"));
+const { buildAnimSet, animPropsFor, findBirthFields, applyAnimProps, pickSequence, portraitClips } = require(join(REPO, ".sim-build", "src", "render", "unitAnims.js"));
 
 let failed = 0;
 function check(what, got, want) {
@@ -109,6 +109,12 @@ const FALLBACK = {
     "Portrait Talk Alternate AlternateEx", "Portrait Alternate AlternateEx", "Portrait -1", "Portrait -2",
     "Portrait Talk -1", "Portrait Talk -2",
   ],
+  // The Goblin Alchemist's bust, whose plain talk clip carries a word that is not an action
+  // ("GOBLIN"), so the override test alone lets it survive into Chemical Rage.
+  "Units\\Creeps\\HEROGoblinALCHEMIST\\HEROGoblinALCHEMIST_Portrait.mdx": [
+    "Portrait", "Portrait - 2", "Portrait - 3", "Portrait talk - GOBLIN",
+    "Portrait Alternate", "Portrait Alternate - 2", "Portrait Alternate - 3", "Portrait Talk Alternate",
+  ],
 };
 
 /** A model's sequence names, read from the install when this machine has one. */
@@ -187,13 +193,11 @@ console.log("the Druids: `Animprops=alternateex` on the morphed unit means the m
   check("the storm crow stands in its alternate stand", crow.name(crow.a.stand), "Stand Alternate -1");
   check("…and swings its alternate swing", crow.name(crow.a.attack), "Attack Alternate");
   // The PORTRAIT busts spell both tokens, and each half has its own talking head — the
-  // picker in render/modelViewer.ts reads the clips through applyAnimProps exactly like this.
+  // picker render/modelViewer.ts calls (unitAnims.portraitClips).
   const bust = (path, props) => {
-    const named = applyAnimProps(sequences(path).map((name) => ({ name })), props).map((s, index) => ({ index, name: s.name }));
-    const rest = named.find((s) => /^portrait/i.test(s.name) && !/talk/i.test(s.name));
-    const talk = named.find((s) => /portrait\s*talk/i.test(s.name));
     const raw = sequences(path);
-    return { rest: rest ? raw[rest.index] : null, talk: talk ? raw[talk.index] : null };
+    const { rest, talk } = portraitClips(raw.map((name) => ({ name })), props);
+    return { rest: raw[rest] ?? null, talk: raw[talk] ?? null };
   };
   const clawBear = bust("Units\\NightElf\\DruidOfTheClaw\\DruidoftheClaw_portrait.mdx", animPropsFor({ animProps: ["alternateex"] }, true));
   check("the bear's bust rests on its own clip", clawBear.rest, "Portrait Alternate AlternateEx - 1");
@@ -205,6 +209,14 @@ console.log("the Druids: `Animprops=alternateex` on the morphed unit means the m
   check("the crow's bust is the alternate one", talonCrow.rest, "Portrait Alternate AlternateEx");
   const talonElf = bust("Units\\NightElf\\DruidOfTheTalon\\DruidoftheTalon_Portrait.mdx", animPropsFor({ animProps: [] }, false));
   check("…and the talon druid's the plain one", talonElf.rest, "Portrait -1");
+  // CHEMICAL RAGE: the ogre is the alternate half of the Alchemist's bust (SimUnit.altModel).
+  const ALCH = "Units\\Creeps\\HEROGoblinALCHEMIST\\HEROGoblinALCHEMIST_Portrait.mdx";
+  const ogre = bust(ALCH, animPropsFor({ animProps: [] }, true));
+  check("the raging ogre's bust rests on its own clip", ogre.rest, "Portrait Alternate");
+  check("…and talks with the ogre's mouth, not the goblin's", ogre.talk, "Portrait Talk Alternate");
+  const goblin = bust(ALCH, animPropsFor({ animProps: [] }, false));
+  check("the goblin's bust rests on the plain clip", goblin.rest, "Portrait");
+  check("…and talks with the goblin's mouth", goblin.talk, "Portrait talk - GOBLIN");
 }
 
 console.log("…and the Morph pair is the clip each form plays to LEAVE itself");

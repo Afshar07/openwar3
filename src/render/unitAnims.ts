@@ -360,6 +360,39 @@ export function scriptAnimTags(seqs: Array<{ name: string }>, tags: readonly str
   };
 }
 
+/**
+ * The two clips a PORTRAIT bust plays — its resting "Portrait" and its "Portrait Talk" — for
+ * the form the unit is in right now (indices into the bust's own sequence list, -1 for none).
+ *
+ * Read through applyAnimProps like every other pick, plus one rule it cannot make on its own:
+ * in a STATE form (`alternate`/`alternateex`) the clips carrying that state come FIRST, and a
+ * leftover untokened clip is only a fallback for a bust that authored no clip of its own. The
+ * override test there compares actions as WORDS, and a bust's names carry words that are not
+ * actions — the Goblin Alchemist's is the case that showed it:
+ *
+ *     HEROGoblinALCHEMIST_Portrait.mdx:  "Portrait" · "Portrait - 2" · "Portrait - 3"
+ *                                        · "Portrait talk - GOBLIN" · "Portrait Alternate" · …
+ *                                        · "Portrait Talk Alternate"
+ *
+ * "GOBLIN" makes the goblin's talk a different action from "Portrait Talk Alternate", so it
+ * survived into Chemical Rage, sat first in the file, and the ogre's bust spoke every voice
+ * line with the goblin's mouth before dropping back into its own idle. The plain form needs no
+ * rule: a clip carrying a state it is not in is always blanked (`foreignState`).
+ */
+export function portraitClips(raw: Array<{ name: string }>, animProps: string[] = []): { rest: number; talk: number } {
+  const seqs = applyAnimProps(raw, animProps);
+  const inState = animProps.some((p) => STATE_PROPS.has(p));
+  const pick = (test: (n: string) => boolean): number => {
+    const hits = seqs.map((s, i) => ({ s, i })).filter(({ s }) => test(s.name));
+    return ((inState && hits.find(({ s }) => s.mine)) || hits[0])?.i ?? -1;
+  };
+  const rest = pick((n) => /^portrait/i.test(n) && !/talk/i.test(n));
+  return {
+    rest: rest >= 0 ? rest : pick((n) => /portrait/i.test(n)),
+    talk: pick((n) => /portrait\s*talk/i.test(n)),
+  };
+}
+
 export function animPropsFor(def: { animProps?: string[] } | undefined, rooted: boolean): string[] | undefined {
   if (!rooted) return def?.animProps;
   return [...(def?.animProps ?? []), "alternate"];

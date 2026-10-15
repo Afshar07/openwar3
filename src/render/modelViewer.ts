@@ -3,7 +3,7 @@ import mdxHandler from "mdx-m3-viewer/dist/cjs/viewer/handlers/mdx/handler";
 import blpHandler from "mdx-m3-viewer/dist/cjs/viewer/handlers/blp/handler";
 import type { DataSource } from "../vfs/types";
 import { CanvasSize } from "./canvasSize";
-import { applyAnimProps } from "./unitAnims";
+import { applyAnimProps, portraitClips } from "./unitAnims";
 
 // Phase 3: render real animated MDX (v800) models using mdx-m3-viewer's own
 // WebGL renderer (plan §1.1 — borrow the renderer behind a thin interface). The
@@ -185,11 +185,12 @@ export class ModelViewerScene {
     const sequences = this.sequences();
     // The clips as this FORM sees them (see the doc above): the other half blanked, ours
     // renamed to the plain action, everything else as authored.
+    // A bust's two clips are picked for the FORM it is in (unitAnims.portraitClips — the
+    // ogre's bust must neither rest nor talk on the goblin's clips).
+    const bust = portrait ? portraitClips(sequences, animProps) : null;
     const mine = applyAnimProps(sequences, animProps).map((s, index) => ({ index, name: s.name }));
-    const preferred = portrait
-      ? mine.find((s) => /^portrait/i.test(s.name) && !/talk/i.test(s.name)) ??
-        mine.find((s) => /portrait/i.test(s.name)) ??
-        sequences[0]
+    const preferred = bust
+      ? sequences[bust.rest] ?? sequences[0]
       : mine.find((s) => /walk/i.test(s.name)) ??
         mine.find((s) => /stand/i.test(s.name)) ??
         sequences[0];
@@ -197,7 +198,7 @@ export class ModelViewerScene {
     // Remember the resting clip and the talking clip so a voice line can drive the
     // bust's mouth (names vary: "Portrait Talk", "Portrait Talk - 1", …).
     this.idleSeq = preferred?.index ?? -1;
-    this.talkSeq = portrait ? mine.find((s) => /portrait\s*talk/i.test(s.name))?.index ?? -1 : -1;
+    this.talkSeq = bust?.talk ?? -1;
     this.talkRemaining = 0;
 
     this.applyCamera();
