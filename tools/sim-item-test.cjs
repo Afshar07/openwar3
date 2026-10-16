@@ -36,6 +36,8 @@ const FRIENDLY_ORGANIC = ["air", "ground", "friend", "self", "organic", "vuln", 
 const ABILITIES = new Map([
   // An INVENTORY ability: "Item Capacity" is its DataA (AbilityMetaData inv1). The Pack Mule's.
   ["Apak", ability("Apak", "AInv", { isItem: false, levelData: [lvl({ data: D(4, 1, 1, 1, 1) })] })],
+  // `[AIrb]` Rune of Rebirth — no data at all; its payload is which monster held the rune.
+  ["AIrb", ability("AIrb", "AIrb")],
   // --- the AIrg family: one code, three aims (see SimWorld.applyItemAbility) --------------
   // AIsl  Scroll of Regeneration  Dur 45, Area 600, DataA 225
   ["AIsl", ability("AIsl", "AIrg", { targetFlags: FRIENDLY_ORGANIC, levelData: [lvl({ duration: 45, heroDuration: 45, area: 600, data: D(225) })] })],
@@ -115,6 +117,7 @@ const ITEMS = new Map([
   ["dust", item("dust", ["AItb"], { charges: 2 })],
   ["gobm", item("gobm", ["AIpm"], { charges: 3 })],
   ["tsct", item("tsct", ["AIbt"])],
+  ["rreb", item("rreb", ["AIrb"], { powerup: true, classType: "PowerUp" })],
 ]);
 
 const N = 256;
@@ -625,6 +628,45 @@ console.log("\na Tiny building is BUILT, the worker's way  (issue #190)");
   world.assignBuilder(hero.id, tower.id);
   check("the foundation raises itself", tower.building.selfBuilds, true);
   check("…and the hero is let go at once", [hero.buildPending, hero.constructing, tower.building.builderIds.length].join(","), ",0,0");
+}
+
+console.log("\nRune of Rebirth (`rreb` → `AIrb`) — the monster that held it comes back as yours");
+{
+  // "Places the monster that held this rune under your control." The rune is a creep drop; it
+  // remembers the body it fell off (here through the map script's path — CreateItem at the
+  // dying unit's feet a moment after the death), and the picker gets that monster back.
+  world = newWorld();
+  // Both through add(), so every runtime field a death walks over is there.
+  const spawn = (id, over) => world.add({
+    id, owner: 0, team: 0, typeId: "hfoo", x: 1000, y: 1000, facing: 0,
+    hp: 500, maxHp: 500, mana: 0, maxMana: 0, manaRegen: 0, hpRegen: 0, speed: 270, turnRate: 6, radius: 16, scale: 1,
+    armor: 0, armorType: "medium", defUp: 0, sightDay: 1000, sightNight: 1000, flying: false, mechanical: false,
+    invulnerable: false, race: "human", isBuilding: false, foodCost: 0, goldCost: 0, lumberCost: 0, upgrades: [],
+    moveType: "foot", collisionSize: 16, canFlee: true, targetedAs: "ground", deathTime: 2, name: "x",
+    worker: null, depotGold: false, depotLumber: false, castPoint: 0, castBackswing: 0, weapons: [], oldWeapons: [],
+    ...over,
+  });
+  const hero = spawn(901, { isHero: true });
+  hero.inventory = [null, null, null, null, null, null];
+  const creep = spawn(902, { owner: 12, team: 12, typeId: "nogr", x: 1300, facing: 1 });
+  world.killUnit(creep.id);
+  world.drainSummonRequests();
+  for (let i = 0; i < 20; i++) world.tick(1 / 60); // the drop trigger runs a beat after the death
+  const rune = world.createItem("rreb", 1300, 1000);
+  const stray = world.createItem("rreb", 3000, 3000); // nobody died here
+  hero.x = 1300; hero.y = 1040;
+  world.unitAddItem(hero.id, rune);
+  const reqs = world.drainSummonRequests();
+  check("the rune brings ONE monster back", reqs.length, 1);
+  check("…the one that held it", reqs[0] && reqs[0].unitId, "nogr");
+  check("…as the picker's own", reqs[0] && reqs[0].owner, 0);
+  check("…standing where it fell", !!reqs[0] && Math.hypot(reqs[0].x - 1300, reqs[0].y - 1000) < 32, true);
+  check("…and a permanent unit, not a summon", reqs[0] && `${reqs[0].summonLeft},${!!reqs[0].summoned}`, "0,false");
+  check("…and its corpse is what got up", [...world.corpses.values()].some((c) => c.deadId === creep.id && !c.raised), false);
+  check("the rune is consumed", world.items.has(rune), false);
+  hero.x = 3000; hero.y = 3000;
+  world.unitAddItem(hero.id, stray);
+  check("a rune no monster held brings nobody", world.drainSummonRequests().length, 0);
 }
 
 console.log(failed ? `\nitems: ${failed} check(s) FAILED` : "\nitems: all checks passed");

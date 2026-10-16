@@ -2922,6 +2922,14 @@ export const HALL_MINE_DISTANCE = 768;
  *  (mineClaimedByOther) — the slack a grid-snapped site lands in. OURS, matching the AI's
  *  own expansion band (AiPlayer's EXPANSION_HALL_RANGE_WIDE). */
 export const MINE_CLAIM_SLACK = 300;
+/** How a Rune of Rebirth that lands on the ground is matched to the monster that dropped it
+ *  (SimWorld.tagRebirth). OURS: a drop table scatters within 48 of the body and a map's drop
+ *  trigger creates the rune at the dying unit's feet on the death event, so a short reach and a
+ *  couple of seconds catch both without catching a stranger. */
+const REBIRTH_MATCH_RADIUS = 128;
+const REBIRTH_MATCH_WINDOW = 2;
+/** `[BIrb] Effectart` in Units\ItemAbilityFunc.txt — the fallback if the buff row is missing. */
+const REBIRTH_ART = "Abilities\\Spells\\Orc\\FeralSpirit\\feralspiritdone.mdl";
 /**
  * How near its gold mine a Tree of Life ROOTS when it roots in order to ENTANGLE it — per axis,
  * a square around the mine's centre rather than a circle. The game's own refusal line is
@@ -3978,6 +3986,11 @@ export class SimWorld {
   // PowerUp items consumed on pickup this frame: the renderer plays the granted ability's
   // Target/Caster art on the picker and sounds it. See applyPowerup.
   private powerupPickups: Array<{ unitId: number; art: string; soundLabel: string }> = [];
+  /** Who died lately, and where — what a Rune of Rebirth that turns up on the ground is matched
+   *  against to learn which monster held it (`rebirthTags`). Pruned to REBIRTH_MATCH_WINDOW. */
+  private recentDeaths: Array<{ id: number; typeId: string; owner: number; x: number; y: number; facing: number; at: number }> = [];
+  /** A Rune of Rebirth's monster: the unit that held it, keyed on the rune's item entity. */
+  private readonly rebirthTags = new Map<number, { deadId: number; typeId: string; x: number; y: number; facing: number }>();
   // Per-unit creep drop tables, seeded at spawn (map .doo), rolled on death.
   private unitDrops = new Map<number, ItemDropSet[]>();
   // --- spell / ability event channels drained by the renderer each frame ---
@@ -24169,6 +24182,12 @@ export class SimWorld {
     }
     this.awardKillXp(u, killerId); // enemy heroes near the kill gain experience
     this.awardBounty(u, killerId); // ...and the killer's player is paid the body's bounty
+    // Written down BEFORE the drops, so a Rune of Rebirth rolled off this body (or off the map
+    // script's own drop trigger a moment later) knows whose it is (tagRebirth).
+    if (!u.isHero && !u.building && !u.isSummon && !u.isIllusion) {
+      this.recentDeaths = this.recentDeaths.filter((d) => this.elapsed - d.at <= REBIRTH_MATCH_WINDOW);
+      this.recentDeaths.push({ id: u.id, typeId: u.typeId, owner: u.owner, x: u.x, y: u.y, facing: u.facing, at: this.elapsed });
+    }
     this.rollCreepDrops(u); // creeps scatter their dropped-item table on death
     this.dropInventory(u); // a dying non-hero inventory-unit drops its held items
     // A carrier that dies SPILLS: the bodies it was hauling land where the wreck does. They
@@ -24326,7 +24345,50 @@ export class SimWorld {
     const it: SimItem = { id: reuseId || this.nextItemId++, itemId, x: sx, y: sy, charges, hp: maxHp, maxHp };
     this.items.set(it.id, it);
     this.itemSpawns.push(it);
+    this.tagRebirth(it, x, y);
     return it;
+  }
+
+  /**
+   * RUNE OF REBIRTH (`rreb` → `AIrb`): "Places the monster that held this rune under your
+   * control." (ItemStrings.txt). The rune is a creep DROP: the monster carrying it dies, the rune
+   * falls where it fell, and whoever picks it up gets that monster back, standing, as their own
+   * ("Once they die they drop a rune of rebirth and boom they are now part of your army",
+   * hiveworkshop 320342). So the rune has to remember WHICH body it came off — and that is
+   * decided here, as it lands: the most recent non-hero death within `REBIRTH_MATCH_RADIUS` of
+   * the spot, in the last `REBIRTH_MATCH_WINDOW` seconds. That covers both ways a creep drops
+   * one — the .doo drop table rolled in `kill` and a melee map's own war3map.j drop trigger
+   * (`UnitDropItem` at the dying unit's feet, a beat later off the death event). A rune with no
+   * body under it (a map's pre-placed one, a shop's) holds nobody and brings nobody back.
+   */
+  private tagRebirth(it: SimItem, x: number, y: number): void {
+    if (this.rebirthTags.has(it.id)) return; // a tagged rune set down again keeps its monster
+    const def = this.itemReg?.get(it.itemId);
+    if (!def?.abilities.some((a) => this.abilities?.get(a)?.code === "AIrb")) return;
+    let best: (typeof this.recentDeaths)[number] | undefined;
+    for (const d of this.recentDeaths) {
+      if (this.elapsed - d.at > REBIRTH_MATCH_WINDOW) continue;
+      if (Math.hypot(d.x - x, d.y - y) > REBIRTH_MATCH_RADIUS) continue;
+      if (!best || d.at >= best.at) best = d;
+    }
+    if (best) this.rebirthTags.set(it.id, { deadId: best.id, typeId: best.typeId, x: best.x, y: best.y, facing: best.facing });
+  }
+
+  /** The Rune of Rebirth's payload: the monster that held it stands back up where it fell, whole
+   *  and under the picker's control. Its corpse is what gets up, so the body is gone from the
+   *  ground (nothing else may raise it twice), and it rises in `[BIrb] Effectart`
+   *  (FeralSpirit\feralspiritdone.mdl — ItemAbilityFunc.txt). False with nobody to bring back. */
+  private itemRebirth(u: SimUnit, ad: AbilityDef, itemEntity: number): boolean {
+    const tag = this.rebirthTags.get(itemEntity);
+    this.rebirthTags.delete(itemEntity);
+    if (!tag || !this.unitReg?.get(tag.typeId)) return false;
+    for (const c of this.corpses.values()) if (c.deadId === tag.deadId) { c.raised = true; c.heldBy = 0; } // spent; the renderer drops the model
+    const art = this.abilities?.get(buffIdOf(ad, 1) || "BIrb")?.effectArt || REBIRTH_ART;
+    this.summonRequests.push({
+      unitId: tag.typeId, x: tag.x, y: tag.y, facing: tag.facing, owner: u.owner, team: u.team,
+      summonLeft: 0, sourceId: 0, summonArt: art, unsummonArt: "", atPoint: true,
+    });
+    return true;
   }
 
   /** Snap a world point to the centre of its pathing-grid cell. */
@@ -26100,6 +26162,9 @@ export class SimWorld {
     for (const abilId of def.abilities) {
       const ad = this.itemAbilityDefOf(itemEntity, abilId); // a picked-up rune's own row, if a script wrote it
       if (!ad) continue;
+      // The one powerup whose payload is a fact about the RUNE rather than its row: which
+      // monster it came off (tagRebirth). Nothing else in the dispatcher knows the item.
+      if (ad.code === "AIrb") this.itemRebirth(u, ad, itemEntity);
       // The SAME dispatcher a pressed item goes through (see applyItemAbility). A rune and
       // the scroll beside it on the shop shelf are one ability with one set of numbers —
       // `AIha` is the Rune of Healing AND the Scroll of Healing — and the only thing that
