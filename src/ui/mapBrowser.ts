@@ -14,6 +14,7 @@ import { uiFont, type FdfScreen } from "./fdf/render";
 import { bestMatch, norm } from "./mapSearch";
 import { gameFontsReady, onGameFontsReady } from "./gameFont";
 import type { ListItem } from "./fdf/widgets";
+import { mountWorking } from "./workingIndicator";
 
 // The map browser: the folder-browsing map list (MapListBox.fdf) and the map summary pane
 // (MapInfoPane.fdf), which are the SAME two widgets on every screen that picks a map.
@@ -230,6 +231,11 @@ export class MapBrowser {
     const upOneLevel = this.strings?.string("UP_ONE_LEVEL") ?? "(up one level)";
     list.setItems(ready ? folderRows(this.entries, this.cwd).map((r) => toListItem(r, this.icons, upOneLevel)) : []);
     list.setEnabled(ready);
+    // …and while it is empty because its folder is still being read, it SAYS so: an empty,
+    // dead list reads as "no maps here" for exactly as long as the reads take.
+    const host = s.frame("MapListBox");
+    host?.querySelector(":scope > .ow3-working")?.remove();
+    if (host && !ready) mountWorking(host);
     if (this.selected) list.select(this.selected.path);
     list.scrollTop = this.listScroll;
     // A row the search landed on is brought into view — and then it IS where the list

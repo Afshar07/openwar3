@@ -4065,3 +4065,13 @@ body.in-game .load-gate { display: none; }
 /* The SCORE SCREEN (issue #199) shares the loading screen's layer and canvas (main.ts
    showScoreScreen): its DOM sits over the canvas exactly as the loading screen's does. */
 .fdf-screen.fdf-score { z-index: 9; }
+
+/* The "working" indicator over a glue list still being filled (ui/workingIndicator.ts): a gold
+   ring centred over its host, taking no clicks. */
+.ow3-working { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+.ow3-working-ring {
+  width: 30px; height: 30px; border-radius: 50%; border: 3px solid rgba(252, 211, 18, 0.18);
+  border-top-color: #fcd312; filter: drop-shadow(0 0 3px rgba(252, 211, 18, 0.6));
+  animation: ow3-working-spin 0.9s linear infinite;
+}
+@keyframes ow3-working-spin { to { transform: rotate(360deg); } }
