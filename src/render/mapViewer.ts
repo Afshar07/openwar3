@@ -8837,7 +8837,7 @@ export class MapViewerScene {
     // A building that stands ON a gold mine is valid exactly where a free mine is, and
     // nowhere else — the mine's own cells are stamped unbuildable, so the ordinary footprint
     // test would refuse the one site it belongs on. See SimWorld.hauntTarget.
-    if (this.rts?.simWorld.hauntsMines(p.def.id)) return !!this.rts.simWorld.hauntTarget(p.def.id, x, y);
+    if (this.rts?.simWorld.hauntsMines(p.def.id)) return !!this.rts.simWorld.hauntTarget(p.def.id, x, y, this.localPlayer);
     // A hall is also held off the mine's mouth — a rule about the SITE, not about any square
     // of it (SimWorld.tooCloseToMine, [Errors] `Tooclosetomine`).
     if (this.rts?.simWorld.tooCloseToMine(p.def.id, x, y)) return false;
@@ -12369,6 +12369,14 @@ export class MapViewerScene {
         else if (code === "Adri") this.rts.execute(this.localPlayer, { c: "standdown", buildingId: sel.id });
         return;
       }
+      // Entangle Gold Mine is AIMED: the press puts up a reticle and the next click names the
+      // mine, which the tree then walks to and roots beside (RtsController.orderClickAt →
+      // `entangleat`). Its row's `targs1 = _` is why the table calls it no-target; the button
+      // in the game takes a gold mine.
+      if (code === "Aent") {
+        if (this.rts.armCast(code, "point", 0)) this.hud?.setArmed(true);
+        return;
+      }
       const target = KNOWN_ABILITIES[code]?.target;
       if (target === "none") {
         this.rts.castNoTarget(code); // Thunder Clap / Divine Shield / Avatar — fire now
@@ -13743,6 +13751,10 @@ export class MapViewerScene {
           su.summonMax = summonLeft;
           su.isSummon = true; // temporary summon — expires, leaves no corpse, ×0.5 XP
         }
+        // …and a PERMANENT one is a summon all the same (SummonRequest.summoned): a Carrion
+        // Beetle has no clock, and Abolish Magic still kills it.
+        if (su && s.summoned) su.isSummon = true;
+        if (su && s.sourceId) su.summonedBy = s.sourceId; // whose cap it counts under (summonCapMake)
         // A RAISED body is a shell, not the unit that fell: "the raised units keep their
         // attacks but lose all abilities and spells" (Animate Dead). It walks and swings and
         // nothing else — no autocast, no casting, no Web, no Burrow.

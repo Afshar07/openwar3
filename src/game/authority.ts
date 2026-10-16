@@ -768,6 +768,10 @@ export class Authority {
         // grid and [Errors] `Tooclosetomine` are the same test, asked of the cursor). The
         // ground itself is not re-asked on this side — the footprint lives with the renderer.
         if (this.sim.tooCloseToMine(cmd.defId, cmd.x, cmd.y)) return false;
+        // …and a Haunted Gold Mine only on a mine nobody ELSE has claimed (an ally's hall beside
+        // it, or anybody's workers in it — SimWorld.mineClaimedByOther). Refused before the gold
+        // leaves, so the click costs nothing.
+        if (this.sim.hauntsMines(cmd.defId) && !this.sim.hauntTarget(cmd.defId, cmd.x, cmd.y, player)) return false;
         // A build placed OUTRIGHT must be paid for now — WC3 never lets you put a structure
         // down you cannot afford, and the gold leaves the stash at the click.
         //

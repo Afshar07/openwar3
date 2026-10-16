@@ -713,5 +713,20 @@ console.log("a target teleported out of sight");
   check(`ordered through the fog: still marching on it (target ${u.targetId}, x ${u.x.toFixed(0)})`, u.targetId === far.id && u.x > 900);
 }
 
+// A SHIFT-QUEUED attack is the next order, not the acquisition scan's business: the first
+// target dying hands the unit to the queued one, even with a nearer enemy standing beside it.
+{
+  const w = new SimWorld(grid(), 1);
+  const u = addUnit(w, 1, 0, 500, 500);
+  const first = addUnit(w, 2, 1, 560, 500, { hp: 20, maxHp: 20, weapons: [] });
+  const bystander = addUnit(w, 3, 1, 600, 560, { weapons: [] }); // nearer than the queued one
+  const queued = addUnit(w, 4, 1, 1100, 500, { weapons: [] });
+  w.issueOrder(1, { kind: "attack", targetId: first.id, force: false });
+  w.queueOrder(1, { kind: "attack", targetId: queued.id, force: false });
+  run(w, 4);
+  check(`the first target is dead (hp ${first.hp})`, first.hp <= 0 || !w.units.has(first.id));
+  check(`…and the queued target is next, not the nearer bystander (target ${u.targetId})`, u.targetId === queued.id && bystander.hp === bystander.maxHp);
+}
+
 console.log(failures === 0 ? "\nattack-order: all checks passed" : `\nattack-order: ${failures} FAILED`);
 process.exit(failures === 0 ? 0 : 1);

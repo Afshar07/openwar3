@@ -363,7 +363,7 @@ const theirBuff = (src) => ({ kind: "haste", group: "bloodlust", timeLeft: 45, s
 }
 {
   const s = caster({ abilId: "Aprg" });
-  const wolf = unit({ owner: 1, x: 200, summonLeft: 30 });
+  const wolf = unit({ owner: 1, x: 200, summonLeft: 30, isSummon: true });
   const cmd = cast([s, wolf, unit({ owner: 1, x: 250 })]);
   check("…a SUMMON is, because the purge deletes it", cmd && cmd.targetId, wolf.id);
 }
@@ -433,7 +433,7 @@ const spotOf = (cmd) => (cmd ? { x: cmd.x, y: cmd.y } : null);
   const p = caster({ abilId: "Adis" });
   const src = shaman();
   const lusted = unit({ owner: 1, x: 300, buffs: [theirBuff(src)] });
-  const ours = unit({ x: 340, summonLeft: 45 });
+  const ours = unit({ x: 340, summonLeft: 45, isSummon: true });
   check("a spot that would delete our own summon is not a spot", cast([p, lusted, ours, src]), null);
 }
 

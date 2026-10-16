@@ -251,7 +251,7 @@ const round = (n) => Math.round(n * 1000) / 1000;
 {
   const caster = unit({ id: 1, team: 0 });
   const foe = unit({ id: 2, team: 1, summonLeft: 0 });
-  const summon = unit({ id: 3, team: 1, summonLeft: 30 });
+  const summon = unit({ id: 3, team: 1, summonLeft: 30, isSummon: true });
   {
     const { api, log } = harness([caster, foe]);
     let dispelled = 0;

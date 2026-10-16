@@ -229,7 +229,7 @@ console.log("\nthe AUTHORITY asks the price of an outright build and not of a qu
 
 console.log("\na hall is held off the gold mine's mouth — HALL_MINE_DISTANCE, and who it binds");
 {
-  // The rule is read off `UnitBalance.type`: TownHall, less undead. See the constant in
+  // The rule is read off `UnitBalance.type`: TownHall, less undead and less ancient. See the constant in
   // src/sim/world.ts for where 768 comes from (Blizzard's own start locations) and why the
   // Necropolis is out (hiveworkshop 255597 — its gold never travels).
   const { Authority } = require(join(REPO, ".sim-build", "src", "game", "authority.js"));
@@ -247,7 +247,9 @@ console.log("\na hall is held off the gold mine's mouth — HALL_MINE_DISTANCE, 
   check("a Town Hall a unit inside it is too close", w2.tooCloseToMine("htow", 1024 + 767, 1024), true);
   check("…and ON it is allowed — Terenas Stand's start is exactly 768 on the axis", w2.tooCloseToMine("htow", 1024 + 768, 1024), false);
   check("…measured centre to centre, so a diagonal at Echo Isles' (448,640) is fine", w2.tooCloseToMine("htow", 1024 + 448, 1024 + 640), false);
-  check("a Tree of Life obeys it too", w2.tooCloseToMine("etol", 1024 + 700, 1024), true);
+  // …and neither does a Tree of Life: it is MEANT to stand beside its mine to entangle it, and
+  // a wisp is paid inside the Entangled Gold Mine, so there is no trip to shorten either.
+  check("a Tree of Life does not", w2.tooCloseToMine("etol", 1024 + 300, 1024), false);
   check("a Necropolis does not", w2.tooCloseToMine("unpl", 1024 + 300, 1024), false);
   check("nor does a Farm", w2.tooCloseToMine("hhou", 1024 + 300, 1024), false);
   // A collapsed mine keeps nothing away.

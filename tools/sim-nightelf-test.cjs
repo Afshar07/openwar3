@@ -765,6 +765,35 @@ console.log("…and a unit RIGHT-CLICKED onto a well drinks from it with autocas
   check("…and it stands there idle", world.units.get(81).order === "idle" && !world.units.get(81).moving, world.units.get(81).order);
 }
 
+console.log("…and a SHIFT-QUEUED second well waits for the first one's drink");
+{
+  // Right-click well A, shift-right-click well B. The walk to A ends at the edge of its pour and
+  // the pour lands on the well's own tick, so the queue must not start B in between — that let
+  // go of A before it poured, and only B ever served the unit.
+  const world = newWorld();
+  world.timeOfDaySuspended = true;
+  world.timeOfDay = 12;
+  for (const [id, x] of [[83, 2000], [84, 3400]]) {
+    world.add(base({ id, typeId: "emow", x, y: 2000, hp: 600, maxHp: 600, mana: 100, maxMana: 300, speed: 0, radius: 96, isBuilding: true, name: "Moon Well" }),
+      BUILT(x, 2000), { abilities: [{ id: "Ambt", code: "Ambt", level: 1, cooldownLeft: 0, autocastOn: false }] });
+    world.units.get(id).mana = 100;
+  }
+  // Hurt enough that A cannot fill it alone. Twice: walking in from afar, and already standing
+  // inside A's pour (the wells of a base stand side by side) — the second is the one where the
+  // walk ends on the very tick it is ordered.
+  for (const [label, y] of [["walking in", 3200], ["already in reach", 2300]]) {
+    world.units.get(83).mana = 100;
+    world.units.get(84).mana = 100;
+    world.units.delete(85);
+    world.add(base({ id: 85, typeId: "hkni", race: "human", x: 2000, y, hp: 50, maxHp: 900, mana: 0, maxMana: 300, speed: 300, radius: 16, name: "Drinker" }));
+    check(`${label}: the first drink is ordered`, world.issueOrder(85, { kind: "drink", wellId: 83 }) === true);
+    world.queueOrder(85, { kind: "drink", wellId: 84 });
+    for (let t = 0; t < 20 / 0.05; t++) world.tick(0.05);
+    check(`${label}: the first well poured`, world.units.get(83).mana < 1, `${world.units.get(83).mana.toFixed(1)}`);
+    check(`${label}: …and so did the queued second one`, world.units.get(84).mana < 1, `${world.units.get(84).mana.toFixed(1)}`);
+  }
+}
+
 console.log("Well Spring (`Rews`) — +125 mana, +0.52/sec, and both only after dark");
 {
   const world = newWorld();
@@ -823,6 +852,7 @@ console.log("Detonate (`Adtn`) — the Wisp spends itself");
   invuln.baseInvulnerable = true;
   const summon = world.units.get(33);
   summon.summonLeft = 60;
+  summon.isSummon = true;
   summon.summonMax = 60;
   for (const id of [31, 32, 34]) {
     world.units.get(id).buffs.push({ kind: "armor", group: "innerfire", timeLeft: 60, sourceId: 30, value: 5, value2: 0, art: "", fx: [], buffId: "", delay: 0 });

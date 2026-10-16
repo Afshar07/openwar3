@@ -174,8 +174,15 @@ const near = (what, got, want, tol = 0.5) => {
   const far = unit({ x: 1000 + 900, y: 1000 });
   check("out of the 700 range is refused", world.itemUseError(hero.id, 0, far.id), "Notinrange");
   const held = unit({ x: 1400, y: 1000 });
-  held.buffs.push({ kind: "slow", group: "", timeLeft: 10, sourceId: 0, value: 0.5, value2: 0, art: "", fx: [], buffId: "", delay: 0 });
+  held.buffs.push({ kind: "slow", group: "purge", timeLeft: 10, sourceId: 0, value: 0.75, value2: 0, art: "", fx: [], buffId: "", delay: 0 });
   check("a crowd-controlled unit is refused (Purge's slow)", world.itemUseError(hero.id, 0, held.id), "Teleportfail");
+  const stunned = unit({ x: 1400, y: 1000 });
+  stunned.buffs.push({ kind: "stun", group: "", timeLeft: 2, sourceId: 0, value: 0, value2: 0, art: "", fx: [], buffId: "", delay: 0 });
+  check("a stunned unit is refused", world.itemUseError(hero.id, 0, stunned.id), "Teleportfail");
+  // …but a plain SLOW is no disable: a unit merely chilled by Frost Attack goes home.
+  const chilled = unit({ x: 1400, y: 1000 });
+  chilled.buffs.push({ kind: "slow", group: "frost", timeLeft: 5, sourceId: 0, value: 0.25, value2: 0.25, art: "", fx: [], buffId: "", delay: 0 });
+  check("a unit under Frost Attack's slow is accepted", world.itemUseError(hero.id, 0, chilled.id), null);
   check("bare ground is refused", world.itemUseError(hero.id, 0, 0), "Targetunit");
   const ok = unit({ x: 1400, y: 1000 });
   check("a plain own unit in range is accepted", world.itemUseError(hero.id, 0, ok.id), null);

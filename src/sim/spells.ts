@@ -91,6 +91,9 @@ export interface SpellApi {
    *  or until the avatar dies", while an Archmage's Water Elemental outlives him. */
   /** `cloakAfter`: the summon is an INVISIBLE ward, fading out that many seconds after it lands
    *  (SimWorld.cloakSummon). Omitted for everything that stays in plain sight. */
+  /** Make room under a per-caster summon cap: kill this caster's oldest summons of these types
+   *  until one more fits (see SimWorld.summonCapMake). */
+  summonCapMake(casterId: number, typeIds: readonly string[], cap: number, incoming: number): void;
   requestSummon(unitId: string, x: number, y: number, facing: number, owner: number, team: number, durationSec: number, sourceId: number, art?: { summon: string; unsummon: string }, atPoint?: boolean, bound?: boolean, cloakAfter?: number): void;
   /**
    * TAKE up to `max` corpses within `radius` — the one door onto the corpse pool, shared by
@@ -1012,7 +1015,7 @@ export const DISPEL_CODES = new Set(["Aprg", "Adis", "Aadm", "Advm"]);
  * in its circle without asking allegiance — so:
  *
  *  · **theirs** (`ours` false): a SUMMON, which the handlers destroy or damage outright
- *    (`summonLeft > 0` is the sim's own test — see `Aprg`, `Adis` and `Aadm` above, so this
+ *    (`isSummon` is the sim's own test — see `Aprg`, `Adis` and `Aadm` above, so this
  *    cannot promise a kill the cast will not deliver), or a POSITIVE effect;
  *  · **ours** (`ours` true): a NEGATIVE effect — Entangling Roots on a Huntress, a Slow, a
  *    Cripple. Never a summon: our own Water Elemental is something a dispel would KILL, so it
@@ -1091,7 +1094,7 @@ export function clockedBuff(b: { timeLeft: number; aura?: boolean }): boolean {
 }
 
 export function worthDispelling(t: SimUnit, units: ReadonlyMap<number, SimUnit>, ours = false, auto = false): boolean {
-  if (!ours && t.summonLeft > 0 && !(auto && miscGame("AbolishMagicDispelSmart"))) return true;
+  if (!ours && t.isSummon && !(auto && miscGame("AbolishMagicDispelSmart"))) return true;
   return t.buffs.some((b) => {
     if (survivesDispel(b) || !clockedBuff(b)) return false;
     const src = units.get(b.sourceId);
@@ -1517,7 +1520,7 @@ export const SPELL_HANDLERS: Record<string, Handler> = {
     if (def.targetArt) api.emitEffect(def.targetArt, ctx.x, ctx.y, 0);
     for (const t of api.unitsInArea(ctx.x, ctx.y, lvl.area)) {
       api.dispel(t);
-      if (t.summonLeft > 0) api.spellDamage(t, d(lvl, 1, 200), caster.id);
+      if (t.isSummon) api.spellDamage(t, d(lvl, 1, 200), caster.id);
     }
   },
 
@@ -1538,7 +1541,7 @@ export const SPELL_HANDLERS: Record<string, Handler> = {
     const lvl = def.levelData[rank - 1];
     api.dispel(t); // remove every timed buff (good AND bad)
     if (api.hostile(caster, t)) {
-      if (t.summonLeft > 0) { api.spellDamage(t, 100000, caster.id); return; } // Purge destroys summons
+      if (t.isSummon) { api.spellDamage(t, 100000, caster.id); return; } // Purge destroys summons
       // dataD = slow duration; heavy MOVE slow that recovers when it expires (no attack slow).
       api.applyBuff(t, { kind: "slow", group: "purge", timeLeft: d(lvl, 3, 3), sourceId: caster.id, value: 0.75, value2: 0, ...fx(def) });
     }
@@ -1797,7 +1800,7 @@ export const SPELL_HANDLERS: Record<string, Handler> = {
     if (!t) return;
     const lvl = def.levelData[rank - 1];
     api.dispel(t);
-    if (t.summonLeft > 0) api.spellDamage(t, d(lvl, 1, 300), caster.id);
+    if (t.isSummon) api.spellDamage(t, d(lvl, 1, 300), caster.id);
     const manaLoss = d(lvl, 0, 0);
     if (manaLoss > 0) t.mana = Math.max(0, t.mana - manaLoss);
     if (def.targetArt) api.emitEffect(def.targetArt, t.x, t.y, t.id);
@@ -2827,7 +2830,7 @@ export const SPELL_HANDLERS: Record<string, Handler> = {
       if (t === caster || t.hp <= 0 || t.building) continue;
       api.dispel(t);
       if (!t.invulnerable) api.burnMana(t, d(lvl, 0, 50));
-      if (t.summonLeft > 0) api.spellDamage(t, d(lvl, 1, 225), caster.id);
+      if (t.isSummon) api.spellDamage(t, d(lvl, 1, 225), caster.id);
       if (def.targetArt) api.emitEffect(def.targetArt, t.x, t.y, t.id);
     }
     api.killUnit(caster); // "Destroys the Wisp" — the cost, and the whole of the cast
@@ -3006,7 +3009,7 @@ export const SPELL_HANDLERS: Record<string, Handler> = {
         api.dispel(t);
         if (def.specialArt) api.emitEffect(def.specialArt, t.x, t.y, t.id);
       }
-      if (t.summonLeft > 0) api.spellDamage(t, summonDamage, caster.id);
+      if (t.isSummon) api.spellDamage(t, summonDamage, caster.id);
       if (eaten.length > 0) {
         life += perUnitLife + perBuffLife * eaten.length;
         mana += perUnitMana + perBuffMana * eaten.length;
@@ -3671,7 +3674,7 @@ export const SPELL_HANDLERS: Record<string, Handler> = {
     for (const t of api.unitsInArea(ctx.x, ctx.y, lvl.area || 200)) {
       if (!api.admits(def, t)) continue;
       api.dispel(t);
-      if (t.summonLeft > 0) api.spellDamage(t, d(lvl, 1, 200), caster.id);
+      if (t.isSummon) api.spellDamage(t, d(lvl, 1, 200), caster.id);
     }
   },
 
@@ -3688,7 +3691,7 @@ export const SPELL_HANDLERS: Record<string, Handler> = {
     const chain = chainFrom(api, caster, def, first, max, lvl.area || 400, "any");
     for (const t of chain) {
       api.dispel(t);
-      if (t.summonLeft > 0) api.spellDamage(t, d(lvl, 1, 0), caster.id);
+      if (t.isSummon) api.spellDamage(t, d(lvl, 1, 0), caster.id);
       if (def.targetArt) api.emitEffect(def.targetArt, t.x, t.y, t.id);
     }
   },
@@ -3933,18 +3936,38 @@ function summonFromCorpse(api: SpellApi, caster: SimUnit, def: AbilityDef, rank:
   const unit = lvl.dataStr[2] || lvl.summon || SUMMON_FALLBACK[def.code] || "";
   if (!unit) return;
   const cap = d(lvl, 4, 0);
-  if (cap > 0 && api.countOwned(caster.owner, unit) >= cap) return;
+  // The cap has two readings and the rows split on them. Vengeance REFUSES at its six Spirits
+  // (corpseAutocastWants asks the same question so the Avatar does not bleed mana on it);
+  // Carrion Beetles make ROOM: "If you summon a new beetle while you already have 6 active, the
+  // oldest beetle will automatically die" (Liquipedia, Crypt Lord) — per Crypt Lord, and over
+  // every beetle he has out, whatever rank raised it and burrowed or not (ucs1..3, ucsB/ucsC).
+  const evicts = def.code === "AUcb";
+  if (!evicts && cap > 0 && api.countOwned(caster.owner, unit) >= cap) return;
   // Nearest: you raise the body you are standing over, not the freshest one on the map.
   const [corpse] = api.claimCorpses(caster, def, caster.x, caster.y, corpseReach(def.code, lvl), 1);
   if (!corpse) return;
   const art = summonArt(def);
   const life = lvl.heroDuration || lvl.duration || 0;
   const n = Math.max(1, d(lvl, 0, 1));
+  if (evicts && cap > 0) api.summonCapMake(caster.id, beetleTypes(def), cap, n);
   // …and they climb out of the body, so they land ON it (atPoint) rather than a step in
   // front of the caster — who, for Raise Dead, is 600 units away.
   for (let i = 0; i < n; i++) {
     api.requestSummon(unit, corpse.x, corpse.y, corpse.facing, caster.owner, caster.team, life, caster.id, art, true, o.bound);
   }
+}
+
+/** Every body a Carrion Beetles row can leave on the field: each rank's beetle and the
+ *  burrowed form of each (`Abu2`/`Abu3` on the beetle swap it to `ucsB`/`ucsC`, a different
+ *  unit id that is still the same beetle under the cap). The burrowed ids are read off the
+ *  beetles' own Burrow rows where the install has them, with the stock pair as the floor. */
+function beetleTypes(def: AbilityDef): string[] {
+  const out = new Set<string>(["ucs1", "ucs2", "ucs3", "ucsB", "ucsC"]);
+  for (const l of def.levelData) {
+    const u = l.dataStr[2] || l.summon;
+    if (u) out.add(u);
+  }
+  return [...out];
 }
 
 /**

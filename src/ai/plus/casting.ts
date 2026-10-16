@@ -1593,7 +1593,7 @@ export class PlusCaster {
       // ours included. So a spot that would take out one of our own summons is not a spot: the
       // Water Elemental we paid for is worth more than a buff taken off a Grunt. Vetoed here
       // rather than in `counts`, which can only leave a body out of the tally.
-      if (dispel && t.summonLeft > 0 && !this.view.hostile(t)) return { count: 0, value: 0 };
+      if (dispel && t.isSummon && !this.view.hostile(t)) return { count: 0, value: 0 };
       if (!this.counts(u, t, def, role, friendly)) continue;
       count++;
       value += this.value(t, role, lvl);

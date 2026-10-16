@@ -1117,7 +1117,7 @@ export class AiPlayer {
     if (world.hauntsMines(id)) {
       const mine = world.mines.get(t.mineId);
       if (!mine) return null;
-      return world.hauntTarget(id, mine.x, mine.y) ? [mine.x, mine.y] : null;
+      return world.hauntTarget(id, mine.x, mine.y, this.player) ? [mine.x, mine.y] : null;
     }
 
     const def = this.host.registry.get(id);

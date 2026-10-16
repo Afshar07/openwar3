@@ -748,6 +748,11 @@ export interface SummonRequest {
   owner: number;
   team: number;
   summonLeft: number; // >0 = a temporary summon, seconds until it expires
+  /** A SUMMONED unit whatever its clock says — a spell conjured it (requestSummon). A
+   *  permanent summon (Carrion Beetles: "permanent until killed", `Dur` 0) is still a summon to
+   *  Dispel, Purge and Abolish Magic, to the XP factor and to "Unable to target summoned units":
+   *  `summonLeft` alone said it was not, so a beetle shrugged off the dispel that kills one. */
+  summoned?: boolean;
   sourceId: number; // the caster
   summonArt: string; // the burst it materializes in
   unsummonArt: string; // the burst that replaces it when it leaves
@@ -2283,6 +2288,10 @@ export interface SimUnit {
    *  dies" (`Avng`). Provenance alone is not enough to set this: an Archmage dying does not
    *  take his Water Elemental with him, so only an ability that says so binds. */
   summonerId: number;
+  /** Who SUMMONED this unit (0 = nobody, or not known) — provenance only, unlike `summonerId`,
+   *  which binds. It is what makes a summon cap PER CASTER: Carrion Beetles' `Ucb5` "Max
+   *  Summoned" is six beetles for each Crypt Lord, not six for the player (summonCapMake). */
+  summonedBy: number;
   /** A Mirror Image illusion: a copy of the caster that fights but cannot hurt anything.
    *  Its factors come from AOmi's own data (AbilityMetaData names the columns):
    *  DataB "Damage Dealt (%)" = 0 and DataC "Damage Taken (%)" = 2. The unit is otherwise
@@ -2909,6 +2918,10 @@ const MINE_TIME = 1.0; // seconds a worker spends inside the mine (Agld DataB)
  * (docs/undead.md), so there is no trip to shorten. See `tooCloseToMine`.
  */
 export const HALL_MINE_DISTANCE = 768;
+/** How far past `HALL_MINE_DISTANCE` another player's hall still CLAIMS a mine
+ *  (mineClaimedByOther) — the slack a grid-snapped site lands in. OURS, matching the AI's
+ *  own expansion band (AiPlayer's EXPANSION_HALL_RANGE_WIDE). */
+export const MINE_CLAIM_SLACK = 300;
 /**
  * How near its gold mine a Tree of Life ROOTS when it roots in order to ENTANGLE it — per axis,
  * a square around the mine's centre rather than a circle. The game's own refusal line is
@@ -3278,10 +3291,18 @@ const STAFF_PICK_CATEGORIES = ["townhall", "resource", "factory", "buffer"];
  *  Tiny Great Hall, which is the only one of the eight whose four entries differ. */
 const TINY_BUILDING_RACES = ["human", "orc", "undead", "nightelf"];
 /** What "crowd-controlled" means to the staves, which refuse to teleport a unit under any of
- *  it — "including with Purge" (Liquipedia), whose contribution is the plain `slow`. Every
- *  member is something holding the unit where it stands: a stun, a Sleep, Entangling Roots
- *  or Ensnare, a slow, or Banish's ethereal drag. */
-const CROWD_CONTROL_BUFFS = new Set<BuffKind>(["stun", "sleep", "root", "slow", "ethereal", "hex"]);
+ *  it — "including with Purge" (Liquipedia). Every member is something holding the unit where
+ *  it stands: a stun, a Sleep, Entangling Roots or Ensnare, Banish's ethereal drag, a Hex.
+ *
+ *  A SLOW is not on the list. Purge is named because it is the one slow that IS a disable —
+ *  its move slow starts near total and is a dispel's after-effect, not a damage rider — and
+ *  only its row counts (`staffHeld`). Read as "any slow", a Footman merely chilled by a
+ *  Frost Wyrm's Frost Attack, or caught in a Thunder Clap, could not be sent home at all. */
+const CROWD_CONTROL_BUFFS = new Set<BuffKind>(["stun", "sleep", "root", "ethereal", "hex"]);
+/** Is this buff one that holds a unit against a staff (see CROWD_CONTROL_BUFFS)? */
+function staffHeld(b: SimBuff): boolean {
+  return CROWD_CONTROL_BUFFS.has(b.kind) || (b.kind === "slow" && b.group === "purge");
+}
 /** Abilities that may be aimed at a magic-immune unit anyway. There is no flag for this in
  *  the ability data — no `targs1` value means "may target the immune" — so the engine
  *  hardcodes it and so must we, which is why the list is short and explicit rather than
@@ -6652,7 +6673,7 @@ export class SimWorld {
     let best: SimMine | null = null;
     let bestD = Infinity;
     for (const m of this.mines.values()) {
-      if (m.entangledBy) continue;
+      if (m.entangledBy || this.mineClaimedByOther(m, caster.owner)) continue;
       const d = Math.hypot(m.x - caster.x, m.y - caster.y);
       if (d > range + m.radius + body || d >= bestD) continue;
       bestD = d;
@@ -6670,7 +6691,7 @@ export class SimWorld {
     if (caster.uprooted) return false;
     let best: SimMine | null = null;
     if (mine) {
-      if (mine.entangledBy || !this.mines.has(mine.id)) return false;
+      if (mine.entangledBy || !this.mines.has(mine.id) || this.mineClaimedByOther(mine, caster.owner)) return false;
       best = mine;
     } else {
       best = this.entangleTarget(caster, def);
@@ -6810,12 +6831,53 @@ export class SimWorld {
    * the smart order, and not in `entangleMine`, which the button still goes through.
    */
   private mineClaimable(mine: SimMine, forUnit: SimUnit): boolean {
-    if (mine.entangledBy !== 0) return false;
-    for (const o of this.units.values()) {
-      if (o.hp <= 0 || !o.worker || o.owner === forUnit.owner || this.allied(o, forUnit)) continue;
-      if ((o.inMine && o.inMineId === mine.id) || (o.resKind === "gold" && o.resId === mine.id)) return false;
+    return mine.entangledBy === 0 && !this.mineClaimedByOther(mine, forUnit.owner);
+  }
+
+  /**
+   * Is this gold mine already SOMEBODY ELSE'S — another player's, ally or enemy alike? A mine
+   * that is, may not be entangled or haunted out from under them.
+   *
+   * "Claimed" is the moment a TOWN HALL is built, summoned or entangled over it (classic.battle.net
+   * war3/basics/resources): an Entangled or Haunted Gold Mine standing on it (`entangledBy`), a
+   * town-hall-class building of another player's founded beside it — under construction counts,
+   * a hall going up is the rock being taken — or another player's workers already working it.
+   * "Beside" is the wide band a hall is founded in: no nearer than `HALL_MINE_DISTANCE`, and
+   * `MINE_CLAIM_SLACK` beyond it for a site the grid pushed out (AiPlayer.mineTaken's own band).
+   * One's OWN hall claims nothing against oneself.
+   */
+  mineClaimedByOther(mine: SimMine, owner: number): boolean {
+    if (mine.entangledBy > 0) {
+      const wrap = this.units.get(mine.entangledBy);
+      if (wrap && wrap.hp > 0 && wrap.owner !== owner) return true;
+    } else if (mine.entangledBy < 0) {
+      return true; // a wrap in flight (entangleMine) — somebody asked for it a frame ago
     }
-    return true;
+    const band = HALL_MINE_DISTANCE + MINE_CLAIM_SLACK;
+    for (const o of this.units.values()) {
+      if (o.hp <= 0 || o.owner === owner || o.owner < 0) continue;
+      if (o.building) {
+        if (!this.unitReg?.get(o.typeId)?.classification.includes("townhall")) continue;
+        if (Math.hypot(o.x - mine.x, o.y - mine.y) <= band) return true;
+        continue;
+      }
+      if (!o.worker) continue;
+      if ((o.inMine && o.inMineId === mine.id) || (o.resKind === "gold" && o.resId === mine.id)) return true;
+    }
+    return false;
+  }
+
+  /** Why Entangle may not be aimed at this mine for this tree, as an [Errors] key, or null if
+   *  it may. The card's targeted press asks it before spending the click (RtsController). */
+  entangleRefusal(unitId: number, mineId: number): string | null {
+    const u = this.units.get(unitId);
+    const mine = this.mines.get(mineId);
+    if (!u || !mine) return "Targgetmine"; // "Must target a gold mine."
+    const wrap = mine.entangledBy > 0 ? this.units.get(mine.entangledBy) : undefined;
+    if (wrap && wrap.owner === u.owner && this.unitReg?.get(wrap.typeId)?.abilities.includes("Aenc")) return "Alreadyentangled";
+    if (mine.entangledBy !== 0 || this.mineClaimedByOther(mine, u.owner)) return "Minenotentangleable"; // "Gold mine couldn't be entangled."
+    if (!u.uprooted && this.holdsEntangledMine(u)) return "Alreadyentangled";
+    return null;
   }
 
   /**
@@ -7736,6 +7798,22 @@ export class SimWorld {
     this.noticeWire?.built.push({ buildingId: u.id, owner: u.owner });
     this.noteConstruct(u.id, "finish"); // EVENT_(PLAYER_)UNIT_CONSTRUCT_FINISH
     this.stats.gained(u.owner, this.scoreValue(u.typeId), true); // Buildings Produced (matchStats.ts)
+    this.autoEntangle(u);
+  }
+
+  /** A Tree of Life that finishes growing within Entangle's reach of a FREE gold mine wraps it
+   *  without being told to — the night elf's way of founding a base: "A Tree of Life (or Tree
+   *  of Ages / Tree of Eternity) is built or rooted near the mine, automatically entangling the
+   *  gold mine" (Warcraft Wiki, Entangled Gold Mine). The mine is whatever the button itself
+   *  would take from where the tree stands (`entangleTarget`: in `Rng1`, hull to hull, nobody
+   *  else's), and the entangling runs as a press would — the roots, then the mine's own build. */
+  private autoEntangle(u: SimUnit): void {
+    if (u.uprooted || u.hp <= 0) return;
+    const ab = u.abilities.find((a) => a.code === "Aent" && a.level >= 1);
+    const def = ab && this.abilityDefOf(ab);
+    if (!def || this.holdsEntangledMine(u)) return;
+    const mine = this.entangleTarget(u, def);
+    if (mine) this.entangleMine(u, def, mine);
   }
 
   /** What a unit type is worth on the score screen: its gold + lumber (sim/matchStats.ts). A
@@ -9243,6 +9321,7 @@ export class SimWorld {
       | "scriptAcquire"
       | "summonMax"
       | "summonerId"
+      | "summonedBy"
       | "exhumeLeft"
       | "unsummonArt"
       | "vanished"
@@ -9536,6 +9615,7 @@ export class SimWorld {
       scriptAcquire: -1, // its own range
       summonMax: 0,
       summonerId: 0,
+      summonedBy: 0,
       exhumeLeft: 0,
       unsummonArt: "",
       vanished: false,
@@ -11394,11 +11474,21 @@ export class SimWorld {
     if (!u || this.castLocked(u)) return;
     // A Haunted Gold Mine is not placed on GROUND, it is placed on a MINE — so the site is
     // whatever mine the player aimed at, not the pixel they clicked.
-    const mine = this.hauntTarget(defId, x, y);
+    const mine = this.hauntTarget(defId, x, y, u.owner);
     if (mine) {
       u.buildPending = { defId, x: mine.x, y: mine.y, gold, lumber, paid, mineId: mine.id };
       if (!paid) this.payPendingBuild(id);
       if (!this.issueMove(id, mine.x, mine.y)) u.moving = false;
+      return;
+    }
+    // A mine building with no free mine under it (claimed by somebody else since the click):
+    // nothing to raise, and nothing to keep — the price goes back if it was taken.
+    if (this.hauntsMines(defId)) {
+      if (paid) {
+        const st = this.stashOf(u.owner);
+        st.gold += gold;
+        st.lumber += lumber;
+      }
       return;
     }
     u.buildPending = { defId, x, y, gold, lumber, paid };
@@ -11731,12 +11821,15 @@ export class SimWorld {
    * mine's entrance. A mine already carrying a building is refused ([Errors]
    * `Alreadyblightedmine` = "That gold mine is already haunted.").
    */
-  hauntTarget(defId: string, x: number, y: number): SimMine | null {
+  hauntTarget(defId: string, x: number, y: number, owner = -1): SimMine | null {
     if (!this.hauntsMines(defId)) return null;
     let best: SimMine | null = null;
     let bestD = Infinity;
     for (const m of this.mines.values()) {
       if (m.entangledBy) continue;
+      // …and never a mine another player has already claimed (mineClaimedByOther): their hall
+      // stands beside it, or their workers are in it. `owner` -1 asks only "is it free rock".
+      if (owner >= 0 && this.mineClaimedByOther(m, owner)) continue;
       const d = (m.x - x) ** 2 + (m.y - y) ** 2;
       const reach = m.radius + HAUNT_SNAP;
       if (d > reach * reach || d >= bestD) continue;
@@ -11757,7 +11850,11 @@ export class SimWorld {
    *  inherits the rule with the checkbox. See the constant for why the undead are out. */
   private mineDistanceBinds(defId: string): boolean {
     const cls = this.unitReg?.get(defId)?.classification;
-    return !!cls && cls.includes("townhall") && !cls.includes("undead");
+    // The two races whose gold never makes the trip are both out: the Necropolis (`undead`)
+    // and the Tree of Life line (`TownHall,Ancient` — etol/etoa/etoe). A wisp is paid INSIDE an
+    // Entangled Gold Mine and an Acolyte where it kneels, so a hall against the rock shortens
+    // nothing, and a Tree of Life is MEANT to stand beside its mine to entangle it.
+    return !!cls && cls.includes("townhall") && !cls.includes("undead") && !cls.includes("ancient");
   }
 
   /**
@@ -13451,6 +13548,11 @@ export class SimWorld {
       // …and settle() may have nudged it off the site to a free tile; the gesture ends wherever
       // the unit actually is, so read the destination back rather than assuming the site.
       planted = { x0, y0, f0, x1: u.x, y1: u.y };
+      // …and a Tree of Life that plants within reach of a free mine takes it, as a freshly
+      // grown one does (autoEntangle) — "built or ROOTED near the mine, automatically
+      // entangling" it. An errand that walked here to entangle a NAMED mine throws its own
+      // roots as it plants (tickEntangleAt), so it is left to do that.
+      if (!u.entanglePending) this.autoEntangle(u);
     } else {
       u.uprooted = true;
       this.unsettle(u); // free the cells before it can take a step out of them
@@ -13475,8 +13577,8 @@ export class SimWorld {
       // The gold mine, though, is let go outright. `Aent`'s roots are the TREE's — a Tree of
       // Life that pulls itself out of the ground takes them with it — so the Entangled Gold
       // Mine collapses, the Wisps working it walk out, and the plain mine is a plain mine
-      // again, minable by anybody. It is not given back when the Tree plants: entangling is
-      // a button you press.
+      // again, minable by anybody. Planting again beside a free mine wraps it afresh
+      // (autoEntangle, above).
       this.releaseEntangledMine(u);
     }
     // Neither thing for the length of the transition. `Dur1` is the ability's own 2.5 seconds
@@ -14010,6 +14112,22 @@ export class SimWorld {
     if (!well || !def) return;
     const area = def.levelData[0]?.area || 400;
     if (Math.hypot(u.x - well.x, u.y - well.y) - u.radius <= area) this.endWalk(u);
+  }
+
+  /** Is the Moon Well this idle unit was sent to still going to pour into it? True only while
+   *  the pour is really coming — a live, working well with mana, and a drinker it still wants.
+   *  Anything else ends the errand here (a dry well "has had its drink", tickReplenish), so a
+   *  shift-queue behind it is never held up waiting for nightfall. */
+  private drinkStillOwed(u: SimUnit): boolean {
+    const well = this.units.get(u.drinkWellId);
+    const def = well && this.replenishAbility(well);
+    const owed =
+      !!well && !!def && well.hp > 0 && well.mana > 0 && !well.paused && !well.stunned &&
+      !(well.building && well.building.constructionLeft > 0) && this.replenishWants(well, u, def) &&
+      // …and only from inside the pour: a walk that gave up short of it gets nothing, ever.
+      Math.hypot(u.x - well.x, u.y - well.y) - u.radius <= (def.levelData[0]?.area || 400);
+    if (!owed) u.drinkWellId = 0;
+    return owed;
   }
 
   /** The nearest unit that was SENT to this well and has arrived (`{kind:"drink"}`). */
@@ -15769,6 +15887,24 @@ export class SimWorld {
     return n;
   }
 
+  /** Make room under a PER-CASTER summon cap for `incoming` more: while this caster's live
+   *  summons of these types would overflow `cap` once they land, the OLDEST goes (lowest sim id — ids are handed out
+   *  in creation order). "If you summon a new beetle while you already have 6 active, the oldest
+   *  beetle will automatically die" (Liquipedia, Crypt Lord); the cap is the row's own
+   *  `Ucb5` "Max Summoned". Killed rather than unsummoned: a beetle is permanent, it has no
+   *  timer to run out, and it leaves the way it would have died. */
+  private summonCapMake(casterId: number, typeIds: readonly string[], cap: number, incoming = 1): void {
+    if (!(cap > 0)) return;
+    const set = new Set(typeIds);
+    const mine = [...this.units.values()]
+      .filter((u) => u.hp > 0 && u.summonedBy === casterId && set.has(u.typeId))
+      .sort((a, b) => a.id - b.id);
+    // `incoming` is one cast's worth (DataA "Units Raised" — two beetles a body on the live tables), and it
+    // never culls more than the cap itself: a cast that raises more than the cap keeps the newest.
+    const cull = Math.min(mine.length, mine.length + Math.min(incoming, cap) - cap);
+    for (let i = 0; i < cull; i++) this.kill(mine[i]);
+  }
+
   /** Would a corpse autocast actually do something right now? Asked BEFORE the order, because
    *  mana is spent when the cast commits and a spell that fires into nothing still pays: a
    *  Necromancer on ground with no bodies on it, or an Avatar already at its six-Spirit cap,
@@ -15789,7 +15925,9 @@ export class SimWorld {
     const unit = lvl.dataStr[2] || lvl.summon || "";
     if (!unit) return false;
     const cap = lvl.data[4];
-    if (cap > 0 && this.countOwnedOf(u.owner, unit) >= cap) return false;
+    // …except Carrion Beetles, whose cap makes room rather than refusing (summonFromCorpse):
+    // a full brood still has something to do with a fresh body — swap the oldest beetle out.
+    if (def.code !== "AUcb" && cap > 0 && this.countOwnedOf(u.owner, unit) >= cap) return false;
     return this.corpsesFor(u, def, u.x, u.y, radius).length > 0;
   }
 
@@ -18453,7 +18591,7 @@ export class SimWorld {
     },
     missileBack: (from, to, def) => this.spawnVisualMissile(from, to, def),
     requestSummon: (unitId, x, y, facing, owner, team, dur, src, art, atPoint, bound, cloakAfter) => {
-      this.summonRequests.push({ unitId, x, y, facing, owner, team, summonLeft: dur, sourceId: src, summonArt: art?.summon ?? "", unsummonArt: art?.unsummon ?? "", atPoint: !!atPoint, bound: !!bound, cloakAfter });
+      this.summonRequests.push({ unitId, x, y, facing, owner, team, summonLeft: dur, summoned: true, sourceId: src, summonArt: art?.summon ?? "", unsummonArt: art?.unsummon ?? "", atPoint: !!atPoint, bound: !!bound, cloakAfter });
     },
     claimCorpses: (caster, def, x, y, radius, max, o) => this.claimCorpses(caster, def, x, y, radius, max, o),
     dropHeldCorpses: (holderId, x, y) => this.dropHeldCorpses(holderId, x, y),
@@ -18554,6 +18692,7 @@ export class SimWorld {
       caster.voodooAbil = def.id;
     },
     countOwned: (owner, typeId) => this.countOwnedOf(owner, typeId),
+    summonCapMake: (casterId, typeIds, cap, incoming) => this.summonCapMake(casterId, typeIds, cap, incoming),
     revealArea: (owner, team, o) => this.addItemReveal(owner, team, o),
     // One copy beside the original, on the spot the summon placer finds for it (`atPoint`
     // false — the wand names no destination, unlike a Mirror Image missile which does).
@@ -19335,6 +19474,12 @@ export class SimWorld {
       // leaf `issue*` to refuse it (castLocked), losing it. It waits out the three seconds.
       if (u.portalLeft > 0) continue;
       if (u.orderQueue.length && u.order === "idle" && u.constructing === 0 && !u.buildPending) {
+        // …nor while a Moon Well still owes it the drink it walked over for. tickDrinkWalk
+        // ends the walk at the EDGE of the pour, and the pour lands on the well's own tick —
+        // so the next queued order used to start in between, and `dispatch` let go of the
+        // first well (`drinkWellId = 0`) before it had poured anything: right-click one well,
+        // shift-right-click a second, and only the second ever served the unit.
+        if (u.drinkWellId && this.drinkStillOwed(u)) continue;
         this.startNextQueued(u);
       }
     }
@@ -19903,6 +20048,15 @@ export class SimWorld {
    *  camp controller, so they just fall idle here and re-engage via tickCreep/
    *  tickAcquire next tick. */
   private reacquireOrStop(u: SimUnit): void {
+    // A SHIFT-QUEUED order is waiting: the fight the player commanded is over, and what comes
+    // next is the player's, not the acquisition scan's. Rolling onto the nearest enemy kept the
+    // unit in an "attack" order for ever, so the queue drain (which only starts the next order
+    // from idle) never ran — shift-click a second victim while the group was still on the first,
+    // and the first one dying sent them all at whoever stood nearest instead.
+    if (u.orderQueue.length) {
+      this.stop(u.id);
+      return;
+    }
     // A CREEP that loses its target is still IN its fight, and a creep in a fight looks as far as
     // its own weapon's acquisition (`creepFightRange`), not the 200 a Camp creep is pulled at.
     // Stood down instead, it asked `tickAcquire` the 200 — so a Gnoll that had just killed the
@@ -25074,7 +25228,8 @@ export class SimWorld {
    *  • **"Cannot target summoned units."** A Water Elemental has no home to be sent to.
    *  • **"Cannot teleport crowd-controlled units (including with Purge)."** Anything
    *    holding the unit in place holds it against the staff too — a stun, a sleep,
-   *    Entangling Roots or Ensnare, a slow (Purge's included), Banish's ethereal drag.
+   *    Entangling Roots or Ensnare, Purge, Banish's ethereal drag. An ordinary slow (Frost
+   *    Attack, Thunder Clap) holds nothing (CROWD_CONTROL_BUFFS).
    *
    *  And one from the patch notes: 1.13 "Staff of Preservation no longer affects allied
    *  units — it now can only affect its owner's units." That is what `player` means in the
@@ -25089,7 +25244,7 @@ export class SimWorld {
     // …with the unit's OWN Sanctuary exempted. Its hold is a `stun` like any other, but the
     // same pages say "multiple instances of the heal-over-time effect stack" — which is only
     // possible if a second staff may be aimed at a unit the first one is already holding.
-    if (t.buffs.some((b) => !b.untilHealed && CROWD_CONTROL_BUFFS.has(b.kind))) return "Teleportfail"; // "A unit could not be teleported."
+    if (t.buffs.some((b) => !b.untilHealed && staffHeld(b))) return "Teleportfail"; // "A unit could not be teleported."
     const range = ad.levelData[0]?.castRange ?? 0;
     if (!walk && range > 0 && Math.hypot(t.x - u.x, t.y - u.y) > range + u.radius + t.radius) return "Notinrange";
     return null;
@@ -25122,6 +25277,11 @@ export class SimWorld {
     for (const b of this.units.values()) {
       if (b.owner !== owner || b.hp <= 0 || !b.building) continue;
       if (b.building.constructionLeft > 0) continue; // a shell is not somewhere to arrive
+      // …nor is a building in an INVALID STATE: an invulnerable one (a scenario's protected
+      // hall — "Staff of Preservation/Sanctuary don't work with invulnerable Town Halls",
+      // thehelper.net 47442) or an Ancient that has pulled itself up and is walking. With
+      // every candidate like that the staff has nowhere to send anyone and does not fire.
+      if (b.invulnerable || b.uprooted) continue;
       const def = this.unitReg?.get(b.typeId);
       const category = STAFF_PICK_CATEGORIES.indexOf(def?.buffType ?? "");
       if (category < 0 || !(buildingTypes & (1 << category))) continue;

@@ -632,6 +632,12 @@ const TREE_FLAG_HEIGHT = 180; // lift a queue flag to a tree's canopy top
  *  the terrain the flag stands inside the model and is invisible from most camera angles;
  *  this clears the base without turning the flag into a landmark of its own. */
 const RALLY_TARGET_LIFT = 110;
+/** A rally flag planted on a UNIT stands at its head (rallyLift / headHeight). OURS: no file
+ *  places the flag, so these only bound the model-extent reading to something sane. */
+const RALLY_HEAD_FRACTION = 0.85;
+const RALLY_HEAD_FALLBACK = 100;
+const RALLY_HEAD_MIN = 60;
+const RALLY_HEAD_MAX = 260;
 const TREE_COLLIDER_HEIGHT = 110; // pick trees against a raised plane so clicking up the trunk/canopy still selects them
 // Max world distance from the click's ground point to a pickable unit. Gates out
 // far/behind-camera units that screen-projection alone would wrongly match.
@@ -4469,7 +4475,22 @@ export class RtsController {
     // A form that moved it between the ground and the air: from here on the SIM says how high.
     const was = this.registry.get(entry.typeId);
     if (!skin && was && (was.moveType === MoveType.Fly) !== (def.moveType === MoveType.Fly)) entry.liftFromSim = true;
+    const regroup = entry.typeId !== def.id && this.selected.has(simId);
     entry.typeId = def.id;
+    // A MORPHED unit is a different sub-group from the ones that did not morph: a Druid of the
+    // Claw in Bear Form is an `edcm` beside the `edoc`s, with its own card (Roar, Rejuvenation
+    // are the caster's; the bear has none of them), its own icon cell and its own Tab stop —
+    // every form pair in the game (Talon/Storm Crow, burrowed Crypt Fiend, Destroyer, Militia)
+    // the same. Grouping is by type (groupKeyOf), so the type change alone splits the group;
+    // what has to follow it is the FOCUS — the focused key still named the old type, so the
+    // highlighted cells and the card the primary was showing disagreed about which half of the
+    // selection an order goes to. A unit that morphed while it was the primary takes the focus
+    // with it into its new form (it was what the player was looking at); otherwise the focus
+    // stays on the group it was on, if any of that group is left.
+    if (regroup) {
+      if (this.primary === simId) this.focusedKey = this.groupKeyOf(simId);
+      this.refocus(this.focusedKey);
+    }
     entry.race = def.race;
     entry.name = def.name;
     entry.foodUsed = def.foodUsed;
@@ -6677,6 +6698,26 @@ export class RtsController {
         this.castFromSelection(cast.code, picked!, 0, 0, queued);
         return true;
       }
+      // ENTANGLE GOLD MINE, aimed at a mine (the card arms it as a point — mines are not units).
+      // The click names the rock; each tree in the selection walks to a spot it can entangle
+      // from, roots, and the roots go out as it plants (SimWorld.issueEntangleAt).
+      if (cast.code === "Aent") {
+        const g = this.groundHitAt(cssX, cssY);
+        const mine = g ? this.minePickAt(g[0], g[1], 320).mine : null;
+        if (!mine) return this.refuseOrder("Targgetmine"); // "Must target a gold mine."
+        const trees = [...this.orderees].filter((id) => this.sim.units.get(id)?.abilities.some((a) => a.code === "Aent" && a.level >= 1));
+        const err = this.bestRefusal((id) => (trees.includes(id) ? this.sim.entangleRefusal(id, mine.id) : "Targgetmine"));
+        if (err !== null) return this.refuseOrder(err);
+        this.orderMode = null;
+        this.armedCast = null;
+        let any = false;
+        for (const id of trees) {
+          if (this.sim.entangleRefusal(id, mine.id) !== null) continue;
+          if (this.execute(this.localPlayer, { c: "order", unitId: id, order: { kind: "entangleat", mineId: mine.id }, queued })) any = true;
+        }
+        if (any) this.flashTarget(mine.x, mine.y, mine.radius * MINE_RING_SCALE);
+        return true;
+      }
       const hit = this.groundHitAt(cssX, cssY); // point-target spell
       if (!hit) return this.refuseOrder("Canttargetloc"); // "Unable to target there."
       // The POINT goes with the question: a refusal can depend on what is at the spot you
@@ -7134,7 +7175,16 @@ export class RtsController {
   private castFromSelection(code: string, targetId: number, x: number, y: number, queued = false, aimed = true): void {
     let any = false;
     if (!aimed) {
-      for (const id of this.orderees) {
+      // An instant press goes to the FOCUSED SUB-GROUP — the units whose card the button is on —
+      // not to everybody in the selection who happens to carry the ability. A FORM TOGGLE is
+      // why: Bear Form and Night Elf Form are one ability (`Abrf`) read both ways, so with
+      // Druids of the Claw and Bears selected together, "Bear Form" pressed on the druids' card
+      // also turned every bear back into a druid. The same for every morph pair (Storm Crow,
+      // Burrow, Stone Form, Uproot/Root). Only if nobody in the focused group can take it does
+      // the press fall back to the whole selection (a hotkey that reached a card it is not on).
+      const focused = this.focusedGroupIds().filter((id) => this.orderees.has(id));
+      const pool = focused.some((id) => this.sim.castUseError(id, code) === null) ? focused : [...this.orderees];
+      for (const id of pool) {
         if (this.execute(this.localPlayer, { c: "cast", unitId: id, code, targetId, x, y, queued })) any = true;
       }
       if (any) this.ack(false);
@@ -8326,9 +8376,27 @@ export class RtsController {
     if (kind !== "unit") return 0;
     const t = this.sim.units.get(targetId);
     if (!t) return 0;
-    // A rally on a flying unit rides at its altitude — the flag marks where the thing IS.
-    if (!t.building) return this.byId.get(targetId)?.moveHeight ?? 0;
+    // A rally on a flying unit rides at its altitude — the flag marks where the thing IS —
+    // and on ANY unit it stands up at its head rather than between its feet, where a body
+    // walking over it hides it (a rally on a hero is the flag you most want to find).
+    if (!t.building) {
+      const e = this.byId.get(targetId);
+      return e ? e.moveHeight + this.headHeight(e) : 0;
+    }
     return RALLY_TARGET_LIFT;
+  }
+
+  /** Roughly how high a unit's head is above its feet: twice the centre height of its Stand
+   *  sequence's bounding sphere (the MDX carries one per sequence; a body standing on its own
+   *  origin has its centre at half its height), scaled as it is drawn, and taken a little under
+   *  the top so a flag reads as ON the head rather than hovering over it. Clamped, with a flat
+   *  fallback for a body whose bounds are missing or degenerate. */
+  private headHeight(e: Entry): number {
+    const seqs = e.unit.instance.model.sequences as ReadonlyArray<{ name: string; bounds?: { z?: number } }>;
+    const stand = seqs.find((q) => /^stand/i.test(q.name)) ?? seqs[0];
+    const centre = stand?.bounds?.z ?? 0;
+    const h = centre > 1 ? 2 * centre * (e.baseScale || 1) * RALLY_HEAD_FRACTION : RALLY_HEAD_FALLBACK;
+    return Math.min(RALLY_HEAD_MAX, Math.max(RALLY_HEAD_MIN, h));
   }
 
   /** World positions of every SELECTED unit's shift-queued orders, for the small

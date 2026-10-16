@@ -80,9 +80,10 @@ const caster = { id: 1, owner: 0, team: 0, x: 0, y: 0, facing: 0, hp: 500, maxHp
 
 /** A stub world holding a corpse pool, running the REAL claim rules over it. */
 function pool(corpses, owned = {}) {
-  const log = { summons: [], raised: [], buffs: [] };
+  const log = { summons: [], raised: [], buffs: [], evictions: [] };
   const api = {
     countOwned: (_o, typeId) => owned[typeId] || 0,
+    summonCapMake: (casterId, typeIds, cap, incoming) => log.evictions.push({ casterId, cap, incoming, beetles: typeIds.includes("ucs1") && typeIds.includes("ucsB") }),
     claimCorpses: (c, d, x, y, radius, max, o = {}) => {
       const order = o.order || "nearest";
       const live = corpses
@@ -161,6 +162,16 @@ console.log("shape A — one body becomes N of a fixed type");
   const { api, log } = pool([corpse({ x: 50, y: 0, isHero: true, decayLeft: 88 })]);
   SPELL_HANDLERS.AUcb(api, caster, def("AUcb", { data: [1, 0, , , 5], dataStr: [, , "ucs1"], castRange: 900 }), 1);
   eq("…and nothing hatches out of a dead hero", log.summons, []);
+}
+{
+  // The beetle cap makes ROOM rather than refusing: "If you summon a new beetle while you already
+  // have 6 active, the oldest beetle will automatically die" (Liquipedia, Crypt Lord). At the cap
+  // a beetle still hatches, and the world is asked to cull this Crypt Lord's oldest — across
+  // every rank's beetle and the burrowed forms.
+  const { api, log } = pool([corpse({ x: 200, y: 0, decayLeft: 88 })], { ucs1: 6 });
+  SPELL_HANDLERS.AUcb(api, caster, def("AUcb", { data: [2, 0, , , 6], dataStr: [, , "ucs1"], duration: 0, castRange: 900 }), 1);
+  eq("at the six-beetle cap the cast still hatches its two", log.summons.length, 2);
+  eq("…and room is made for both, oldest first", log.evictions, [{ casterId: 1, cap: 6, incoming: 2, beetles: true }]);
 }
 
 console.log("shape B — up to N bodies get back up as themselves");

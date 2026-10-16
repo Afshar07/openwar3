@@ -409,7 +409,10 @@ export const PLUS_NORMAL: PlusProfile = {
   // ten Footmen or five Grunts, between Easy's ceiling and the old one. One tower and one siege
   // unit for the same reason: a base with two towers and two Demolishers behind the army is a
   // base a beginner's tier-1 push cannot break, and Insane keeps the developer's two.
-  armyFood: 20, towers: 1, siegeUnits: 1, heroes: 2, techTier: 3, upgradeRank: 2,
+  // …and 17 after "a little bit of a smaller army (just a little less)": one or two bodies off
+  // the ceiling, still above `CORE_ARMY_FOOD` (16, plus/plan.ts) so the floor the plan keeps
+  // while it saves is not cut with it, and above the twelve-food wave.
+  armyFood: 17, towers: 1, siegeUnits: 1, heroes: 2, techTier: 3, upgradeRank: 2,
   // Six minutes at the earliest and each seat somewhere in the two after it — it was five on the
   // dot, which is both two minutes sooner than Easy and the "every computer leaves on one tick"
   // habit `firstAttackSpread` was added to Easy to cure. A wave of twelve (the hero's five on top)
