@@ -14715,6 +14715,18 @@ export class SimWorld {
     if (target.magicImmune && !MAGIC_IMMUNE_EXEMPT.has(code) && this.hostile(caster, target)) return "Immunetomagic";
     const flagError = this.targetAllowed(caster, target, flags);
     if (flagError !== null) return flagError;
+    // A WARD is a kind of its own, and an OPT-IN one: `ward` is a Targets Allowed word beside
+    // air/ground/structure (`UI\UnitEditorData.txt` [targetList] 03=ward), and the 46 stock rows
+    // that may touch a ward all SAY so — the dispels, Purge, Detonate, the orb items. A row that
+    // names a unit kind and leaves `ward` out may not be aimed at one: a Staff of Preservation
+    // (`ground,air,…`) does not send a Sentry Ward home, and a Mass Teleport (`ground,structure,…`)
+    // does not land the army on one (issue #208). The game's own line: `Noward` "Unable to target
+    // wards." Asked here, at the AIMED door, and not in targsKindError, whose area sweeps are a
+    // separate question. Gated like the kind test: a row naming no kind restricts nothing.
+    if (target.ward && caster.id !== target.id) {
+      const F = targetFlagSet(flags);
+      if (!F.has("ward") && (F.has("air") || F.has("ground") || F.has("structure"))) return "Noward";
+    }
     // Abilities whose legal targets are a rule, not a flag list — the data can't say
     // "friendly living OR enemy Undead", so the engine hardcodes it and gives the
     // ability its own error string. Holy Light and Death Coil are mirror images.
@@ -25847,6 +25859,12 @@ export class SimWorld {
    * Both are covered by `atWork` without a case of their own, and tools/sim-town-portal-test.cjs
    * pins the shredder in both directions: on the trees it stays, standing about it travels.
    *
+   * Nor is a WARD (issue #208). A Sentry Ward, a Serpent Ward or a Healing Ward is a planted
+   * gadget rather than a troop — it has no feet, and where it was put is the whole of what it
+   * is for — and neither row's `targs1` names `ward`, the opt-in kind every ability that may
+   * touch one spells out (see targetError). A scroll pressed beside the scouting ward on the
+   * creep camp used to carry the ward home with the army.
+   *
    * The Amulet of Recall keeps the targs-filtered gatherer below: it is aimed at a bare point
    * and has no destination unit, so its `targs1 = ground,air,player,vuln,invu,nonancient`
    * genuinely does describe the units it picks up.
@@ -25854,7 +25872,7 @@ export class SimWorld {
   private teleportParty(u: SimUnit, radius: number, max: number): SimUnit[] {
     const cap = Math.max(1, Math.round(max || 1));
     const party = this.unitsInAreaInternal(u.x, u.y, radius)
-      .filter((t) => t !== u && t.owner === u.owner && !t.building && !isOffField(t) && !this.atWork(t))
+      .filter((t) => t !== u && t.owner === u.owner && !t.building && !t.ward && !isOffField(t) && !this.atWork(t))
       .sort((a, b) => Math.hypot(a.x - u.x, a.y - u.y) - Math.hypot(b.x - u.x, b.y - u.y));
     return [u, ...party].slice(0, cap);
   }
@@ -25875,7 +25893,8 @@ export class SimWorld {
   private itemTeleportParty(u: SimUnit, ad: AbilityDef, x: number, y: number, radius: number, max: number): SimUnit[] {
     const cap = Math.max(1, Math.round(max || 1));
     const party = this.unitsInAreaInternal(x, y, radius)
-      .filter((t) => t !== u && t.hp > 0 && t.owner === u.owner && !t.building && this.targetAllowed(u, t, ad.targetFlags) === null)
+      // A ward only where the row says `ward` — the same opt-in kind targetError asks (#208).
+      .filter((t) => t !== u && t.hp > 0 && t.owner === u.owner && !t.building && !(t.ward && !targetFlagSet(ad.targetFlags).has("ward")) && this.targetAllowed(u, t, ad.targetFlags) === null)
       .sort((a, b) => Math.hypot(a.x - x, a.y - y) - Math.hypot(b.x - x, b.y - y));
     return [u, ...party].slice(0, cap);
   }

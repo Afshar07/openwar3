@@ -318,6 +318,25 @@ console.log("\n-- a gatherer on the job is left on the job ---------------------
   check("…still carrying it", hauling.order, "return");
 }
 
+console.log("\n-- a ward stays where it was planted (issue #208) ----------------------------");
+
+{
+  // A ward is a planted gadget, not a troop, and neither `[AItp]` nor `[AHmt]` names the `ward`
+  // target kind. A scroll pressed beside the Sentry Ward watching a creep camp used to carry the
+  // ward home with the army.
+  world = newWorld();
+  const h = give(heroAt(6000, 6000), "stwp");
+  hall(1000, 1000);
+  const troop = soldier(6200, 6000);
+  const ward = soldier(6100, 6100, { typeId: "oeye", name: "Sentry Ward", speed: 0 });
+  ward.ward = true; // UnitBalance `type` = "ward" — what the unit registry sets in a real match
+  world.useItem(h.id, 0, 0, h.x, h.y);
+  step(5.2);
+  at("the hero went", h, 1000, 1000);
+  at("…and the soldier with it", troop, 1000, 1000);
+  at("…while the ward stayed where it was planted", ward, 6100, 6100);
+}
+
 console.log("\n-- a map that edits the cast away -------------------------------------------");
 
 {

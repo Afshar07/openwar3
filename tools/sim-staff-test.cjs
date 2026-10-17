@@ -179,6 +179,10 @@ const near = (what, got, want, tol = 0.5) => {
   const stunned = unit({ x: 1400, y: 1000 });
   stunned.buffs.push({ kind: "stun", group: "", timeLeft: 2, sourceId: 0, value: 0, value2: 0, art: "", fx: [], buffId: "", delay: 0 });
   check("a stunned unit is refused", world.itemUseError(hero.id, 0, stunned.id), "Teleportfail");
+  // A WARD is an opt-in target kind (`ward` in targs1), and the staves' `ground,air,…` leave it
+  // out: a Sentry Ward is not sent home (issue #208). The game's own line, `Noward`.
+  const ward = unit({ x: 1400, y: 1000, typeId: "oeye", ward: true }); // a Sentry Ward
+  check("a ward is refused", world.itemUseError(hero.id, 0, ward.id), "Noward");
   // …but a plain SLOW is no disable: a unit merely chilled by Frost Attack goes home.
   const chilled = unit({ x: 1400, y: 1000 });
   chilled.buffs.push({ kind: "slow", group: "frost", timeLeft: 5, sourceId: 0, value: 0.25, value2: 0.25, art: "", fx: [], buffId: "", delay: 0 });
