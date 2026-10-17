@@ -175,6 +175,29 @@ console.log("\nDODGED: the shell flies at the spot, not the unit");
   check("a target that left the rings takes nothing", foe.hp === 1000, `hp ${foe.hp}`);
 }
 
+console.log("\nMISSED: a missed shell still bursts, at (1 - MissDamageReduction) of every ring");
+// Liquipedia's Miss page: "Missed single target attacks deal no damage" but "Missed splash attacks
+// deal … reduced damage"; the install's MiscGame.txt MissDamageReduction = 0.5. And the miss is the
+// ATTACK's, rolled once — not once per body in the rings.
+function cursedBurst(curse) {
+  const w = new SimWorld(grid(), 2);
+  const m = addUnit(w, 1, 0, 1000, 1000, mortar());
+  const foe = addUnit(w, 2, 1, 1600, 1000, []);
+  const near = addUnit(w, 3, 1, 1660, 1000, []); // 60 - 16 = 44 from the aim: the 0.4 ring
+  if (curse) m.buffs.push({ kind: "miss", group: "curse", timeLeft: 999, sourceId: 0, value: 1 }); // misses every time
+  w.issueOrder(m.id, { kind: "attack", targetId: foe.id, force: true });
+  let launched = false;
+  run(w, 600, () => launched && w.projectiles.size === 0, (w) => { if (w.projectiles.size) launched = true; });
+  return { foe: 1000 - foe.hp, near: 1000 - near.hp };
+}
+{
+  const hit = cursedBurst(false);
+  const miss = cursedBurst(true);
+  check("a cursed mortar's shell still lands on what it was aimed at", miss.foe > 0, `took ${miss.foe.toFixed(1)}`);
+  check("…at half the blow a clean shell deals", Math.abs(miss.foe - hit.foe / 2) < 1e-6, `${miss.foe.toFixed(1)} vs ${hit.foe.toFixed(1)}`);
+  check("…and the ring beside it is halved the same way, not rolled again", Math.abs(miss.near - hit.near / 2) < 1e-6, `${miss.near.toFixed(1)} vs ${hit.near.toFixed(1)}`);
+}
+
 console.log("\nATTACK GROUND: shells a spot until told otherwise");
 {
   const w = new SimWorld(grid(), 2);

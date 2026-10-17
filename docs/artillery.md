@@ -72,6 +72,34 @@ The burst was enemies-only before this, which made every siege weapon safe to fi
 
 `tree` in the list is trees: each trunk in the rings takes its ring's share (`shellTrees`).
 
+## A miss still BURSTS
+
+Liquipedia's *Miss* page splits a miss by weapon: "Missed single target attacks deal no damage",
+while "Missed splash attacks deal … reduced damage". So a cursed Mortar Team (or one aimed at a
+Demon Hunter who evades) still drops its shell on the same ground; every ring just takes less.
+The miss is the ATTACK's and is rolled ONCE, at the burst (`applyAreaSplash`): the shooter's
+`miss` buffs (Curse, Drunken Haze) and the Evasion of the unit it was aimed at, if the burst
+still catches it. A body in the rings is never rolled for on its own (`applyDamage`'s `splash`),
+so nobody evades the ground under them.
+
+How much a miss loses is `MissDamageReduction` = **0.5** in both `Units\MiscGame.txt` and
+`Units\MiscData.txt`. Liquipedia says 75%; the game data wins. Before this, every body in the
+rings rolled the shooter's Curse and its own Evasion separately and a miss took its share to 0,
+so a 100% Curse made a siege weapon harmless.
+
+The other Liquipedia line on misses is not here yet: MiscData's `ChanceToMiss` (0.25, "if target
+is moving or on high ground") has no reader in the sim at all.
+
+## Artillery (Line)
+
+`aline` is in the 1.30.4 tables (the Glaive Thrower) and nowhere else: the 1.31.0 patch made the
+Glaive Thrower plain `artillery` (src/patches/data/1.31.0.json), and the game always runs the
+latest patch. Liquipedia: "Artillery Line deals damage to units behind the target area instead of
+dealing damage to an area around the target area". We still burst it in the rings and add the
+`spill` corridor behind the struck unit once Vorpal Blades (`rasd` 200) opens it. The shape of
+the line before that is not stated in any file or reference we have, so it is left alone; it only
+matters on a rolled-back patch, a Reign of Chaos client or a custom table set.
+
 ## What it kills SPLATTERS
 
 "Units killed by Artillery attacks splatter and do not leave corpses behind" (Weapon Types).
@@ -111,5 +139,5 @@ without it); `GetUnitCurrentOrder` answers `attackground` (851984).
 
 ## Tests
 
-`tools/sim-artillery-test.cjs` pins the arc (a spell missile's too), the thrown fields, friendly fire, the `enemy` exception, splatter,
+`tools/sim-artillery-test.cjs` pins the arc (a spell missile's too), the thrown fields, friendly fire, the `enemy` exception, a missed shell's burst, splatter,
 dodging, Attack Ground (at a spot, from out of range, at a tree) and the dead zone.

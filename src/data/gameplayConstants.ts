@@ -36,7 +36,8 @@ export const MISC_GAME = {
   CallForHelp: 600,
   /** Same, for Neutral Hostile: one creep aggroes → the whole camp joins. */
   CreepCallForHelp: 600,
-  /** A missed attack still deals this fraction of its damage. */
+  /** The share a MISSED SPLASH attack loses — a missed single-target blow deals nothing, a
+   *  missed artillery shell still bursts, at (1 − this) of every ring (applyAreaSplash). */
   MissDamageReduction: 0.5,
 
   // Damage bonus lists, in the file's own column order (see ARMOR_TYPE_ORDER):
@@ -499,7 +500,7 @@ export const MISC_UNREAD: ReadonlySet<string> = new Set([
   "AttackHalfAngle", "BuildingAngle", "BuildingUnblightRadius", "BulletDeathTime", "CancelTime",
   "ChanceToMiss", "CloseEnoughRange", "CreepCampPathingCellDistance", "DecayTime", "EffectDeathTime",
   "FogFlashTime", "FollowItemRange", "FollowRange", "GoldMineMaxGold", "GoldMineOwnDuration",
-  "InvisSpeed", "MaxCollisionRadius", "MissDamageReduction", "RallyZOffset", "ReactionDelay",
+  "InvisSpeed", "MaxCollisionRadius", "RallyZOffset", "ReactionDelay",
   "RootAngle", "ScaledAnimTime", "SelectionCircleBaseZ", "SpellCastRangeBuffer", "StructureDecayTime",
   "StructureFollowRange", "TradingIncLarge", "TradingIncSmall",
 ]);

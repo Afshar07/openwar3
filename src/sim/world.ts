@@ -21825,7 +21825,20 @@ export class SimWorld {
         : undefined);
     const outer = Math.max(a.quarter, a.half, a.full);
     if (outer <= 0 || !source) return; // an artillery row with no rings — nothing to burst
-    const ring = (gap: number): number => gap <= a.full ? 1 : gap <= a.half ? a.halfFactor : gap <= a.quarter ? a.quarterFactor : 0;
+    // A MISSED shell still bursts. Liquipedia's Miss page splits the consequence by weapon:
+    // "Missed single target attacks deal no damage", while "Missed splash attacks deal …
+    // reduced damage" — the shell still comes down on the same ground. The miss is the
+    // ATTACK's, rolled once here (the shooter's Curse / Drunken Haze, and the Evasion of the
+    // unit it was aimed at if the burst still catches it), never once per body in the rings.
+    // How much it loses is the install's `MissDamageReduction` = 0.5 (Units\MiscGame.txt and
+    // Units\MiscData.txt alike); Liquipedia says 75%, and the game data wins (CLAUDE.md).
+    const shooter = this.units.get(p.sourceId);
+    const aimed = p.targetId ? this.units.get(p.targetId) : undefined;
+    const aimedCaught = !!aimed && aimed.hp > 0 && !aimed.invulnerable
+      && Math.hypot(aimed.x - a.aimX, aimed.y - a.aimY) - aimed.radius <= outer;
+    const missed = (!!shooter && this.rollMiss(shooter)) || (aimedCaught && this.tryEvade(aimed!));
+    const hitShare = missed ? 1 - (miscGame("MissDamageReduction") as number) : 1;
+    const ring = (gap: number): number => hitShare * (gap <= a.full ? 1 : gap <= a.half ? a.halfFactor : gap <= a.quarter ? a.quarterFactor : 0);
     let nearest: SimUnit | undefined; // for an `aline` shot, whoever the line starts at
     for (const t of this.units.values()) {
       if (t.hp <= 0 || t.invulnerable || t.hidden || isOffField(t)) continue; // nobody there to hit
@@ -21837,11 +21850,10 @@ export class SimWorld {
       const frac = ring(gap);
       if (frac <= 0) continue;
       this.splatterId = t.id;
-      const dealt = this.applyDamage(t, p.damage * frac, p.sourceId, p.attackType ?? AttackType.None, p.weaponSound ?? "", true);
+      const dealt = this.applyDamage(t, p.damage * frac, p.sourceId, p.attackType ?? AttackType.None, p.weaponSound ?? "", true, true);
       this.splatterId = 0;
-      const shooter = this.units.get(p.sourceId);
       if (shooter) this.applyPillage(shooter, t, dealt); // a Demolisher with Pillage loots what it shells
-      if (frac === 1 && !nearest && this.hostile(source, t)) nearest = t;
+      if (frac === hitShare && !nearest && this.hostile(source, t)) nearest = t;
     }
     if (a.targets.includes("tree")) this.shellTrees(a.aimX, a.aimY, outer, (gap) => p.damage * ring(gap));
     // Artillery (Line) — the Glaive Thrower — is BOTH: it bursts, and with Impaling Bolt
@@ -23049,7 +23061,7 @@ export class SimWorld {
     return out;
   }
 
-  private applyDamage(target: SimUnit, rawDamage: number, attackerId: number, attackType = AttackType.None, weaponSound = "", ranged = false): number {
+  private applyDamage(target: SimUnit, rawDamage: number, attackerId: number, attackType = AttackType.None, weaponSound = "", ranged = false, splash = false): number {
     // A Mirror Image illusion swings, connects, and does nothing: AOmi's DataB ("Damage
     // Dealt (%)") is 0. Its sheet still reads like the Blademaster's — the deception is
     // the whole ability — so this is enforced here, at the blow, not by editing its stats.
@@ -23082,11 +23094,14 @@ export class SimWorld {
     }
     if (attacker?.isIllusion) rawDamage *= attacker.illusionDamageDealt;
     // Evasion (Demon Hunter passive AEev): a chance to dodge a physical attack.
-    if (this.tryEvade(target)) return 0;
     // …and the other side of the same coin: a drunk ATTACKER simply misses. Drunken Haze's
     // `Nsi2 "Chance To Miss (%)"` (0.45/0.65/0.8) is not a damage cut or a slow — the swing
     // is thrown and goes nowhere, which is why the buff has a kind of its own.
-    if (attacker && this.rollMiss(attacker)) return 0;
+    // Both are rolled ONCE per attack, and a SPLASH blow is a share of an attack whose roll
+    // was already made (applyAreaSplash → `missedSplash`): a Demon Hunter standing in a
+    // Mortar Team's outer ring does not get to dodge the ground under him.
+    if (!splash && this.tryEvade(target)) return 0;
+    if (!splash && attacker && this.rollMiss(attacker)) return 0;
     // The script's DAMAGING event: the raw blow, before every reduction below — Defend, the
     // Arcanite Shield, the damage table, armour. "Misses don't trigger any damage events", which
     // is why it sits after the two rolls above. The attack TYPE it may change is the one the
