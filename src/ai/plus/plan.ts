@@ -787,8 +787,8 @@ function army(c: PlusCtx, budget: number): void {
  * never going to train.
  */
 function armyRows(c: PlusCtx, budget: number): Array<{ unit: string; want: number }> {
-  const spend = Math.min(budget, c.profile.armyFood);
   const rows = buildableMix(c);
+  const spend = Math.max(0, Math.min(budget, c.profile.armyFood) - offMixFood(c, rows));
   const total = rows.reduce((n, r) => n + r.weight, 0);
   if (total <= 0) return [];
   const out: Array<{ unit: string; want: number }> = [];
@@ -804,8 +804,33 @@ function armyRows(c: PlusCtx, budget: number): Array<{ unit: string; want: numbe
   // something asks for nothing at all. That is the same empty field `buildableMix`'s fallback
   // exists to prevent, arrived at from the other side, and it feeds the same food gates. So
   // the heaviest share of the build order gets one body whatever the arithmetic says.
-  if (out.length === 0) out.push({ unit: heaviest.unit, want: 1 });
+  // Not when the ceiling is already SPENT on soldiers outside the mix: the field is not empty
+  // then, and the one body would be one over the ceiling for ever (`wholeArmyCeiling`).
+  if (out.length === 0 && spend > 0) out.push({ unit: heaviest.unit, want: 1 });
   return out;
+}
+
+/**
+ * Food of the soldiers standing (or queued) OUTSIDE the mix's rows — what `armyRows` takes off
+ * the ceiling when `PlusProfile.wholeArmyCeiling` says the ceiling is the whole army.
+ *
+ * Read off the race's own catalogue (`table.units`), so it sees exactly the bodies this plan
+ * can have asked for: the soldiers an earlier tier's mix bought, the siege, the `always` rows
+ * and the anti-air. Heroes are not in the catalogue and are not the army the ceiling prices
+ * (see `armyTarget`). The undead's LUMBER Ghouls are the economy and not the army, so the
+ * forest crew's `LUMBER_UNITS` are left out — a Ghoul past that is a soldier like any other.
+ */
+function offMixFood(c: PlusCtx, rows: ReadonlyArray<{ unit: string }>): number {
+  if (!c.profile.wholeArmyCeiling) return 0;
+  const inMix = new Set(rows.map((r) => r.unit));
+  let food = 0;
+  for (const unit of Object.keys(c.table.units)) {
+    if (inMix.has(unit)) continue;
+    let n = c.ai.count(unit);
+    if (unit === c.table.lumberUnit && !c.workerChops) n = Math.max(0, n - LUMBER_UNITS);
+    food += n * Math.max(1, c.foodOf(unit));
+  }
+  return food;
 }
 
 /**
@@ -1270,7 +1295,7 @@ function siegeLine(c: PlusCtx): void {
  *  Tree of Ages. OURS. */
 const SIEGE_TIER = 2;
 /** …and the army food it waits for on top: the siege is added to an army, never in place of
- *  one. OURS — a Normal computer's army is 26 food at most, so this is well over half of it. */
+ *  one. OURS — a Normal computer's army is 20 food at most, so this is most of it. */
 const SIEGE_AFTER = 16;
 
 /**

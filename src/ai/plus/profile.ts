@@ -132,6 +132,23 @@ export interface PlusProfile {
    * base.
    */
   readonly armyFood: number;
+  /**
+   * Is `armyFood` a ceiling on the WHOLE army, or on the build order's mix alone?
+   *
+   * `army` spends the ceiling as a SHARE PER ROW of whatever the mix is right now, so every
+   * soldier standing outside those rows is on top of it: the opening Footmen a tier-2 mix no
+   * longer names, the siege (`siegeLine`), the undead's Obsidian Statues (`always`) and the
+   * anti-air (`antiAir`) — every one of which asks for its bodies with no reference to the
+   * ceiling. Measured over thirty headless minutes (tools/ai-plus-ladder-test.cjs) a Normal
+   * computer with a 17-food ceiling stood on up to 31 food of soldiers, the most at the end of the
+   * game, where each new tier had added its rows beside the last one's survivors (issue #210:
+   * "build smaller armies even on late game"). With this on, those bodies are priced out of the
+   * mix's budget instead, so the ceiling is the army.
+   *
+   * Normal only. Easy's twelve was tuned with the leftovers standing beside it ("eight proved
+   * TOO easy"), and Insane's ceiling is upkeep, not a handicap.
+   */
+  readonly wholeArmyCeiling: boolean;
   /** Towers it will ever put up. Easy builds none at all. */
   readonly towers: number;
   /**
@@ -350,7 +367,7 @@ export const PLUS_EASY: PlusProfile = {
   // beside them. Eight then proved TOO easy to beat ("about 2 units more"), so it is back to two
   // more bodies than that: twelve is six Footmen or three Riflemen, and the wave (`squadFood`
   // counts the hero's five) is the hero and about three soldiers.
-  armyFood: 12, towers: 0, siegeUnits: 0, heroes: 1, techTier: 1, upgradeRank: 1,
+  armyFood: 12, wholeArmyCeiling: false, towers: 0, siegeUnits: 0, heroes: 1, techTier: 1, upgradeRank: 1,
   // Seven minutes at the EARLIEST, and each seat somewhere in the three after it
   // (`firstAttackSpread`) — so a table of Easy computers does not all leave home on one tick.
   firstAttack: 420, firstAttackSpread: 180, waveGap: 150, attackFood: 10, retreatHp: 0, refill: true,
@@ -412,7 +429,13 @@ export const PLUS_NORMAL: PlusProfile = {
   // …and 17 after "a little bit of a smaller army (just a little less)": one or two bodies off
   // the ceiling, still above `CORE_ARMY_FOOD` (16, plus/plan.ts) so the floor the plan keeps
   // while it saves is not cut with it, and above the twelve-food wave.
-  armyFood: 17, towers: 1, siegeUnits: 1, heroes: 2, techTier: 3, upgradeRank: 2,
+  // …and then 20 that is the WHOLE army (`wholeArmyCeiling`, issue #210): 17 was a ceiling on
+  // the current mix alone, and the late game stood on 12–31 food of soldiers (20.9 on average
+  // at thirty minutes, ten headless builds over the ceiling). Counted whole, 20 holds the same
+  // average army a beginner already met — 22.4 — but stops the tail (17–34), and nothing past
+  // the mix's leftovers is ever bought on top of it again. 22 was measured too and was the
+  // bigger army of the two at every minute (23.9, up to 36), so not the one the issue asks for.
+  armyFood: 20, wholeArmyCeiling: true, towers: 1, siegeUnits: 1, heroes: 2, techTier: 3, upgradeRank: 2,
   // Six minutes at the earliest and each seat somewhere in the two after it — it was five on the
   // dot, which is both two minutes sooner than Easy and the "every computer leaves on one tick"
   // habit `firstAttackSpread` was added to Easy to cure. A wave of twelve (the hero's five on top)
@@ -461,7 +484,7 @@ export const PLUS_INSANE: PlusProfile = {
   // Full countering, off a small sample and a long memory: six units and a quarter of them one
   // type is enough to start shifting, and it remembers what it saw four minutes ago.
   counterWeight: 1, counterSample: 6, counterShare: 0.25, counterMemory: 240,
-  armyFood: UPKEEP_TIER2, towers: 4, siegeUnits: 2, heroes: 3, techTier: 3, upgradeRank: 3,
+  armyFood: UPKEEP_TIER2, wholeArmyCeiling: false, towers: 4, siegeUnits: 2, heroes: 3, techTier: 3, upgradeRank: 3,
   firstAttack: 150, firstAttackSpread: 0, waveGap: 30, attackFood: 16, retreatHp: 0.4, refill: false,
   // Creeping starts at ninety seconds with the hero and eight food — the ladder's own answer,
   // which is "as soon as the hero walks out of the altar".

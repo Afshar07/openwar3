@@ -433,7 +433,7 @@ caster and the belt.
 **Normal was brought towards Easy.** Reported: the step from Easy to Normal was "quite a massive
 difference … not very friendly for beginners" — and read off the table it was, because nearly every
 dial on Normal sat nearer Insane's value than Easy's. The cut is in what a beginner FEELS: the army
-ceiling (26 → 20, against Easy's 12; later 17, "just a little less"), the first wave (5 min on the dot → 6–8 min rolled per seat, so
+ceiling (26 → 20, against Easy's 12; later 17, "just a little less"; then back to 20 counted over the WHOLE army — `wholeArmyCeiling`, issue #210 — because the ceiling had been spent per row of the mix and the late game stood on up to 31 food of soldiers beside it), the first wave (5 min on the dot → 6–8 min rolled per seat, so
 a table of Normal computers no longer leaves on one tick either), the gap between waves (90 → 120 s),
 the hero (creeping from 4 min instead of 2½, which is what put a level-3–4 hero with a belt of
 potions in the first fight against a level-1 Easy one; two belt slots instead of four, and 500 gold
