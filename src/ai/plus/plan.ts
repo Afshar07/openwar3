@@ -434,6 +434,11 @@ export function buildPlan(c: PlusCtx): void {
   // nothing on the field.
   tierTwoHero(c);
   tierUpDue(c); // …and from three minutes, the Keep — see TIER2_CLOCK
+  // …and the undead's SIEGE, up here rather than below the upgrades — see
+  // `PlusRaceTable.siegeEarly`. The same row; only its place in the ladder moves. Above the
+  // first tower too: both want the same scarce lumber, and below it the Slaughterhouse stood a
+  // minute later — after the second wave it is for.
+  if (c.table.siegeEarly) siegeLine(c);
   // ONE TOWER AT HOME, on Normal and Insane — see `firstTower` for why it is up here and not
   // only in `towers` at the bottom.
   firstTower(c);
@@ -447,7 +452,7 @@ export function buildPlan(c: PlusCtx): void {
   antiAir(c);
   // …and SIEGE, the same kind of row for the other thing a build may not have planned for: the
   // towers at the end of the march. Bounded to two bodies, so its reservation ends.
-  siegeLine(c);
+  if (!c.table.siegeEarly) siegeLine(c);
   expand(c);
   extraHeroes(c);
   tierUp(c);
@@ -912,7 +917,7 @@ const passLedger = new WeakMap<PlusCtx, Map<string, number>>();
  * new and passes unchanged; a count that does not fit is lowered to the most that does, so a
  * full army grows again only as it loses bodies, which is what a ceiling is.
  */
-function fitted(c: PlusCtx, unit: string, want: number, keep = 0): number {
+function fitted(c: PlusCtx, unit: string, want: number, keep = 0, roundUp = false): number {
   if (!c.profile.wholeArmyCeiling) return want;
   const have = c.ai.count(unit);
   if (want <= have) return want;
@@ -923,7 +928,11 @@ function fitted(c: PlusCtx, unit: string, want: number, keep = 0): number {
   for (const [id, n] of ledger) if (id !== unit) others += n * Math.max(1, c.foodOf(id));
   const room = c.profile.armyFood - soldierFood(c) - others - keep;
   const prior = ledger.get(unit) ?? 0;
-  const more = Math.max(prior, Math.min(want - have, Math.floor(room / food)));
+  // `roundUp`: a body may take whatever room is LEFT, even a little less than it costs — the
+  // siege's privilege alone (`siegeLine`), and one body at a time, so the most it ever puts the
+  // army over the ceiling is its own food less one.
+  const fits = roundUp && room > 0 && room < food ? 1 : Math.floor(room / food);
+  const more = Math.max(prior, Math.min(want - have, fits));
   ledger.set(unit, more);
   return have + Math.min(more, want - have);
 }
@@ -951,7 +960,11 @@ function sideOwed(c: PlusCtx, rows: ReadonlyArray<{ unit: string }>): number {
     const row = unit ? table.units[unit] : undefined;
     return !!row && row.tier <= cap && producerReady(c, row.from, row.needs);
   };
-  if (tier >= SIEGE_TIER && ready(table.siegeUnit)) owe(table.siegeUnit, profile.siegeUnits);
+  // The SIEGE is owed from the pass `siegeLine` starts working toward it — the tier, its army
+  // gate, the unit's own requirements met — not from the pass its producer stands: the army
+  // fills the ceiling while the Slaughterhouse goes up, and a wagon owed nothing until then
+  // only ever came in after a loss, which is too late for the second wave it is meant for.
+  if (siegeDue(c)) owe(table.siegeUnit, profile.siegeUnits);
   for (const r of table.always ?? []) if (ready(r.unit)) owe(r.unit, r.count);
   if (table.antiAir && antiAirDue(c) && ready(table.antiAir.unit)) owe(table.antiAir.unit, table.antiAir.count);
   let food = 0;
@@ -1272,6 +1285,9 @@ function techBuildings(c: PlusCtx): void {
   // reserves the building's cost twice over and everything below it starves for a payment that
   // is only ever made once — and `setProduce` can be called twice for it besides.
   const asked = new Set<string>(supportDue(c));
+  // …and so is the undead's Slaughterhouse, when the early siege row has already asked for it.
+  const early = earlySiegeProducer(c);
+  if (early) asked.add(early);
   const want = (build: string): void => {
     if (asked.has(build)) return;
     asked.add(build);
@@ -1408,20 +1424,56 @@ function antiAir(c: PlusCtx): void {
  * Blacksmith, a Slaughterhouse a Halls of the Dead and a Graveyard), and a missing smith is the
  * `support` row's to put up rather than this one's.
  */
-function siegeLine(c: PlusCtx): void {
+/** Is `siegeLine` working toward its siege this pass — the hall tier, the army gate, and the
+ *  unit's own `needs` all met (its producer may still be going up)? Shared with `sideOwed`. */
+function siegeDue(c: PlusCtx): boolean {
   const { ai, profile, table, tier } = c;
   const unit = table.siegeUnit;
-  if (!unit || profile.siegeUnits <= 0) return;
-  if (tier < SIEGE_TIER || c.armyFood < SIEGE_AFTER) return;
+  if (!unit || profile.siegeUnits <= 0) return false;
+  if (tier < SIEGE_TIER || c.armyFood < SIEGE_AFTER) return false;
   const row = table.units[unit];
-  if (!row || row.tier > Math.min(profile.techTier, tier)) return;
-  for (const need of row.needs ?? []) if (ai.countDone(need) < 1) return;
+  if (!row || row.tier > Math.min(profile.techTier, tier)) return false;
+  for (const need of row.needs ?? []) if (ai.countDone(need) < 1) return false;
+  return true;
+}
+
+/**
+ * The siege producer an EARLY siege row (`PlusRaceTable.siegeEarly`) asks for this pass, or ""
+ * — asked for even when the build's own mix names it too, since the mix's row is further down
+ * the ladder, and then left out of `techBuildings` so it is not asked for (and priced) twice.
+ */
+function earlySiegeProducer(c: PlusCtx): string {
+  const { ai, table } = c;
+  if (!table.siegeEarly || !table.siegeUnit || !siegeDue(c)) return "";
+  const from = table.units[table.siegeUnit]?.from;
+  return from && ai.countDone(from) < 1 && ai.techMeets(from) ? from : "";
+}
+
+/** Food of the siege `siegeLine` is working toward and has not got — the room a row BELOW it
+ *  must leave alone (`always`). Nothing when the mix names the siege itself. */
+function siegeStillOwed(c: PlusCtx): number {
+  const { ai, profile, table } = c;
+  const unit = table.siegeUnit;
+  if (!unit || !siegeDue(c) || buildableMix(c).some((r) => r.unit === unit)) return 0;
+  return Math.max(0, profile.siegeUnits - ai.count(unit)) * Math.max(1, c.foodOf(unit));
+}
+
+function siegeLine(c: PlusCtx): void {
+  const { ai, profile, table } = c;
+  const unit = table.siegeUnit;
+  if (!unit || !siegeDue(c)) return;
+  const row = table.units[unit];
   if (ai.countDone(row.from) < 1) {
-    if (!mixBuildings(c).some((b) => b.build === row.from) && ai.techMeets(row.from)) ai.setBuildUnit(1, row.from);
+    if (earlySiegeProducer(c) || (!mixBuildings(c).some((b) => b.build === row.from) && ai.techMeets(row.from))) {
+      ai.setBuildUnit(1, row.from);
+    }
     return;
   }
   if (!ai.techMeets(unit)) return;
-  const want = fitted(c, unit, profile.siegeUnits);
+  // ROUNDED UP for the race whose waves wait for it (`siegeEarly`): a lost lumber Ghoul
+  // re-bought by the economy row, or one Gargoyle bought while it was dead, leaves three food of
+  // room for a four-food Meat Wagon, and then the wagon the second wave is held for never fits.
+  const want = fitted(c, unit, profile.siegeUnits, 0, !!table.siegeEarly);
   if (want > 0) ai.setBuildUnit(want, unit);
 }
 
@@ -1450,7 +1502,10 @@ function always(c: PlusCtx): void {
   for (const row of table.always ?? []) {
     const unit = table.units[row.unit];
     if (!unit || unit.tier > cap || !producerReady(c, unit.from, unit.needs)) continue;
-    const want = fitted(c, row.unit, row.count);
+    // …leaving the SIEGE its room while it is still owed: a Statue is three food and a Meat
+    // Wagon four, both out of one Slaughterhouse, and three food of room went to the Statue
+    // every time, so the wagon never fitted at all.
+    const want = fitted(c, row.unit, row.count, siegeStillOwed(c));
     if (want > 0) ai.setBuildUnit(want, row.unit);
   }
 }

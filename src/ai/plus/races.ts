@@ -271,6 +271,16 @@ export interface PlusRaceTable {
    */
   readonly siegeUnit?: string;
   /**
+   * Does the siege row go up AHEAD of the tier-2 tech buildings rather than below the
+   * upgrades? The developer's call for the UNDEAD alone: "we must also add the Meat Wagon to the
+   * undead's second wave". Its Slaughterhouse is also where the Obsidian Statues (`always`)
+   * come from, so it is the undead's second tier-2 building in any case; left in its old place
+   * it queued behind the Temple of the Damned and six upgrades for the same scarce lumber and
+   * stood at about eleven minutes, after both Normal waves had gone. The human keeps its
+   * order — its power spike is the Arcane Sanctum, not a Workshop (see `tier2Clock`).
+   */
+  readonly siegeEarly?: boolean;
+  /**
    * The building this race raises ON a gold mine to make it a mine at all — the undead's
    * **Haunted Gold Mine** (`ugol`), and nobody else's anything.
    *
@@ -662,6 +672,7 @@ const UNDEAD: PlusRaceTable = {
   // race whose answer to air is a unit row and no building at all (`[ugar] Requires=ugrv,unp1`).
   antiAir: { unit: GARGOYLE, count: 4 },
   siegeUnit: MEAT_WAGON,
+  siegeEarly: true,
   tower: ZIGGURAT_2,
   // THE GHOUL IS THE UNDEAD'S LUMBERJACK, and it is the only such row in the file. An Acolyte
   // cannot chop (`uaco` `lumber: false` — docs/undead.md), so an undead player who builds only

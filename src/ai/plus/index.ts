@@ -1080,6 +1080,10 @@ const CREEP_UNTIL_LEVEL = 5;
  * seven minutes is already the whole of its opening.
  */
 const EARLY_GAME = 600;
+/** The longest a wave waits for its siege unit (`siegeHeld`) — a Meat Wagon's training time
+ *  (36 s, UnitBalance `bldtm`) two and a half times over, so one ordered late, or waiting on
+ *  its last fifty lumber, still makes it. OURS. */
+const SIEGE_WAIT = 90;
 const EARLY_HERO_LEVEL = 3;
 
 /**
@@ -2110,6 +2114,11 @@ interface Brain {
    *  it (`PlusProfile.refill`, `refilled`). Set by `retreat` and by a wave wiped out to the
    *  last body; cleared by the next wave that leaves. */
   refill: boolean;
+  /** Waves sent at a PLAYER so far (a creep run is not one) — what `siegeHeld` reads "the
+   *  second wave" off. */
+  assaults: number;
+  /** When the wave first stood waiting for its siege unit (`siegeHeld`), -1 = not waiting. */
+  siegeWaitFrom: number;
   /** When something hostile first appeared in one of our towns (-1 = nothing there). The
    *  difficulty's `defendDelay` is measured off this: an easy computer lets you kill four
    *  workers before it looks up. */
@@ -2468,6 +2477,8 @@ export class ComputerPlusAi {
       // Whole seconds off the seat's own stream (`PlusProfile.firstAttackSpread`).
       firstAttackAt: profile.firstAttack + (profile.firstAttackSpread > 0 ? ai.randomInt(0, profile.firstAttackSpread) : 0),
       refill: false,
+      assaults: 0,
+      siegeWaitFrom: -1,
       threatSince: -1,
       recall: null,
       recallNext: 0,
@@ -4495,6 +4506,7 @@ export class ComputerPlusAi {
     // their say, so nothing that could have been doing something else is held back by it.
     if (!this.mayAssault(b, target)) return;
     b.target = target;
+    if (!b.creeping) b.assaults++; // a wave at a player — `siegeHeld` counts these
     b.refill = false; // the army is whole again, and this is the wave it was rebuilt for
     this.setMode(b, "attacking");
     this.commit(b, target.x, target.y);
@@ -4517,9 +4529,38 @@ export class ComputerPlusAi {
     // …measured at the MUSTER POINT — see `mustered`. A wave is what sets off, not what exists.
     const at = this.mustered(b);
     if (this.squadFood(b, at) < profile.attackFood) return false;
+    // …and from the SECOND wave on, the race's siege if it is on its way — see `siegeHeld`.
+    if (this.siegeHeld(b)) return false;
     // …and after a FALL-BACK, the WHOLE army, not merely a wave's worth of it — see
     // `PlusProfile.refill`. Asked last because it is the one gate that prices the plan.
     return this.refilled(b, at);
+  }
+
+  /**
+   * THE UNDEAD'S SECOND WAVE BRINGS ITS MEAT WAGON — the developer's: "we must also add the Meat
+   * Wagon to the undead's second wave". For a race whose siege row is EARLY
+   * (`PlusRaceTable.siegeEarly`), every wave after the first waits while a siege unit is ON ITS
+   * WAY — ordered, or its producer standing or going up — and none is finished yet.
+   *
+   * On its way, never merely wanted: with no Slaughterhouse and none ordered there is nothing to
+   * wait FOR, and the wave goes as it always did. And for at most `SIEGE_WAIT`, measured from
+   * the first pass it held, so a razed Slaughterhouse or a lumber-starved base costs one wave
+   * a minute and a half rather than the rest of the game; the clock re-arms once a siege unit
+   * stands, so a lost wagon is waited for again. A held wave is an open CREEP window (the same
+   * question `creepNext` asks), so the army is not idle while it waits.
+   */
+  private siegeHeld(b: Brain): boolean {
+    const unit = b.table.siegeUnit;
+    if (!b.table.siegeEarly || !unit || b.profile.siegeUnits <= 0) return false;
+    if (b.ai.countDone(unit) > 0) {
+      b.siegeWaitFrom = -1;
+      return false;
+    }
+    if (b.assaults < 1) return false;
+    const from = b.table.units[unit]?.from;
+    if (b.ai.count(unit) < 1 && !(from && b.ai.count(from) > 0)) return false;
+    if (b.siegeWaitFrom < 0) b.siegeWaitFrom = b.clock;
+    return b.clock - b.siegeWaitFrom < SIEGE_WAIT;
   }
 
   /**

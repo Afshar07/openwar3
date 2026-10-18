@@ -1470,6 +1470,17 @@ rows cannot both spend the same room, and the mix keeps back what the side rows 
 trigger holds), so they arrive inside the ceiling rather than on top of it. A full army grows
 again only as it loses bodies. Ten headless minutes: 13–31 food of soldiers before, 13–21 after.
 
+**The undead's second wave brings its Meat Wagon** (the developer's call). Under the ceiling the
+wagon had stopped coming at all — its Slaughterhouse waited behind the Temple of the Damned and
+the upgrades for the same scarce lumber and stood at about eleven minutes, and by then the
+army filled the ceiling. So the undead's siege row is EARLY (`PlusRaceTable.siegeEarly`: above
+the first tower and the tech buildings), the siege's room is owed from the pass `siegeLine`
+starts working toward it (`siegeDue`), the Statue row leaves that room alone, the wagon may take
+the last of the room even if it is a little short of four (`fitted`'s `roundUp`, siege only —
+at most three food over), and every wave after the first waits up to `SIEGE_WAIT` (90 s) for a
+siege unit that is on its way (`siegeHeld`). Headless, every undead build has its wagon out at
+9:40–10:20, where before none had one by thirteen minutes.
+
 ## Strategies: a race is a table of builds, not one build
 
 Each race owns several named builds ([`races.ts`](../src/ai/plus/races.ts)) — Human plays
