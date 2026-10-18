@@ -6484,12 +6484,17 @@ export class RtsController {
     return false;
   }
 
-  /** Does any selected unit carry ATTACK GROUND — an artillery slot that is the player's to
-   *  aim (SimWorld.groundWeapon)? Asked of the whole selection, like Attack, and only of what
-   *  can walk: the button is a mobile unit's (UnitFunc gives the command to the siege units,
-   *  and the Cannon Tower's card has none). */
+  /** Does the card's sub-group carry ATTACK GROUND — an artillery slot that is the player's to
+   *  aim (SimWorld.groundWeapon)? Only of what can walk: the button is a mobile unit's
+   *  (UnitFunc gives the command to the siege units, and the Cannon Tower's card has none).
+   *  Asked of the FOCUSED sub-group and not of the whole selection, unlike Attack: Move,
+   *  Attack and Patrol are every soldier's, but Attack Ground is the artillery's OWN command,
+   *  and a Demolisher grabbed with a band of Grunts must not put it on the Grunts' card — at
+   *  3,1 it sits on a cell that is theirs, and pushed whatever the Grunts keep there aside.
+   *  Tab to the artillery and the button is there; a press still reaches every gun in the
+   *  selection (groundAttackAt). */
   selectionCanAttackGround(): boolean {
-    for (const id of this.selected) {
+    for (const id of this.focusedGroupIds()) {
       const u = this.sim.units.get(id);
       if (u && !u.ward && !u.building && this.sim.groundWeapon(u)) return true;
     }
