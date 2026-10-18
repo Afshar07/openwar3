@@ -1640,6 +1640,10 @@ export class MapViewerScene {
   // the async model load so a site isn't double-spawned.
   private pendingGhosts = new Map<string, { inst: SpawnInstance; defId: string; frame: number }>();
   private pendingGhostLoading = new Set<string>();
+  // The sites the last rebuild wanted. A model that finishes streaming in after its order went
+  // (built, cancelled, re-tasked, the worker dead) is not placed at all, rather than standing
+  // for a frame on the hope that the next rebuild notices.
+  private pendingGhostWanted = new Set<string>();
   // Workers whose build foundation is mid-spawn (async model load), so
   // tickPendingBuild doesn't raise the same building twice.
   private buildSpawning = new Set<number>();
@@ -13255,10 +13259,14 @@ export class MapViewerScene {
       desired.set(key, { defId, x, y, blocked });
     };
     for (const u of this.rts.simView.units.values()) {
-      if (u.owner !== this.localPlayer) continue;
+      // A dead worker's orders are not anybody's intent any more (the sim drops them at the
+      // death — SimWorld clears the queue there — and this keeps a stale view honest too).
+      if (u.owner !== this.localPlayer || u.hp <= 0) continue;
       if (u.buildPending) note(u.buildPending.defId, u.buildPending.x, u.buildPending.y, u.buildPending.paid);
       for (const o of u.orderQueue) if (o.kind === "buildnew") note(o.defId, o.x, o.y, o.paid);
     }
+    this.pendingGhostWanted.clear();
+    for (const key of desired.keys()) this.pendingGhostWanted.add(key);
     // Drop ghosts whose site is no longer pending (order started/canceled/re-tasked).
     for (const [key, g] of this.pendingGhosts) {
       if (!desired.has(key)) {
@@ -13293,7 +13301,7 @@ export class MapViewerScene {
     const model = map ? ((await this.viewer.load(def.model, this.solver)) as SpawnModel | undefined) : undefined;
     this.pendingGhostLoading.delete(key);
     // Bail if the site was canceled (or the scene torn down) during the load.
-    if (!model || !this.viewer.map || this.pendingGhosts.has(key)) return;
+    if (!model || !this.viewer.map || this.pendingGhosts.has(key) || !this.pendingGhostWanted.has(key)) return;
     const inst = model.addInstance();
     inst.setScene(this.viewer.map.worldScene);
     inst.setUniformScale(def.modelScale || 1);
@@ -13324,6 +13332,7 @@ export class MapViewerScene {
     for (const g of this.pendingGhosts.values()) g.inst.detach();
     this.pendingGhosts.clear();
     this.pendingGhostLoading.clear();
+    this.pendingGhostWanted.clear();
   }
 
   private resourceIcon(kind: "gold" | "lumber" | "supply"): string | null {

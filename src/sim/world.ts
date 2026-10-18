@@ -1198,7 +1198,11 @@ export type QueuedOrder =
   | { kind: "follow"; targetId: number; offX?: number; offY?: number }
   // ax/ay: optional distinct approach point around the node, so a group ordered
   // together fans over the mine's rim instead of all pathing to its centre.
-  | { kind: "harvest"; res: "gold" | "lumber"; nodeId: number; ax?: number; ay?: number }
+  //
+  // `resume` marks the entry the sim wrote ITSELF: the job a gatherer was pulled off to run a
+  // shift-queued order, put back at the end of its queue (see `interruptGatherLoop`). It stays
+  // the LAST entry whatever is queued after it, and a harvest the player queues replaces it.
+  | { kind: "harvest"; res: "gold" | "lumber"; nodeId: number; ax?: number; ay?: number; resume?: boolean }
   // The other half of the Gather button. Every harvest row carries a pair of faces —
   // `Art=BTNGatherGold` / `Unart=BTNReturnGoods` (see isHarvestCode) — and this is what the
   // second one orders: take what you are carrying to the nearest depot, now. The BUTTON takes
@@ -9060,7 +9064,7 @@ export class SimWorld {
   removeUnit(id: number): boolean {
     const u = this.units.get(id);
     if (!u) return false;
-    this.refundPendingBuild(u);
+    this.clearQueue(id); // a build it was walking to, or had queued and paid for, is paid back
     this.unsettle(u);
     this.releaseClaim(u); // a unit that leaves the world takes its walking claim with it
     this.releasePathStamp(u);
@@ -11346,7 +11350,50 @@ export class SimWorld {
   queueOrder(id: number, order: QueuedOrder): void {
     const u = this.units.get(id);
     if (!u || u.orderQueue.length >= MAX_QUEUED_ORDERS) return;
+    // The job the worker goes back to (interruptGatherLoop) is the END of its queue: a
+    // further shift-order goes in front of it, and a gather order the player queues IS the
+    // job now, so it replaces the remembered one rather than queueing behind a loop that
+    // never ends.
+    const last = u.orderQueue[u.orderQueue.length - 1];
+    if (last?.kind === "harvest" && last.resume) {
+      if (order.kind === "harvest") u.orderQueue[u.orderQueue.length - 1] = order;
+      else u.orderQueue.splice(u.orderQueue.length - 1, 0, order);
+      return;
+    }
     u.orderQueue.push(order);
+  }
+
+  /**
+   * Run a gatherer's shift-queued orders NOW, and put it back to work after them.
+   *
+   * Gathering is the one order in the game that never ends — the worker walks a load home and
+   * goes back for the next for as long as the node lasts — so the queue pump, which waits for
+   * a unit to fall idle, would wait for ever: shift-place three Burrows with a Peon on the
+   * lumber and it went on chopping, the build orders sat in its queue unrun, and their
+   * silhouettes stood on the ground for the rest of the match. The game's own answer is the
+   * one every build-order guide leans on: a shift-order given to a worker on the harvest loop
+   * is carried out straight away and the worker then returns to the job it left (ludo.guide,
+   * "Warcraft III: Reforged — basic elements of gameplay": shift-queue the builds and the
+   * workers return to mining afterwards). So the job is re-queued at the END as a `resume`
+   * entry and the first queued order is started; queueOrder keeps that entry last.
+   *
+   * A queue that already ends in a gather order (shift-clicking another tree) has its own job
+   * to end on, so nothing is remembered. The job is read off the live order (jobOf), so a
+   * worker caught walking a load home goes back to the same node with it.
+   */
+  private interruptGatherLoop(u: SimUnit): void {
+    const last = u.orderQueue[u.orderQueue.length - 1];
+    if (last?.kind !== "harvest") {
+      const job = this.jobOf(u);
+      if (job?.kind === "harvest" && u.orderQueue.length < MAX_QUEUED_ORDERS) {
+        u.orderQueue.push({ kind: "harvest", res: job.res, nodeId: job.nodeId, resume: true });
+      }
+    }
+    // The same release a fresh order gets on its way out of a job (issueOrder): out of the
+    // tree a wisp sits in, up out of an Acolyte's ring.
+    this.popFromCanopy(u);
+    this.popFromRing(u);
+    this.startNextQueued(u);
   }
 
   /** Drop a unit's whole queue + any pending new-building intent. Every fresh
@@ -11356,6 +11403,17 @@ export class SimWorld {
     const u = this.units.get(id);
     if (!u) return;
     this.refundPendingBuild(u);
+    // …and a build in the queue that was already CHARGED is paid back too. A shift-queued one
+    // is priced when its turn comes and owes nothing, but an outright placement given to a
+    // peon still inside the structure it is raising waits in the queue paid (Authority's
+    // insideBuild door), and dropping it here kept the gold.
+    if (!u.orderQueue?.length) return; // (asked of every death now — most queues are empty)
+    for (const o of u.orderQueue) {
+      if (o.kind !== "buildnew" || !o.paid) continue;
+      const s = this.stashOf(u.owner);
+      s.gold += o.gold;
+      s.lumber += o.lumber;
+    }
     u.orderQueue.length = 0;
   }
 
@@ -19555,6 +19613,11 @@ export class SimWorld {
         // shift-right-click a second, and only the second ever served the unit.
         if (u.drinkWellId && this.drinkStillOwed(u)) continue;
         this.startNextQueued(u);
+      } else if (u.orderQueue.length && u.worker && (u.order === "harvest" || u.order === "return") && !isOffField(u) && !u.buildPending && u.constructing === 0) {
+        // …and a gatherer's queue never would fall idle, so it is started from the loop and
+        // the job resumed after it (interruptGatherLoop). A worker inside the mine or a
+        // burrow is off the field and is asked again once it steps out.
+        this.interruptGatherLoop(u);
       }
     }
     simProfile.end("sim.world.post");
@@ -24179,7 +24242,8 @@ export class SimWorld {
     }
     this.deathBlast(u); // `Adda` — goblin land mines and sappers take the neighbours with them
     this.orbDeathEffects(u); // Black Arrow raises its minion, Incinerate goes off
-    this.refundPendingBuild(u); // died before its building went up → refund the cost
+    this.clearQueue(u.id); // died before its building went up → refund the cost, and its queued
+    // builds go with it: a corpse holding shift-queued orders kept their silhouettes standing
     this.unsettle(u); // corpses don't block cells
     this.releaseClaim(u); // …nor does a tile the dead unit was walking onto
     this.releasePathStamp(u); // …and neither does a collapsed building's footprint
