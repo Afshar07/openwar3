@@ -28156,13 +28156,29 @@ export class SimWorld {
     return this.terrainReachable(u, x, y);
   }
 
+  /**
+   * `canWalkTo`, asked of a THING rather than a point: could this unit get up to `target` —
+   * to the edge of the ground it occupies (`approachExtent`), which is where an attack or a
+   * move onto it actually stops? A building's centre is deep inside its own stamp, and
+   * `canWalkTo` gives a point two cells of slack, so asked of a Town Hall's centre it answers
+   * NO for every hall on the map — which is how the Computer+ waves came to write off every
+   * enemy EXPANSION as unreachable and only ever walk at the main (whose rung never asked).
+   */
+  canReachUnit(id: number, targetId: number): boolean {
+    const u = this.units.get(id);
+    const t = this.units.get(targetId);
+    if (!u || u.hp <= 0 || !t) return false;
+    if (u.flying) return !this.grid || this.grid.playableAt(t.x, t.y);
+    return this.terrainReachable(u, t.x, t.y, this.approachExtent(t));
+  }
+
   /** Could this unit get there if nobody else were in the way — is the destination reachable
    *  through the TERRAIN? The question that decides whether a blocked mover keeps its order
    *  (bodies move, so wait them out) or gives it up (a cliff does not). Deliberately a
    *  separate, unit-blind search rather than a flag on the usual one: the ordinary clearance
    *  test cannot tell "a Grunt is standing there" from "that is a cliff", and those two
    *  deserve opposite answers. Run only when a unit is about to give up, so it is rare. */
-  private terrainReachable(u: SimUnit, tx: number, ty: number): boolean {
+  private terrainReachable(u: SimUnit, tx: number, ty: number, extent?: { hx: number; hy: number }): boolean {
     const n = u.footprint;
     const domain = pathDomain(u);
     const start = this.grid.footprintAnchor(u.x, u.y, n);
@@ -28185,7 +28201,9 @@ export class SimWorld {
     // down. Reaching THE BOX is what such a walk asks, so the slack is the box's own
     // half-extent on top of the two cells.
     let slack = 2;
-    if (u.chaseHX > 0 && tx === u.chaseX && ty === u.chaseY) {
+    if (extent) {
+      slack += Math.ceil(Math.max(extent.hx, extent.hy) / PATHING_CELL);
+    } else if (u.chaseHX > 0 && tx === u.chaseX && ty === u.chaseY) {
       slack += Math.ceil(Math.max(u.chaseHX, u.chaseHY) / PATHING_CELL);
     }
     return startRegion === this.grid.regionNear(goal[0], goal[1], domain, n, slack);

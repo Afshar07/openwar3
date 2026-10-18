@@ -4236,7 +4236,7 @@ export class ComputerPlusAi {
     if (b.creeping || b.mode === "retreating" || b.mode === "defending") return;
     if (this.readiness(b) < WON_HEALTH || !b.squad.size) return;
     const foe = ai.townGuarded(town);
-    if (!foe || isShunned(b.avoid, foe, b.clock, GOAL_MATCH) || !this.reachable(b, foe)) return;
+    if (!foe || isShunned(b.avoid, foe, b.clock, GOAL_MATCH) || !this.reachable(b, foe, foe)) return;
     b.press = null;
     b.resume = null;
     b.vanguardDone = false;
@@ -4902,13 +4902,17 @@ export class ComputerPlusAi {
    * call — see `SimWorld.canWalkTo` — so it belongs here, at the once-per-objective decision,
    * and nowhere near the per-frame passes.
    */
-  private reachable(b: Brain, to: { x: number; y: number }): boolean {
+  private reachable(b: Brain, to: { x: number; y: number }, thing?: SimUnit): boolean {
     const world = this.host.world;
+    // A THING — a hall, whatever stands on our next mine — is asked about up to its EDGE
+    // (`SimWorld.canReachUnit`): its centre is inside its own footprint, and asked as a point
+    // every building on the map is unreachable.
+    const can = (id: number): boolean => thing ? world.canReachUnit(id, thing.id) : world.canWalkTo(id, to.x, to.y);
     const hero = this.squadHero(b);
-    if (hero && !world.canWalkTo(hero.id, to.x, to.y)) return false;
+    if (hero && !can(hero.id)) return false;
     for (const u of this.squadUnits(b)) {
       if (u.isPeon || u.flying || isCopy(u) || u.id === hero?.id) continue;
-      return world.canWalkTo(u.id, to.x, to.y);
+      return can(u.id);
     }
     return true;
   }
@@ -6370,7 +6374,7 @@ export class ComputerPlusAi {
       // reaches. `takeExp` is deliberately left standing when this refuses — the expansion is
       // still wanted, and the question is asked again for the price of a region lookup — so what
       // the refusal buys is the wave going and doing something it CAN do in the meantime.
-      if (foe && !avoided(foe) && this.reachable(b, foe)) {
+      if (foe && !avoided(foe) && this.reachable(b, foe, foe)) {
         ai.takeExp = false; // asked and answered; `startExpansion` sets it again if still wanted
         return { id: foe.id, x: foe.x, y: foe.y };
       }
@@ -6471,7 +6475,7 @@ export class ComputerPlusAi {
         continue;
       }
       if (foe >= 0 && u.owner !== foe) continue;
-      if (avoided(h) || !this.reachable(b, h)) continue;
+      if (avoided(h) || !this.reachable(b, h, u)) continue;
       const d = Math.hypot(h.x - from.x, h.y - from.y);
       if (d < bestD) { bestD = d; best = { id, x: h.x, y: h.y }; }
     }

@@ -1289,6 +1289,14 @@ sees the enemy mains (map data anyway) long before anybody has expanded.
   (`mainOf`), not `AiPlayer.enemyBase`'s "enemy hall nearest us", which is somebody's expansion
   as often as a main; `anyBase` (that old rung, whole) is the last resort so a player whose main is
   razed can still be finished.
+  **A known expansion is asked about up to its EDGE** (`reachable(b, h, hall)` →
+  `SimWorld.canReachUnit`). It used to be asked as a POINT — the hall's centre — and `canWalkTo`
+  gives a point two cells of slack, while a Town Hall's centre is four cells deep inside its own
+  blocked stamp: every expansion on the map read as unreachable, so every wave and every press
+  went to the main ("currently they target only their main base"), and the `expansionFirst` roll
+  was never even reached. `tools/sim-reach-building-test.cjs` pins both answers. The guard on our
+  OWN next mine (`expansionFoe`, a building when somebody else got there first) is asked the same
+  way.
 * **The sweep** (`sweepPass`): every `PlusProfile.sweepEvery` (Normal 120 s, Insane 75 s; Easy
   never scouts) after the opening tour is home, the same scout machinery walks a worker round up
   to `SWEEP_STOPS` mines (`sweepStops`): not a start location's own, not ours, not already known
