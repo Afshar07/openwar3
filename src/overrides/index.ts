@@ -11,6 +11,7 @@ import localMultiplayerCreateFdf from "./ui/LocalMultiplayerCreate.fdf?raw";
 import localMultiplayerJoinFdf from "./ui/LocalMultiplayerJoin.fdf?raw";
 import optionsMenuFdf from "./ui/OptionsMenu.fdf?raw";
 import escMenuOptionsPanelFdf from "./ui/EscMenuOptionsPanel.fdf?raw";
+import escMenuTemplatesFdf from "./ui/EscMenuTemplates.fdf?raw";
 
 // OpenWar3's own layer on top of the game's UI files (issue #124). Read `README.md` first.
 //
@@ -149,6 +150,16 @@ export const OPTIONS_MENU_OVERRIDE: FdfOverride = {
     { frame: "VsyncCheckBox", into: "VideoPanel" },
     { frame: "VsyncLabel", into: "VideoPanel" },
   ],
+};
+
+/**
+ * The in-game menus' shared templates: an open dropdown lights its row GOLD, as the glue
+ * menus' does, rather than the install's red. Layered by every in-game screen that drops one
+ * open (the F10 menu, the F12 chat dialog). See `ui/EscMenuTemplates.fdf`.
+ */
+export const ESC_TEMPLATES_OVERRIDE: FdfOverride = {
+  id: "ow3-esc-menu-templates",
+  source: escMenuTemplatesFdf,
 };
 
 /**

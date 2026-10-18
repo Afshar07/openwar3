@@ -22,6 +22,7 @@
 import type { ChatTarget } from "../game/chat";
 import type { DataSource } from "../vfs/types";
 import { mountFdfScreen, playFdfClick, type FdfScreen } from "./fdf/render";
+import { ESC_TEMPLATES_OVERRIDE } from "../overrides";
 
 const CHAT_FDF = "UI\\FrameDef\\UI\\ChatDialog.fdf";
 
@@ -130,6 +131,7 @@ export class ChatDialogOverlay {
         overlayClass: "fdf-ingame fdf-dialog",
         skin: this.skin,
         centerRoot: true,
+        overrides: [ESC_TEMPLATES_OVERRIDE],
         handlers: {
           ChatAcceptButton: () => this.accept(),
         },

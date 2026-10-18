@@ -40,7 +40,7 @@ import type { SoundBoard } from "../audio/sounds";
 import type { Arg, FdfFrame, FdfProp } from "./fdf/parser";
 import { numProp, type FdfLibrary } from "./fdf/library";
 import { mountFdfScreen, playFdfClick, type FdfScreen } from "./fdf/render";
-import { ESC_OPTIONS_OVERRIDE, OW3_STRINGS } from "../overrides";
+import { ESC_OPTIONS_OVERRIDE, ESC_TEMPLATES_OVERRIDE, OW3_STRINGS } from "../overrides";
 import { EscOptions } from "./escOptions";
 import { gamepadButtonPressed } from "./gamepad";
 
@@ -241,7 +241,7 @@ export class EscMenu {
         overlayClass: "fdf-ingame fdf-dialog",
         skin: this.skin,
         centerRoot: true,
-        overrides: [OW3_STRINGS, ESC_OPTIONS_OVERRIDE],
+        overrides: [OW3_STRINGS, ESC_TEMPLATES_OVERRIDE, ESC_OPTIONS_OVERRIDE],
         buildRoot: (lib) => this.rootFrame(lib),
         handlers: this.handlers(),
         onBuild: (built) => this.onBuild(built),

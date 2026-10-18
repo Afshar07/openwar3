@@ -1,0 +1,26 @@
+// OpenWar3 override — `UI\FrameDef\UI\EscMenuTemplates.fdf`, the in-game menus' shared templates.
+//
+// One edit, and it is the developer's call rather than the game's: an open IN-GAME dropdown
+// (F10 → Options, the F12 chat recipients) lights the row under the mouse GOLD, the same
+// MenuTextHighlightColor the glue menus' StandardPopupMenuMenuTemplate carries
+// (0.99 0.827 0.0705, `UI\FrameDef\Glue\StandardTemplates.fdf`). The install's own copy of this
+// template says `1.0 0.0 0` — RED — which read as a different widget from the one the main
+// menu's Options screen draws for the very same settings.
+//
+// Everything else is restated exactly as the install declares it, because a name collision
+// REPLACES the template (src/overrides/README.md) — it cannot inherit from the frame it shadows.
+
+Frame "MENU" "EscMenuPopupMenuMenuTemplate" {
+    DecorateFileNames,
+    Height 0.03,
+    FrameFont "EscMenuTextFont",0.011,"",
+    MenuTextHighlightColor 0.99 0.827 0.0705 1.0,
+    MenuItemHeight 0.014,
+    MenuBorder 0.009,
+
+    ControlBackdrop "EscMenuPopupMenuMenuBackdropTemplate",
+    Frame "BACKDROP" "EscMenuPopupMenuMenuBackdropTemplate" INHERITS "EscMenuButtonBackdropTemplate" {
+        DecorateFileNames,
+        BackdropBackground "EscMenuEditBoxBackground",
+    }
+}
