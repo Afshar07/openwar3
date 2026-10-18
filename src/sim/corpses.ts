@@ -63,6 +63,13 @@ export interface CorpseKind {
    *  automatically disappears." So while it is being eaten nobody else may have it. Optional
    *  so a record from before the field existed reads as uneaten. */
   eatenBy?: number;
+  /** Seconds the body is still FALLING — what is left of its type's Art - Death Time
+   *  (UnitData `death`, UnitDef.deathTime) since the unit died. Until it reaches 0 the unit is
+   *  still playing its death and is not a corpse yet, so nothing may raise, eat or load it
+   *  (the developer's word, first for the Rod of Necromancy, which could raise a Footman the
+   *  instant it fell instead of after its 3.04 s). Optional so a record from before the field
+   *  existed — and a body that never fell (Create Corpse, Exhume Corpses) — reads as down. */
+  fallingLeft?: number;
 }
 
 /** What a claim intends to do with the bodies it takes. */
@@ -105,6 +112,7 @@ export function corpseUseError(
 ): string | null {
   if (c.raised) return "spent";
   if (c.eatenBy) return "eaten"; // somebody's meal — see CorpseKind.eatenBy
+  if ((c.fallingLeft ?? 0) > 0) return "falling"; // still dying — see CorpseKind.fallingLeft
   if (c.isHero) return "hero";
   if (c.mechanical) return "mechanical";
   if (need.forLoad && c.heldBy) return "held"; // already in a wagon — one cargo at a time

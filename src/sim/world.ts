@@ -695,6 +695,9 @@ export interface SimCorpse {
   /** The unit eating it (Cannibalize), 0 for nobody — see CorpseKind.eatenBy. The body stays
    *  drawn until the meal ends, and tickCorpses spends it then. */
   eatenBy: number;
+  /** Seconds of its death clip the body still has to play before it is a corpse anyone may use
+   *  (CorpseKind.fallingLeft). Run down by tickCorpses; 0 for a body that never fell. */
+  fallingLeft: number;
 }
 
 /** An item held in a hero's inventory (one of 6 slots). Its stat bonus / active
@@ -18474,6 +18477,10 @@ export class SimWorld {
       raised: false,
       heldBy: 0,
       eatenBy: 0,
+      // Not a corpse until it has finished FALLING: the type's own Art - Death Time (UnitData
+      // `death`). The decay clock above already counts from the moment of death (BoneDecayTime
+      // is the whole lifetime), so this is a window INSIDE it, not time added on top.
+      fallingLeft: Math.max(0, this.unitReg?.get(u.typeId)?.deathTime ?? 0),
     });
     this.nextCorpseId++;
   }
@@ -18492,6 +18499,7 @@ export class SimWorld {
         c.heldBy = 0; // …and leaves any wagon it was eaten out of (see claimCorpses)
         continue;
       }
+      if (c.fallingLeft > 0) c.fallingLeft = Math.max(0, c.fallingLeft - dt);
       c.decayLeft -= dt;
       if (c.decayLeft <= 0) this.corpses.delete(c.id);
     }
@@ -18628,7 +18636,7 @@ export class SimWorld {
     this.corpses.set(this.nextCorpseId, {
       id: this.nextCorpseId, deadId: 0, unitId, x, y, facing, owner,
       isHero: false, mechanical: !!def?.classification.includes("mechanical"),
-      decayLeft: CORPSE_TOTAL_TIME(), raised: false, heldBy, eatenBy: 0,
+      decayLeft: CORPSE_TOTAL_TIME(), raised: false, heldBy, eatenBy: 0, fallingLeft: 0, // never fell: usable at once
     });
     this.nextCorpseId++;
   }

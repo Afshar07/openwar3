@@ -55,6 +55,12 @@ eq("…nor eaten", corpseUseError(corpse({ isHero: true }), TARGS.Acan, "ally", 
 eq("a machine leaves a wreck, not a body", corpseUseError(corpse({ mechanical: true }), TARGS.AUan, "ally"), "mechanical");
 eq("no type = nothing to rebuild", corpseUseError(corpse({ unitId: "" }), TARGS.AUan, "ally"), "notype");
 ok("…but a meal does not care what died", corpseAdmits(corpse({ unitId: "" }), TARGS.Acan, "ally", { needsType: false }));
+eq("a unit still FALLING is not a corpse yet", corpseUseError(corpse({ fallingLeft: 1.5 }), TARGS.Arai, "ally"), "falling");
+eq("…not to a meal or a wagon either", [
+  corpseUseError(corpse({ fallingLeft: 1.5 }), TARGS.Acan, "ally", { needsType: false }),
+  corpseUseError(corpse({ fallingLeft: 1.5 }), TARGS.AHre, "ally"),
+], ["falling", "falling"]);
+eq("…and is one the moment its death has played", corpseUseError(corpse({ fallingLeft: 0 }), TARGS.Arai, "ally"), null);
 
 console.log("whose dead — read off the ability's own targs1");
 ok("Resurrection takes an ally's", corpseAdmits(corpse(), TARGS.AHre, "ally"));
@@ -260,6 +266,31 @@ TARGS.Amed = [];
   const { api } = pool([...full, spare]);
   SPELL_HANDLERS.Amel(api, wagon, def("Amel", { castRange: 100, area: 600 }), 1);
   eq("a full wagon (8) picks up nothing more", spare.heldBy, 0);
+}
+
+console.log("the Rod of Necromancy waits for the body to finish falling (Art - Death Time)");
+{
+  // A real world: the clock is filed by SimWorld.spawnCorpse off the type's own `death`
+  // (a Footman's 3.04 s) and run down by tickCorpses, and corpsesFor is the one door every
+  // corpse spell — the Rod's Raise Dead included — finds its bodies through.
+  const { SimWorld } = require(join(REPO, ".sim-build", "src", "sim", "world.js"));
+  const { PathingGrid } = require(join(REPO, ".sim-build", "src", "sim", "pathing.js"));
+  const { UnitRegistry } = require(join(REPO, ".sim-build", "src", "data", "units.js"));
+  const units = new UnitRegistry(new Map([
+    ["hfoo", { id: "hfoo", name: "hfoo", isHero: false, isBuilding: false, deathTime: 3.04, foodUsed: 2, foodMade: 0, classification: [] }],
+  ]));
+  const grid = new PathingGrid({ width: 32, height: 32, flags: new Uint8Array(32 * 32) }, [0, 0]);
+  const world = new SimWorld(grid, 1, undefined, undefined, units);
+  const hero = { id: 1, owner: 0, team: 0, x: 0, y: 0 };
+  world.spawnCorpse({ id: 2, typeId: "hfoo", owner: 0, x: 10, y: 0, facing: 0 });
+  const rod = { code: "AIrd", targetFlags: TARGS.Arai };
+  eq("the Footman has just fallen: nothing to raise", world.corpsesFor(hero, rod, 0, 0, 900).length, 0);
+  world.tickCorpses(3);
+  eq("…still nothing at 3 s of its 3.04", world.corpsesFor(hero, rod, 0, 0, 900).length, 0);
+  world.tickCorpses(0.05);
+  eq("…a corpse once its death has played", world.corpsesFor(hero, rod, 0, 0, 900).length, 1);
+  world.spawnCorpseOf("hfoo", 0, 0, 0);
+  eq("a body that never fell (Create Corpse) is usable at once", world.corpsesFor(hero, rod, 0, 0, 900).length, 2);
 }
 
 console.log(failed ? `\ncorpses: ${failed} FAILED` : "\ncorpses: all checks passed");

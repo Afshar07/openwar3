@@ -396,10 +396,11 @@ export function applyWorldSnapshot(world: ApplyWorld, snap: WorldSnapshot, creat
         rec.raised = c.raised;
         rec.heldBy = c.heldBy ?? 0; // loaded/dropped is host state, like `raised`
         rec.eatenBy = c.eatenBy ?? 0; // …and so is being eaten
+        rec.fallingLeft = c.fallingLeft ?? 0; // …and so is still falling
         rec.x = c.x;
         rec.y = c.y; // …and a dropped body lands somewhere new
       } else {
-        world.corpses.set(c.id, { ...c, heldBy: c.heldBy ?? 0, eatenBy: c.eatenBy ?? 0 });
+        world.corpses.set(c.id, { ...c, heldBy: c.heldBy ?? 0, eatenBy: c.eatenBy ?? 0, fallingLeft: c.fallingLeft ?? 0 });
       }
     }
     for (const id of [...world.corpses.keys()]) if (!sentCorpses.has(id)) world.corpses.delete(id);
