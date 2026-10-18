@@ -2348,8 +2348,9 @@ body.hud-number-skinned .hud-count-badge:not(.plain) {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
-  font-weight: 600;
+  /* Regular weight: the game's face has no bold, so 600 was the browser smearing it. */
+  font-size: 12px;
+  font-weight: 400;
   letter-spacing: 0.3px;
   color: #f4ecff;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.95), 0 0 3px rgba(0, 0, 0, 0.9);
@@ -2846,14 +2847,17 @@ body.hud-widget-skinned .hud-status-label {
   font-size: 12px;
 }
 /* The build/train bar, at SimpleBuildTimeIndicator's TOPLEFT + (0.06125, −0.038125) — 30.4%
-   across the panel, just clear of the big slot. Its own art, which ships gold. */
+   across the panel, just clear of the big slot. Its own art, which ships gold. The FDF gives
+   only that anchor (the SIMPLESTATUSBAR is sized in code), so the width and height are OURS:
+   right 6% / height 13%, centred on the same line the old 3% / 15% box was (developer's call
+   — the larger one read too heavy). */
 body.hud-widget-skinned .hud-progress {
   position: absolute;
   left: 30.4%;
-  right: 3%;
-  top: 30%;
+  right: 6%;
+  top: 31%;
   width: auto;
-  height: 15%;
+  height: 13%;
   background: none;
   border: none;
   border-radius: 0;

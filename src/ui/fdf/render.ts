@@ -1033,7 +1033,18 @@ function compositeBackdrop(f: FdfFrame, w: number, h: number, ctx: RenderCtx): H
           g.fillStyle = "#000";
           g.fillRect(ix, iy, iw, ih);
         }
-        for (let y = iy; y < iy + ih; y += tileH) for (let x = ix; x < ix + iw; x += tileW) g.drawImage(bg, x, y, tileW, tileH);
+        // ONE repeating pattern, never a drawImage per tile. A tile is a fractional number of
+        // pixels wide (0.032 world units is not a whole pixel at any real scale), and each
+        // separately smoothed drawImage blends its own edge texels against the transparency
+        // OUTSIDE the image — so every tile border came out a thin translucent line, a faint
+        // grid over the map list and every dropdown. A pattern samples ACROSS the seam (it
+        // wraps), which is how the engine's own tiled quad reads it.
+        const pattern = g.createPattern(bg, "repeat");
+        if (pattern) {
+          pattern.setTransform(new DOMMatrix().translateSelf(ix, iy).scaleSelf(tileW / bg.width, tileH / bg.height));
+          g.fillStyle = pattern;
+          g.fillRect(ix, iy, iw, ih);
+        }
         g.restore();
       }
     } else {
