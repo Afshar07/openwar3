@@ -47,7 +47,7 @@ import {
 import { perfNow, simProfile } from "./profile";
 import { flyHeight, type MissileFlight } from "./missile";
 import { HERO_KILL_VALUE, MatchStats } from "./matchStats";
-import { SPELL_HANDLERS, ITEM_INVULN_GROUP, AURA_BUFFS, SELF_INVIS_GROUP, BLADESTORM_GROUP, FIELD_PIERCES_SPELL_IMMUNITY, POLARITY_SPELLS, HEAL_SPELLS, MANA_TARGET_SPELLS, NO_SUMMON_TARGET, DISPEL_CODES, REPLENISH_BAR, replenishRefusal, survivesDispel, clockedBuff, worthDispelling, invisTransition, waveSchedule, WAVE_FIELDS, fx, buffIdOf, spellShieldBuff, drainTag, DRAIN_GROUP, CANNIBALIZE_GROUP, POSSESSION_GROUP, type SpellApi, type SimBuffInit, type SpellFieldInit, type CastContext, type WaveOptions, type RaiseOptions } from "./spells";
+import { SPELL_HANDLERS, ITEM_INVULN_GROUP, AURA_BUFFS, SELF_INVIS_GROUP, BLADESTORM_GROUP, FIELD_PIERCES_SPELL_IMMUNITY, POLARITY_SPELLS, HEAL_SPELLS, MANA_TARGET_SPELLS, NO_SUMMON_TARGET, UNDEAD_TARGET_SPELLS, DISPEL_CODES, REPLENISH_BAR, replenishRefusal, survivesDispel, clockedBuff, worthDispelling, invisTransition, waveSchedule, WAVE_FIELDS, fx, buffIdOf, spellShieldBuff, drainTag, DRAIN_GROUP, CANNIBALIZE_GROUP, POSSESSION_GROUP, type SpellApi, type SimBuffInit, type SpellFieldInit, type CastContext, type WaveOptions, type RaiseOptions } from "./spells";
 /** The buff group a Tornado's toss is applied under — both halves, so the invulnerability's wipe
  *  spares the stun it came with (clearStatusForInvulnerable). See tickTornado. */
 const TORNADO_SPIN_GROUP = "tornadoSpin";
@@ -14759,6 +14759,10 @@ export class SimWorld {
     // may not pick a Footman at all — see MANA_TARGET_SPELLS.
     const manaTarget = MANA_TARGET_SPELLS[code];
     if (manaTarget && target.maxMana <= 0) return manaTarget;
+    // …and the sacrifices, which want an Undead CLASSIFICATION rather than the race — so a
+    // Death Knight cannot Death Pact his own Meat Wagon (see UNDEAD_TARGET_SPELLS).
+    const undeadTarget = UNDEAD_TARGET_SPELLS[code];
+    if (undeadTarget && !this.undeadClassified(target)) return undeadTarget;
     // …and the TRANSFORMS, which refuse a summoned unit outright — "Unable to target summoned
     // units." The third rule of the same shape and known the same way (see NO_SUMMON_TARGET:
     // 1.30.4's target-flag vocabulary has no `summoned`, and the engine ships the error line
@@ -14807,6 +14811,14 @@ export class SimWorld {
     // later in the same pass), so take it now rather than read a stale null as "nobody".
     this.trackEnsnareSeen(u);
     return !!u.ensnareSeen?.has(t.id);
+  }
+
+  /** common.j's UNIT_TYPE_UNDEAD for one unit: its type's UnitBalance `type` column, unless a
+   *  script's `UnitAddType`/`UnitRemoveType` said otherwise (SimUnit.classOverrides, index 14). */
+  private undeadClassified(u: SimUnit): boolean {
+    const own = u.classOverrides?.[14];
+    if (own !== undefined) return own;
+    return !!this.unitReg?.get(u.typeId)?.classification.includes("undead");
   }
 
   /** Would casting `code` on this target HEAL it? For a polarity spell the friendly half

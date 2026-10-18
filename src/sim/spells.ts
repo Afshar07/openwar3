@@ -1131,6 +1131,18 @@ export const MANA_TARGET_SPELLS: Record<string, string> = {
   AEmb: "Cantmanaburn", // Demon Hunter — Mana Burn
 };
 
+/** The SACRIFICES — Death Pact and Dark Ritual — take a "friendly Undead unit" (both Ubertips,
+ *  word for word), and once more `targs1` cannot say it: both rows read
+ *  `air,ground,player,nonhero,invu,vuln`, which a Meat Wagon satisfies in full. Undead here is
+ *  the CLASSIFICATION (UnitBalance.slk `type`, common.j's UNIT_TYPE_UNDEAD), not the race: a
+ *  Meat Wagon, an Obsidian Statue and the Undead Barge are race `undead` but `type` =
+ *  `Mechanical`, while every Ghoul, Abomination and skeleton is `undead`. The line is the
+ *  game's own: `Targetundead` = "Must target an Undead unit." */
+export const UNDEAD_TARGET_SPELLS: Record<string, string> = {
+  AUdp: "Targetundead", // Death Knight — Death Pact
+  AUdr: "Targetundead", // Lich — Dark Ritual
+};
+
 /**
  * THE TRANSFORMS — Hex and Polymorph, and the creep copies that share their codes — may not
  * be aimed at a SUMMONED unit. "Casting Hex on a summoned unit does nothing… summoned units
@@ -3224,7 +3236,11 @@ export const SPELL_HANDLERS: Record<string, Handler> = {
     const t = api.getUnit(ctx.targetId);
     if (!t || !api.ally(caster, t) || t.isHero) return;
     api.spellHeal(caster, t.maxHp);
-    if (def.casterArt) api.emitEffect(def.casterArt, caster.x, caster.y, caster.id);
+    // One model per end of the pact, as UndeadAbilityFunc [AUdp] names them:
+    //   Casterart = …\Undead\DeathPact\DeathPactCaster.mdl   the life arriving, on the Death Knight
+    //   Targetart = …\Undead\DeathPact\DeathPactTarget.mdl   the sacrifice, at its `origin`
+    if (def.targetArt) api.emitEffect(def.targetArt, t.x, t.y, t.id, 0, def.targetAttach);
+    if (def.casterArt) api.emitEffect(def.casterArt, caster.x, caster.y, caster.id, 0, def.casterAttach);
     api.killUnit(t);
   },
 
