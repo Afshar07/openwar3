@@ -1491,7 +1491,7 @@ again only as it loses bodies. Ten headless minutes: 13–31 food of soldiers be
 **The ceiling comes off at 25:00 on Normal** (`PlusProfile.unlockAt`, read through `liveProfile`
 where the brain builds the plan's context): from then on the army may grow to the engine's own
 food ceiling, which the workers share. The developer: "right now games tend to get stuck. we
-must unlock it after minute 25 so that games can finish in all-out brawls" — twenty food is
+must unlock it after minute 25 so that games can finish in all-out brawls" — eighteen food (twenty until the developer asked for two less) is
 the right army against a newer player early and the wrong one forty minutes in, when two
 maxed-out bases trade waves neither can push through. Easy and Insane never unlock (Insane's
 ceiling is already upkeep, not a handicap). From the same minute a Normal wave waits for `lateAttackFood` (30) rather than

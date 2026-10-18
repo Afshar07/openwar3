@@ -496,7 +496,11 @@ export const PLUS_NORMAL: PlusProfile = {
   // average army a beginner already met — 22.4 — but stops the tail (17–34), and nothing past
   // the mix's leftovers is ever bought on top of it again. 22 was measured too and was the
   // bigger army of the two at every minute (23.9, up to 36), so not the one the issue asks for.
-  armyFood: 20, wholeArmyCeiling: true, unlockAt: 1500, lateAttackFood: 30, towers: 1, siegeUnits: 1, heroes: 2, techTier: 3, upgradeRank: 2,
+  // …and 18 on "reduce the target army size (excluding heroes) by 2 food": one Footman off the
+  // whole army. The ceiling prices soldiers only (`armyTarget`), while the plan's own gates
+  // (`TIER3_ARMY` 20, `TECH_AFTER` 24) read `PlusCtx.armyFood`, which counts the heroes' food
+  // too — so 18 soldiers beside a tier-2 Normal's two heroes still clear every one of them.
+  armyFood: 18, wholeArmyCeiling: true, unlockAt: 1500, lateAttackFood: 30, towers: 1, siegeUnits: 1, heroes: 2, techTier: 3, upgradeRank: 2,
   // Six minutes at the earliest and each seat somewhere in the two after it — it was five on the
   // dot, which is both two minutes sooner than Easy and the "every computer leaves on one tick"
   // habit `firstAttackSpread` was added to Easy to cure. A wave of twelve (the hero's five on top)
