@@ -16,7 +16,9 @@
 // the real client's does: ten minutes on it is the same amount of game at every speed. What it
 // does NOT scale is the player's own hand (the camera, the HUD's own animation).
 //
-// Single player: the player's own setting, remembered here and changeable mid-match from F10.
+// Single player: every match opens on Fast and the player changes it from F10 for THAT match
+// only. Nothing is remembered — a speed left on Slow last week is not a speed the player
+// chose for today's game, so the default is the one rung a match never has to be talked out of.
 // Multiplayer: the HOST's pick on the create screen, carried in `AdvancedOptions.gameSpeed` so
 // every machine runs the same clock — and F10's slider only SHOWS it there.
 
@@ -52,8 +54,8 @@ const LABEL: Record<GameSpeed, string> = {
   [GameSpeed.Fastest]: "FASTEST",
 };
 
-/** Parse anything (a stored string, a wire value from an older peer) into a rung — Fast when it
- *  is not one. */
+/** Parse anything (a slider value, a URL parameter, a wire value from an older peer) into a
+ *  rung — Fast when it is not one. */
 export function toGameSpeed(v: unknown): GameSpeed {
   const n = typeof v === "string" ? Number(v) : v;
   return typeof n === "number" && Number.isInteger(n) && n >= GAME_SPEED_MIN && n <= GAME_SPEED_MAX
@@ -72,25 +74,4 @@ export function gameSpeedLabel(s: GameSpeed, lib: FdfLibrary | null): string {
   const fallback = { SLOW: "Slow", MEDIUM: "Medium", FAST: "Fast", FASTEST: "Fastest" }[LABEL[s]] ?? "Fast";
   const name = word(LABEL[s], fallback);
   return s === DEFAULT_GAME_SPEED ? `${name} (${word("DEFAULT", "Default")})` : name;
-}
-
-/** The single-player setting, kept apart from the Options store because it is not a row of the
- *  glue Options screen — only the in-game panel carries it. */
-const STORE_KEY = "openwar3.gameSpeed";
-
-export function loadGameSpeed(): GameSpeed {
-  try {
-    const raw = localStorage.getItem(STORE_KEY);
-    return raw === null ? DEFAULT_GAME_SPEED : toGameSpeed(raw);
-  } catch {
-    return DEFAULT_GAME_SPEED;
-  }
-}
-
-export function saveGameSpeed(s: GameSpeed): void {
-  try {
-    localStorage.setItem(STORE_KEY, String(s));
-  } catch {
-    /* no storage: the setting lasts as long as the page */
-  }
 }

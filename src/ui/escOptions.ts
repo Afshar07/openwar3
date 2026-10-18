@@ -19,7 +19,6 @@ import {
   GAME_SPEED_MAX,
   GAME_SPEED_MIN,
   gameSpeedLabel,
-  saveGameSpeed,
   toGameSpeed,
   type GameSpeed,
 } from "../data/gameSpeed";
@@ -93,8 +92,8 @@ export class EscOptions {
   ok(): void {
     this.committed = { ...this.working };
     saveOptions(this.committed);
-    // Only a speed the player could set is theirs to remember: a multiplayer match's is the host's.
-    if (!this.host.gameSpeed().locked) saveGameSpeed(this.workingSpeed);
+    // The speed is already applied and lasts for this match only — never remembered, so the
+    // next match opens on Fast again (src/data/gameSpeed.ts).
     this.committedSpeed = this.workingSpeed;
   }
 

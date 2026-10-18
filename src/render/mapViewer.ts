@@ -74,7 +74,7 @@ interface CreepSeed {
 }
 import { RACE_INDEX, STARTING_UNITS, WORKERS, MELEE_UNIT_SPACING, MELEE_WORKER_CLUSTERS, isHarvestCode, resolveRace, type PlayableRace, type WorkerCluster } from "../data/races";
 import { MELEE_NORMAL as MELEE_AI_NORMAL } from "../ai/ids";
-import { DEFAULT_GAME_SPEED, gameSpeedRate, loadGameSpeed, type GameSpeed } from "../data/gameSpeed";
+import { DEFAULT_GAME_SPEED, gameSpeedRate, type GameSpeed } from "../data/gameSpeed";
 import { AI_SCRIPT_FOR } from "../ai";
 import { HERO_SEATS as CANDY_HERO_SEATS, isCandyWarScript } from "../ai/plus/candy/map";
 import { HERO_SEATS as WARCHASERS_HERO_SEATS, isWarChasersScript } from "../ai/plus/warchasers/map";
@@ -2653,9 +2653,9 @@ export class MapViewerScene {
     // has no use for (see panelDead).
     this.campaign = config.campaign === true;
     // …and how fast it runs (src/data/gameSpeed.ts): a networked config carries the host's pick
-    // and LOCKS it, single player is the player's own remembered setting.
+    // and LOCKS it; single player always opens on Fast, the player's F10 pick lasting this match.
     this.speedLocked = config.gameSpeed !== undefined;
-    this.setGameSpeed(config.gameSpeed ?? loadGameSpeed());
+    this.setGameSpeed(config.gameSpeed ?? DEFAULT_GAME_SPEED);
     // What the Quest Log calls this match. The map's own w3i name is the default and is right
     // for every map you pick off a list; a CAMPAIGN chapter is titled by the campaign index
     // instead, because its w3i name is the file's ("NightElfX01") and nothing a player has
