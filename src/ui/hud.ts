@@ -695,6 +695,11 @@ export const PLAYER_COLORS = [
 const CAMP_DOT = 0.045; // weak-camp diameter (× MinimapMiddleCampScale from level 10)
 const MAP_GLYPH = 0.065; // gold-mine / neutral-building glyph side
 const UNIT_DOT = 5; // unit dot, in dots-canvas pixels
+// The hero marker (`MinimapHero`) is drawn at TWICE the size its model is authored at. OURS, the
+// developer's pick: at the model's own scale a hero's diamond is barely larger than a unit dot on
+// a canvas this small (see the note above on the client painting at native resolution), and a
+// hero is the one thing on the minimap a player most needs to find at a glance.
+const HERO_MARKER_SCALE = 2;
 // A camp dot and a gold-mine glyph are routinely placed on top of one another (a mine
 // with its guards is the commonest camp on any melee map), and at minimap scale the one
 // on top simply hides the other. So a marker that TOUCHES another is drawn translucent —
@@ -4604,7 +4609,7 @@ export class GameHud {
       ctx.fillStyle = colour;
       ctx.fillRect(p[0] - d, p[1] - d, UNIT_DOT, UNIT_DOT);
     }
-    for (const hero of heroes) heroModel!.draw(ctx, hero.x, hero.y, MINIMAP_PX_PER_UNIT, "Stand", 0, 0, hero.colour);
+    for (const hero of heroes) heroModel!.draw(ctx, hero.x, hero.y, MINIMAP_PX_PER_UNIT * HERO_MARKER_SCALE, "Stand", 0, 0, hero.colour);
     this.drawPings(ctx, ox, oy, w, h); // over everything: a ping is meant to be seen
   }
 
