@@ -453,6 +453,14 @@ export interface SpellFieldInit {
    *  (Birth 0–2667, Stand 3567–4567, Death 5200–5467) standing where the Priestess stands, not
    *  a shard to scatter. Drawn off `activeSpellFields` (mapViewer collectFieldCasterFx). */
   casterArt?: string;
+  /** …and the same three acts at the field's CENTRE: one model sized for the whole circle,
+   *  Birth as the field opens, its Stand LOOPED for as long as the field is listed, and its
+   *  Death the frame it ends — waves spent or channel broken. Earthquake's `[XOeq] Effectart =
+   *  EarthQuakeTarget.mdl` is this (Birth 167–1200, Stand 1233–10274, Death 62300–63267): a
+   *  one-shot held for a flat 25 s played its Birth, froze on its last frame and blinked out,
+   *  and never died with the Far Seer's channel. Drawn off `activeSpellFields` (mapViewer
+   *  collectFieldCenterFx). */
+  centerArt?: string;
   /** A model played ON every unit a wave hurts, riding it (`hitAttach`, the buff row's
    *  `Targetattach`) for its own clip — Starfall's `[AEsd] Targetart = StarfallTarget.mdl`,
    *  one star per unit per wave. */
@@ -486,21 +494,6 @@ export interface SpellFieldInit {
    * wave thrown after he has died or wandered — it still leaves from where he stood.
    */
   thrown?: { speed: number; arc: number };
-}
-
-/** Play a field's art ONCE, at its centre, held for the whole run — for the effects that are
- *  one big sustained model rather than a shower of small ones.
- *
- *  Which a field is comes from its own data. Blizzard and Rain of Fire carry `DataC "Number
- *  of Shards"` and scatter that many BlizzardTarget/RainOfFireTarget copies per wave; the
- *  ones with no count column at all are single effects sized for the whole circle, and their
- *  models say so — EarthQuakeTarget.mdx is Birth then a 9-second Stand. Scattering a dozen of
- *  THOSE per second (which is what a shard-style field once did to Tranquility) buries the map
- *  in overlapping light pillars and costs a third of the frame rate. A CHANNEL's model wants
- *  `casterArt` instead, which dies with the channel (Tranquility, Starfall). */
-function fieldOnce(api: SpellApi, def: AbilityDef, x: number, y: number, seconds: number): void {
-  const art = fieldArt(def);
-  if (art) api.emitEffect(art, x, y, 0, seconds);
 }
 
 /** The model a FIELD paints on the ground, and the looping bed it lays under it.
@@ -2631,12 +2624,14 @@ export const SPELL_HANDLERS: Record<string, Handler> = {
     const lvl = def.levelData[rank - 1];
     const total = lvl.heroDuration || lvl.duration || 25;
     const area = lvl.area || 250;
-    fieldOnce(api, def, ctx.x, ctx.y, total); // one EarthQuakeTarget over the whole circle
     api.addSpellField({
       code: def.code, x: ctx.x, y: ctx.y, area,
       damagePerWave: d(lvl, 1, 50), buildingsOnly: true,
       waves: Math.max(6, Math.round(total)), interval: 1, delay: d(lvl, 0, 0.5),
       casterId: caster.id, art: "", loopSound: fieldLoop(def),
+      // ONE EarthQuakeTarget over the whole circle, not a shard per wave: its model is sized
+      // for the circle and is Birth, a 9 s Stand and Death — held for the field's own life.
+      centerArt: fieldArt(def),
       shake: true,
     });
     for (const t of enemiesInArea(api, caster, def, ctx.x, ctx.y, area)) {

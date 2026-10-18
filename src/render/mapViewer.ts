@@ -6335,6 +6335,7 @@ export class MapViewerScene {
     this.collectShopArrows(active);
     this.collectTeleportFx(active);
     this.collectFieldCasterFx(active);
+    this.collectFieldCenterFx(active);
     this.collectOrbAttachments(active);
     this.collectMoonWellWater(active);
     this.collectMineCircles(active);
@@ -6669,6 +6670,24 @@ export class MapViewerScene {
     }
   }
 
+  /**
+   * The model a running field holds at its CENTRE (SpellFieldInit.centerArt) — Earthquake's
+   * `EarthQuakeTarget.mdx` over the whole circle. The same three acts as collectFieldCasterFx,
+   * on the pool for the same reason: Birth as the field opens, its Stand looped while
+   * `activeSpellFields` lists it, Death the frame it stops (waves spent, or the Far Seer's
+   * channel broken). Pinned to the field's point rather than to a unit. A field you cannot
+   * see is not drawn, as its looping bed is not heard (updateFieldLoops) — and a LAN client
+   * is not even sent one (rts' `fogBlocksAt` filter), so this keeps the two alike.
+   */
+  private collectFieldCenterFx(active: Set<string>): void {
+    const world = this.rts?.simWorld;
+    if (!world) return;
+    for (const f of world.activeSpellFields()) {
+      if (!f.centerArt || !this.pointVisible(f.x, f.y)) continue;
+      this.trackBuffFx(active, `fieldg|${f.casterId}|${f.code}|${Math.round(f.x)}|${Math.round(f.y)}`, { path: f.centerArt, attach: [] }, f.casterId, undefined, true, [f.x, f.y]);
+    }
+  }
+
   /** Dying models are no longer tracked by anything: hold each until its Death clip has
    *  played out (or its deadline passes), then take it off the scene. Ticked from the
    *  frame loop, not from updateAuraEffects — buff art is no longer its only source, and
@@ -6986,12 +7005,13 @@ export class MapViewerScene {
    *  rides the unit's animation — Divine Shield's bubble stays around the Paladin,
    *  Bloodlust's flames stay on the moving hands — and needs no per-frame positioning.
    *  Only an unattached one is walked along the ground here. */
-  private trackBuffFx(active: Set<string>, key: string, fx: BuffFx, simId: number, teamColor?: number, ground = false): void {
+  private trackBuffFx(active: Set<string>, key: string, fx: BuffFx, simId: number, teamColor?: number, ground = false, at?: readonly [number, number]): void {
     if (!fx.path) return;
     active.add(key);
     const inst = this.buffFx.get(key);
     if (inst) {
       this.settleBuffFx(key, inst);
+      if (at) return; // pinned to a point (collectFieldCenterFx): nothing to follow
       // Team-coloured art follows the colour its unit wears NOW (an int write per frame):
       // the ally-colour filter repaints every body when it toggles, and art spawned under
       // the old mode would otherwise keep the old colour until it died.
@@ -7019,11 +7039,11 @@ export class MapViewerScene {
       }
     } else if (!this.buffFxLoading.has(key)) {
       this.buffFxLoading.add(key);
-      void this.spawnBuffFx(key, fx, simId, teamColor, ground);
+      void this.spawnBuffFx(key, fx, simId, teamColor, ground, at);
     }
   }
 
-  private async spawnBuffFx(key: string, fx: BuffFx, simId: number, teamColor?: number, ground = false): Promise<void> {
+  private async spawnBuffFx(key: string, fx: BuffFx, simId: number, teamColor?: number, ground = false, at?: readonly [number, number]): Promise<void> {
     const path = fx.path;
     let model = this.effectModels.get(path);
     if (model === undefined) {
@@ -7032,8 +7052,11 @@ export class MapViewerScene {
     }
     this.buffFxLoading.delete(key);
     const map = this.viewer.map;
-    const u = this.rts?.simView.units.get(simId);
-    if (!model || !map || !u || u.hp <= 0 || this.buffFx.has(key)) return;
+    // `at` pins the model to a POINT and owes nothing to a unit (a field's centre — its
+    // caster may die mid-channel and the field ends on its own clock).
+    const unit = at ? undefined : this.rts?.simView.units.get(simId);
+    const u = at ? { x: at[0], y: at[1] } : unit && unit.hp > 0 ? unit : undefined;
+    if (!model || !map || !u || this.buffFx.has(key)) return;
     const inst = model.addInstance();
     inst.setScene(map.worldScene);
     // Team-coloured art (the shop arrow) resolves its `replaceableId 1` layer against the
@@ -7043,7 +7066,7 @@ export class MapViewerScene {
     // attachmentNode reads as "the origin bone" and parents anyway. A model that carries its
     // own height above the unit's feet (the Moon Well's water) must stand on the ground and
     // inherit nothing, or the building's own transform swallows it.
-    const host = ground ? undefined : (this.rts?.unitInstance(simId) as unknown as SpawnInstance | undefined);
+    const host = ground || at ? undefined : (this.rts?.unitInstance(simId) as unknown as SpawnInstance | undefined);
     const node = host ? this.attachmentNode(host, fx.attach, simId) : undefined;
     if (node && host) {
       inst.setParent?.(node); // ride the unit's own animated attachment point

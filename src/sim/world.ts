@@ -1452,7 +1452,7 @@ export interface Alert {
 }
 
 /** A running spell field as the renderer sees it (SimWorld.activeSpellFields). */
-export interface SpellFieldView { code: string; x: number; y: number; loopSound: string; shake: boolean; casterId: number; casterArt: string }
+export interface SpellFieldView { code: string; x: number; y: number; loopSound: string; shake: boolean; casterId: number; casterArt: string; centerArt?: string }
 /** A teleport being channelled, as the renderer sees it (SimWorld.activeTeleports). */
 export interface TeleportView { casterId: number; destId: number; art: string }
 
@@ -19245,7 +19245,7 @@ export class SimWorld {
    *  ends — whether it exhausted its waves or the caster was interrupted. */
   activeSpellFields(): SpellFieldView[] {
     if (this.clientLive) return this.clientLive.fields; // a client: the host's list (setClientLiveViews)
-    return this.spellFields.map((f) => ({ code: f.code, x: f.x, y: f.y, loopSound: f.loopSound ?? "", shake: f.shake ?? false, casterId: f.casterId, casterArt: f.casterArt ?? "" }));
+    return this.spellFields.map((f) => ({ code: f.code, x: f.x, y: f.y, loopSound: f.loopSound ?? "", shake: f.shake ?? false, casterId: f.casterId, casterArt: f.casterArt ?? "", ...(f.centerArt ? { centerArt: f.centerArt } : {}) }));
   }
 
   /** Play a one-shot effect model at a point. For the spawn paths the renderer owns:
