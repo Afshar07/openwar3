@@ -618,7 +618,17 @@ function lumberUnits(c: PlusCtx): void {
   if (c.workerChops || !table.lumberUnit) return;
   const row = table.units[table.lumberUnit];
   if (!row || ai.countDone(row.from) < 1) return;
-  ai.setBuildNext(LUMBER_UNITS, table.lumberUnit);
+  if (!c.profile.wholeArmyCeiling) return void ai.setBuildNext(LUMBER_UNITS, table.lumberUnit);
+  // …under a WHOLE-army ceiling only the CREW is the economy's to rebuild. The brain keeps about
+  // a third of the Ghouls in the trees (`PlusCtx.lumberCrew`) and walks the rest into the wave,
+  // so a row that rebuilt all six whatever the ceiling said bought every Ghoul the army lost
+  // back on top of it — an undead Normal was seen standing on six Ghouls, three Fiends, a Meat
+  // Wagon and a Statue, some 24 food of soldiers on a 20 ceiling. Past the crew a Ghoul is a
+  // soldier like any other and is FITTED (`fitted`); the crew itself never waits for room, and
+  // `forestCrew`'s `LUMBER_FLOOR` above keeps the trees worked whatever happens here.
+  const crew = Math.min(LUMBER_UNITS, c.lumberCrew ?? LUMBER_UNITS);
+  const want = ai.count(table.lumberUnit) < crew ? crew : fitted(c, table.lumberUnit, LUMBER_UNITS);
+  if (want > 0) ai.setBuildNext(want, table.lumberUnit);
 }
 
 /**

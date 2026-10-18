@@ -642,6 +642,19 @@ console.log("\n-- STUTTER-STEP (Insane's ranged micro between shots) -----------
 }
 
 
+// NORMAL'S CEILING COMES OFF AT 25:00 (`liveProfile`, `PlusProfile.unlockAt`) — the developer's
+// "remove the food cap after minute 25 … so that games can finish in all-out brawls". Before it
+// the profile is handed over untouched; after it the army may grow to the engine's own ceiling.
+{
+  const { liveProfile, PLUS_EASY, PLUS_NORMAL, PLUS_INSANE } = require(join(REPO, ".sim-build", "src", "ai", "plus", "profile.js"));
+  check("Normal keeps its ceiling before 25:00", liveProfile(PLUS_NORMAL, 1499).armyFood, PLUS_NORMAL.armyFood);
+  check("…and the very same profile object", liveProfile(PLUS_NORMAL, 1499) === PLUS_NORMAL, true);
+  check("Normal's ceiling comes off at 25:00", liveProfile(PLUS_NORMAL, 1500).armyFood >= 90, true);
+  check("…and nothing else about it changes", liveProfile(PLUS_NORMAL, 1500).attackFood, PLUS_NORMAL.attackFood);
+  check("Easy never unlocks", liveProfile(PLUS_EASY, 99999).armyFood, PLUS_EASY.armyFood);
+  check("Insane never unlocks", liveProfile(PLUS_INSANE, 99999).armyFood, PLUS_INSANE.armyFood);
+}
+
 // WHAT A WON FIGHT IS SPENT ON (`winPlan`). The developer: winning used to mean attacking the
 // loser's base every time; now it is a roll — expand 25 %, attack 30 % before 7:30 and 60 %
 // after ("more velocity between fights"), and carrying on is whatever is left over.

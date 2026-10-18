@@ -385,7 +385,7 @@ Blizzard's unless a comment says otherwise) every value here is ours.
 | waits this long into a fight before casting | 2.5 s | 1 s | 0 |
 | workers per town | 8 | 11 | 14 |
 | expansions | **never** | 1, after 10 min | 3, after 5 min |
-| **army food ceiling** | **12** | 20 (was 30, then 26 — see below) | 80 (`UPKEEP_TIER2`) |
+| **army food ceiling** | **12** | 20 (was 30, then 26 — see below), **lifted at 25:00** | 80 (`UPKEEP_TIER2`) |
 | towers | **0** | 1 | 4 |
 | siege units at tier 2 | **0** | 1 | 2 |
 | heroes | 1 | 2 | 3 |
@@ -1479,6 +1479,14 @@ rows cannot both spend the same room, and the mix keeps back what the side rows 
 (`sideOwed`: the siege from the start, the statues once their tier stands, the anti-air while its
 trigger holds), so they arrive inside the ceiling rather than on top of it. A full army grows
 again only as it loses bodies. Ten headless minutes: 13–31 food of soldiers before, 13–21 after.
+
+**The ceiling comes off at 25:00 on Normal** (`PlusProfile.unlockAt`, read through `liveProfile`
+where the brain builds the plan's context): from then on the army may grow to the engine's own
+food ceiling, which the workers share. The developer: "right now games tend to get stuck. we
+must unlock it after minute 25 so that games can finish in all-out brawls" — twenty food is
+the right army against a newer player early and the wrong one forty minutes in, when two
+maxed-out bases trade waves neither can push through. Easy and Insane never unlock (Insane's
+ceiling is already upkeep, not a handicap).
 
 **The undead's second wave brings its Meat Wagon** (the developer's call). Under the ceiling the
 wagon had stopped coming at all — its Slaughterhouse waited behind the Temple of the Damned and

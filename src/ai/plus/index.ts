@@ -30,7 +30,7 @@ import {
   ESCORT_HOLD, ESCORT_NEAR, ESCORT_STAGE, ESCORT_WAIT, TEAM_FOCUS,
   type PlayerName, type SwitchReason,
 } from "./teamchat";
-import { plusProfile, type PlusProfile } from "./profile";
+import { liveProfile, plusProfile, type PlusProfile } from "./profile";
 import { aimCtx, HERO_KILL_HP, heroKillable, isSiege, isTower, killValue, razeCost, razeValue } from "./targeting";
 import { PLUS_RACES, rollStrategy, tableForEdition, type PlusRaceTable, type PlusStrategy } from "./races";
 import { isRoc } from "../../data/edition";
@@ -2910,7 +2910,8 @@ export class ComputerPlusAi {
   private ctx(b: Brain): PlusCtx {
     return {
       ai: b.ai,
-      profile: b.profile,
+      // …with its army ceiling lifted once the match is old enough (`PlusProfile.unlockAt`).
+      profile: liveProfile(b.profile, b.clock),
       table: b.table,
       strategy: b.strategy,
       enemy: b.enemy,
