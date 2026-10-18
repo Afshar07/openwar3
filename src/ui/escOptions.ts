@@ -15,6 +15,14 @@ import { applyHealthBarOptions } from "../render/worldOverlays";
 import { applyHotkeyOptions } from "../data/hotkeys";
 import { applyScrollOptions } from "../render/scrollOptions";
 import { bindGamepadButton } from "./gamepad";
+import {
+  GAME_SPEED_MAX,
+  GAME_SPEED_MIN,
+  gameSpeedLabel,
+  saveGameSpeed,
+  toGameSpeed,
+  type GameSpeed,
+} from "../data/gameSpeed";
 
 // The IN-GAME Options panels — F10 → Options → Gameplay / Video / Sound — built from the game's
 // own `UI\FrameDef\UI\EscMenuOptionsPanel.fdf`. The panel STACK is ui/escMenu.ts's (this file's
@@ -32,21 +40,25 @@ import { bindGamepadButton } from "./gamepad";
 // are read-only VALUES in the game's own file — Resolution, Model Detail, Animation Quality,
 // Texture Quality, Spell Detail — because changing any of them in 2003 meant resetting the D3D
 // device mid-match. We print the live value into each of them exactly as the game does; the
-// pulldowns that change them are on the glue screen. The Game Speed slider is likewise a
-// READOUT here: this engine runs at Fast and says so (ui/fdfLanCreate.ts does the same with the
-// same slider).
+// pulldowns that change them are on the glue screen.
+//
+// GAME SPEED is the one row that is not an `OPTION_DEFS` row (the glue Options screen has no
+// slider for it — in the game it lives here and on the create screen): src/data/gameSpeed.ts is
+// its model. In single player it is live, a drag is felt at once and OK remembers it for the
+// next match; in ANY multiplayer game it is the host's pick for every machine, so the slider is
+// greyed and only shows it.
 
 /** What the game prints where "FMOD" stood: the API this engine's SoundBoard is built on. A
  *  product name rather than a label, as the game's was, so it is not a GlobalStrings key. */
 const SOUND_PROVIDER = "Web Audio";
 
-/** `LocalMultiplayerCreate.fdf`'s and this file's shared truth: the one speed we run at, which
- *  is index 2 of the slider's own 0 slow / 1 normal / 2 fast range. */
-const GAME_SPEED_FAST = 2;
-
 export interface EscOptionsHost {
   /** The live SoundBoard, so the Sound panel is audible as you drag it. */
   sounds(): SoundBoard | null;
+  /** The match's speed, and whether this player may change it (single player only). */
+  gameSpeed(): { speed: GameSpeed; locked: boolean };
+  /** Apply a new speed to the running match. */
+  setGameSpeed(speed: GameSpeed): void;
 }
 
 /**
@@ -60,20 +72,30 @@ export interface EscOptionsHost {
 export class EscOptions {
   private committed: Options = loadOptions();
   private working: Options = { ...this.committed };
+  /** The game speed, kept the same way: what the match ran at when the menu opened, and what
+   *  the slider has it running at now. */
+  private committedSpeed: GameSpeed;
+  private workingSpeed: GameSpeed;
 
-  constructor(private host: EscOptionsHost) {}
+  constructor(private host: EscOptionsHost) {
+    this.committedSpeed = this.workingSpeed = host.gameSpeed().speed;
+  }
 
   /** Re-read the store. Called when the menu opens, so a change made from the glue screen since
    *  the last visit is what the panel shows. */
   reload(): void {
     this.committed = loadOptions();
     this.working = { ...this.committed };
+    this.committedSpeed = this.workingSpeed = this.host.gameSpeed().speed;
   }
 
   /** OK: commit the working copy. Everything it changed is already applied. */
   ok(): void {
     this.committed = { ...this.working };
     saveOptions(this.committed);
+    // Only a speed the player could set is theirs to remember: a multiplayer match's is the host's.
+    if (!this.host.gameSpeed().locked) saveGameSpeed(this.workingSpeed);
+    this.committedSpeed = this.workingSpeed;
   }
 
   /** Cancel: throw the working copy away and put the committed values back through every
@@ -82,6 +104,10 @@ export class EscOptions {
   cancel(): void {
     this.working = { ...this.committed };
     this.applyAll(this.committed);
+    if (this.workingSpeed !== this.committedSpeed && !this.host.gameSpeed().locked) {
+      this.host.setGameSpeed(this.committedSpeed);
+    }
+    this.workingSpeed = this.committedSpeed;
   }
 
   /** Fill every widget on the panel that is up, and wire it to the working copy. */
@@ -164,7 +190,8 @@ export class EscOptions {
     }
   }
 
-  /** The Gameplay panel's one readout: the speed the match runs at. */
+  /** The Gameplay panel's Game Speed row: live in single player, a readout of the host's pick
+   *  in any multiplayer game. Four rungs on a slider the file gives three (src/data/gameSpeed.ts). */
   private fillGameplay(screen: FdfScreen, lib: FdfLibrary | null): void {
     // "Detect Gamepad" / "Unpair Gamepad" (issue #162): its label for the state the pad is in,
     // and its countdown while it is listening.
@@ -172,12 +199,25 @@ export class EscOptions {
       detect: lib?.string("DETECT_GAMEPAD") ?? "Detect Gamepad",
       unpair: lib?.string("UNPAIR_GAMEPAD") ?? "Unpair Gamepad",
     });
+    const { locked } = this.host.gameSpeed();
+    if (locked) this.workingSpeed = this.host.gameSpeed().speed;
     const speed = screen.slider("GameSpeedSlider");
     if (speed) {
-      speed.value = GAME_SPEED_FAST;
-      speed.setEnabled(false);
+      speed.setRange(GAME_SPEED_MIN, GAME_SPEED_MAX);
+      speed.value = this.workingSpeed;
+      speed.setEnabled(!locked);
+      speed.onChange = (v) => {
+        if (locked) return;
+        this.workingSpeed = toGameSpeed(v);
+        this.host.setGameSpeed(this.workingSpeed);
+        screen.setText("GameSpeedValue", gameSpeedLabel(this.workingSpeed, lib));
+      };
     }
-    screen.setText("GameSpeedValue", lib?.string("FAST") ?? "Fast");
+    screen.setText("GameSpeedValue", gameSpeedLabel(this.workingSpeed, lib));
+    // The frame is sized off the file's own placeholder word at build, so "Fast (Default)" would
+    // wrap; it is right-justified over the slider's end, so one line grows leftward.
+    const value = screen.frame("GameSpeedValue");
+    if (value) value.style.whiteSpace = "nowrap";
   }
 
   /** The Video panel's five read-only rows (see the file header): the live value of each,

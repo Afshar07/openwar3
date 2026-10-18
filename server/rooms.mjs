@@ -43,6 +43,8 @@ const roomInfo = (r) => ({
   // Which game the host is on — Reign of Chaos or The Frozen Throne. Passed through untouched;
   // the clients list only their own edition's games (src/net/protocol.ts RoomInfo.edition).
   edition: r.edition,
+  // The host's Game Speed rung (src/data/gameSpeed.ts), for the join screen's "Game Speed:" row.
+  speed: r.speed,
 });
 
 const peerInfo = (p) => ({ id: p.id, name: p.name, host: p.host });
@@ -206,6 +208,8 @@ export class RelayCore {
           maxPlayers: Math.max(2, Math.min(12, msg.maxPlayers || 12)),
           observers: msg.observers === true,
           edition: msg.edition === "roc" ? "roc" : "tft",
+          // 0 Slow … 3 Fastest; anything else (an older client's silence) is Fast, 2.
+          speed: Number.isInteger(msg.speed) && msg.speed >= 0 && msg.speed <= 3 ? msg.speed : 2,
           peers: new Map([[peer.id, peer]]),
           nextPeerId: 2,
         };

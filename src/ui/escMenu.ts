@@ -42,6 +42,7 @@ import { numProp, type FdfLibrary } from "./fdf/library";
 import { mountFdfScreen, playFdfClick, type FdfScreen } from "./fdf/render";
 import { ESC_OPTIONS_OVERRIDE, ESC_TEMPLATES_OVERRIDE, OW3_STRINGS } from "../overrides";
 import { EscOptions } from "./escOptions";
+import { DEFAULT_GAME_SPEED, type GameSpeed } from "../data/gameSpeed";
 import { gamepadButtonPressed } from "./gamepad";
 
 const ESC_MENU_FDF = "UI\\FrameDef\\UI\\EscMenuMainPanel.fdf";
@@ -104,6 +105,11 @@ export interface EscMenuActions {
   isPaused?(): boolean;
   /** The live SoundBoard, so the Options screen's Sound panel is audible as it is dragged. */
   sounds?(): SoundBoard | null;
+  /** The match's game speed, and whether it is LOCKED — every multiplayer game is, because the
+   *  host picked it for every machine (src/data/gameSpeed.ts). Absent reads as Fast, locked. */
+  gameSpeed?(): { speed: GameSpeed; locked: boolean };
+  /** Change the speed of a single-player match, live (Gameplay panel's slider). */
+  setGameSpeed?(speed: GameSpeed): void;
 }
 
 export class EscMenu {
@@ -127,7 +133,11 @@ export class EscMenu {
     private skin: string,
     private actions: EscMenuActions,
   ) {
-    this.options = new EscOptions({ sounds: () => this.actions.sounds?.() ?? null });
+    this.options = new EscOptions({
+      sounds: () => this.actions.sounds?.() ?? null,
+      gameSpeed: () => this.actions.gameSpeed?.() ?? { speed: DEFAULT_GAME_SPEED, locked: true },
+      setGameSpeed: (speed) => this.actions.setGameSpeed?.(speed),
+    });
     // Escape closes the menu, captured ahead of the HUD's own Escape handler. From a
     // sub-panel it steps BACK one level instead — the same thing its Previous Menu /
     // Cancel button does, and what the reference does with the key.

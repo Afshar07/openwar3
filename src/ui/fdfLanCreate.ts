@@ -1,4 +1,6 @@
 import { computerPlusDefault } from "../data/options";
+import { FOUR_STEP_TRACK } from "../vfs/derivedArt";
+import { GAME_SPEED_MAX, GAME_SPEED_MIN, gameSpeedLabel, toGameSpeed } from "../data/gameSpeed";
 import { relayAuthority, type HostTarget, type LanLobby } from "../net/lobby";
 import { OFFICIAL_SERVER_NAME } from "../net/officialServer";
 import { LAN_ADVANCED_OPTIONS_OVERRIDE, LAN_CREATE_OVERRIDE, OW3_STRINGS } from "../overrides";
@@ -37,10 +39,10 @@ import { widescreen } from "./widescreen";
 // What the host sets here is FIXED for the room's life and printed in the lobby, as in the
 // real client; it is the `AdvancedOptions` record the lobby carries (src/net/advancedOptions.ts).
 //
-// The Game Speed slider is shown parked on Fast and greyed: WC3's three speeds scale the
-// sim's tick rate, ours is fixed at the fastest by Phase A (docs/multiplayer.md), and a slider
-// that says "Fast" and takes no other answer is the truth of it. It stays on screen because
-// the reference has it, and because "Select Map:" hangs off it.
+// The Game Speed slider is LIVE: four rungs on the file's three-step slider, opening on Fast
+// every time (src/data/gameSpeed.ts). The pick rides in the same `AdvancedOptions` record as
+// the pane's rows, so the joiners' game list, the lobby and every machine's match all have it —
+// and in the match itself F10's copy of the slider is greyed, showing the host's choice.
 //
 // Under the map list is a row of OURS, "Server:" (src/overrides/ui/LocalMultiplayerCreate.fdf):
 // which relay the room is announced on — this computer, which only the local network can reach,
@@ -55,9 +57,6 @@ const ADVANCED_OPTIONS_FDF = "UI\\FrameDef\\Glue\\AdvancedOptionsPane.fdf";
 /** The right-hand column's two faces — the same pair, under the same names, as Skirmish.fdf's.
  *  `MapInfoButton` is the button ON the map-info face, captioned "Advanced Options". */
 const PANEL_FACES = { info: "MapInfoPanel", advanced: "AdvancedOptionsPanel" } as const;
-
-/** LocalMultiplayerCreate.fdf's own `GameSpeedSlider` range: 0 slow, 1 normal, 2 fast. */
-const GAME_SPEED_FAST = 2;
 
 /** Where the host last announced a game (a `HostTarget.url`, "" for this computer). The Server
  *  menu opens on it again, as long as it is still answering. */
@@ -214,13 +213,20 @@ export async function mountLanCreateScreen(
     // opens them is dead until there is a map to play.
     s.setEnabled("MapInfoButton", picked);
 
-    // The one speed we run at, said by the slider and the value beside it (GlobalStrings FAST).
+    // The room's Game Speed, said by the slider and the label beside it.
     const speed = s.slider("GameSpeedSlider");
     if (speed) {
-      speed.value = GAME_SPEED_FAST;
-      speed.setEnabled(false);
+      speed.setRange(GAME_SPEED_MIN, GAME_SPEED_MAX);
+      speed.value = advanced.gameSpeed;
+      speed.onChange = (v) => {
+        advanced.gameSpeed = toGameSpeed(v);
+        s.setText("GameSpeedValue", gameSpeedLabel(advanced.gameSpeed, lib));
+      };
     }
-    s.setText("GameSpeedValue", lib?.string("FAST") ?? "Fast");
+    s.setText("GameSpeedValue", gameSpeedLabel(advanced.gameSpeed, lib));
+    // One line: the frame is sized off the file's placeholder, and "Fast (Default)" is longer.
+    const value = s.frame("GameSpeedValue");
+    if (value) value.style.whiteSpace = "nowrap";
 
     fillAdvanced(s);
     fillServer(s);
@@ -293,6 +299,10 @@ function buildCreateRoot(lib: FdfLibrary): FdfFrame {
     setProp(advanced, "SetAllPoints", []);
     adopt(root, "AdvancedOptionsPaneContainer", [advanced]);
   }
+
+  // The Game Speed track: the game's art has a notch under each of ITS three steps, and we have
+  // four, so the backdrop wears the four-notch twin derived from it (vfs/derivedArt.ts).
+  setProp(findFrame(root, "GameSpeedSliderBackdrop"), "BackdropBackground", [{ s: FOUR_STEP_TRACK, n: null, str: true }]);
 
   // Both faces move left to sit inside the 3D chrome that frames them, the same correction
   // (and the same distance) the Custom Game and LAN screens make — see nudgeX. Both, so the

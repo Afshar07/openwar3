@@ -358,7 +358,7 @@ function lanCreateScreen(vfs: DataSource): { chrome: "BattlenetCustom"; mount: (
         // host opened one — the relay caps joins at this, so it has to count the bench.
         const seats = info.slots.length + observerSlots(info.slots.length, advanced);
         const announce = (): void => {
-          lobby.host(gameName, savedPlayerName(), info.name, path, seats, advanced.observers === "FULL_OBSERVERS", server);
+          lobby.host(gameName, savedPlayerName(), info.name, path, seats, advanced.observers === "FULL_OBSERVERS", server, advanced.gameSpeed);
         };
         if (server) {
           // A watched SERVER is answering already — the Server menu offers no other kind — so the

@@ -74,6 +74,7 @@ interface CreepSeed {
 }
 import { RACE_INDEX, STARTING_UNITS, WORKERS, MELEE_UNIT_SPACING, MELEE_WORKER_CLUSTERS, isHarvestCode, resolveRace, type PlayableRace, type WorkerCluster } from "../data/races";
 import { MELEE_NORMAL as MELEE_AI_NORMAL } from "../ai/ids";
+import { DEFAULT_GAME_SPEED, gameSpeedRate, loadGameSpeed, type GameSpeed } from "../data/gameSpeed";
 import { AI_SCRIPT_FOR } from "../ai";
 import { HERO_SEATS as CANDY_HERO_SEATS, isCandyWarScript } from "../ai/plus/candy/map";
 import { HERO_SEATS as WARCHASERS_HERO_SEATS, isWarChasersScript } from "../ai/plus/warchasers/map";
@@ -1451,6 +1452,13 @@ export class MapViewerScene {
   private userControl = true;
   /** SetGameSpeed / GetGameSpeed — the common.j gamespeed index. 2 = MAP_SPEED_NORMAL. */
   private gameSpeed = 2;
+  /** The PLAYER's Game Speed (src/data/gameSpeed.ts) — a different thing from the script's
+   *  `gameSpeed` above, which is recorded and never applied. */
+  private speed: GameSpeed = DEFAULT_GAME_SPEED;
+  /** …its rate, game seconds per real second: what `advanceSim` and `wdt` are scaled by. */
+  private speedRate = 1;
+  /** The speed is the HOST's (any multiplayer game): F10's slider shows it and cannot move it. */
+  private speedLocked = false;
   /** common.j gamedifficulty index — MAP_DIFFICULTY_NORMAL until a campaign says otherwise. */
   private gameDifficulty = 1;
   /** …and the CAMPAIGN SCREEN's own rung, which a script may not change: `GetDefaultDifficulty`.
@@ -2636,6 +2644,10 @@ export class MapViewerScene {
     // …and whether this is a MISSION at all, which decides the two console buttons a campaign
     // has no use for (see panelDead).
     this.campaign = config.campaign === true;
+    // …and how fast it runs (src/data/gameSpeed.ts): a networked config carries the host's pick
+    // and LOCKS it, single player is the player's own remembered setting.
+    this.speedLocked = config.gameSpeed !== undefined;
+    this.setGameSpeed(config.gameSpeed ?? loadGameSpeed());
     // What the Quest Log calls this match. The map's own w3i name is the default and is right
     // for every map you pick off a list; a CAMPAIGN chapter is titled by the campaign index
     // instead, because its w3i name is the file's ("NightElfX01") and nothing a player has
@@ -9575,6 +9587,9 @@ export class MapViewerScene {
       // …and what the Options panels behind this menu need: the board a volume drag is heard
       // on (ui/escOptions.ts).
       sounds: () => this.sounds,
+      // …and the Gameplay panel's Game Speed slider: live in single player, the host's in LAN.
+      gameSpeed: () => this.gameSpeedState(),
+      setGameSpeed: (speed) => { if (!this.gameSpeedState().locked) this.setGameSpeed(speed); },
     });
     this.allies?.dispose();
     this.allies = new AllianceDialogOverlay(ui, this.vfs, SKIN_SECTION[this.localRace], {
@@ -13934,9 +13949,14 @@ export class MapViewerScene {
     // land a hair BEFORE a pump step that already ran — clamp, never rewind.
     const dt = this.simLast ? Math.max(0, now - this.simLast) : 1000 / 60;
     this.simLast = now;
-    this.simAccum += dt / 1000;
+    // GAME SPEED (src/data/gameSpeed.ts): real time becomes game time at the rung's rate, and
+    // the steps stay SIM_DT whatever it is — a faster game is more steps per second, never a
+    // longer step, so the sim behaves identically at every speed and only the cadence moves.
+    // The catch-up cap grows with the rate, or Fastest would drop steps on any 60 Hz frame.
+    this.simAccum += (dt / 1000) * this.speedRate;
+    const maxSteps = Math.ceil(MAX_STEPS_PER_FRAME * Math.max(1, this.speedRate));
     let steps = 0;
-    while (this.simAccum >= SIM_DT && steps < MAX_STEPS_PER_FRAME) {
+    while (this.simAccum >= SIM_DT && steps < maxSteps) {
       // A frozen client must not start builds off its own records (option 2): the worker's
       // position is the HOST's answer arriving at the snapshot cadence, and the host runs the real
       // tickPendingBuild — a local start here would mint a local id, which is the
@@ -13950,7 +13970,7 @@ export class MapViewerScene {
       // Predicted with the loop's own condition, and nothing in the loop body touches
       // `simAccum`, so the prediction is exact; a frame of one step is exactly as before.
       this.drawOwed++;
-      const lastStep = !(this.simAccum - SIM_DT >= SIM_DT && steps + 1 < MAX_STEPS_PER_FRAME);
+      const lastStep = !(this.simAccum - SIM_DT >= SIM_DT && steps + 1 < maxSteps);
       this.rts?.tick(SIM_DT, lastStep ? this.drawOwed : 0); // sim runs in seconds; advance, then sync before render
       if (lastStep) this.drawOwed = 0;
       // Engine combat text ages on the SIM clock, like a script's text tags do inside the
@@ -13993,8 +14013,8 @@ export class MapViewerScene {
     perfLog.tally("simSteps", steps);
     // Steps the frame could not afford. A sim falling behind wall time is the difference
     // between "the game is slow" and "the game is slow AND running in slow motion".
-    if (steps === MAX_STEPS_PER_FRAME) perfLog.tally("simClamped");
-    if (steps === MAX_STEPS_PER_FRAME) this.simAccum = 0;
+    if (steps === maxSteps) perfLog.tally("simClamped");
+    if (steps === maxSteps) this.simAccum = 0;
     this.lastSimStep = steps * SIM_DT * 1000; // the clock the held-key camera follow runs on
     // How much GAME time this pass actually bought. The two clocks are not the same clock —
     // a slow frame steps at most MAX_STEPS_PER_FRAME and drops the rest — and anything the
@@ -14168,6 +14188,20 @@ export class MapViewerScene {
     };
   }
 
+  /** The match's Game Speed, and whether this machine may change it — never in a networked
+   *  match, whose speed the host picked for every machine. */
+  gameSpeedState(): { speed: GameSpeed; locked: boolean } {
+    return { speed: this.speed, locked: this.speedLocked || this.rts?.networked === true };
+  }
+
+  /** Set the Game Speed: the rate the sim's fixed steps come at (`advanceSim`) and the rate the
+   *  drawn world ages at (`wdt`). Nothing else needs telling — every timer, cooldown, trigger and
+   *  the match clock itself count sim steps. */
+  setGameSpeed(speed: GameSpeed): void {
+    this.speed = speed;
+    this.speedRate = gameSpeedRate(speed);
+  }
+
   start(): void {
     if (this.raf) return;
     // Record this match to `.logs/` (dev only — the whole recorder folds away in a build).
@@ -14214,7 +14248,8 @@ export class MapViewerScene {
       // only make a paused game look broken.
       perfLog.begin("ui");
       this.syncPauseUi();
-      const wdt = this.paused ? 0 : dt;
+      // …and scaled by the Game Speed, so a clip plays at the rate the sim under it walks.
+      const wdt = this.paused ? 0 : dt * this.speedRate;
       this.updateCamera(dt);
       this.metrics.frame(dt, this.rts?.unitCount() ?? 0, this.rts?.pingMs());
       this.hud?.frame(dt);

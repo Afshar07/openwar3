@@ -1,4 +1,5 @@
 import type { FogMode } from "../ui/lobby";
+import { DEFAULT_GAME_SPEED, toGameSpeed, type GameSpeed } from "../data/gameSpeed";
 
 // The ADVANCED OPTIONS of a hosted game — the pane behind the "Advanced Options" button on the
 // LAN create screen (`UI\FrameDef\Glue\AdvancedOptionsPane.fdf`), as one plain record.
@@ -49,6 +50,10 @@ export interface AdvancedOptions {
   /** Voice chat has no channels: everybody hears everybody (issue #133). Off, a talker is heard
    *  by their allies only — the same audience "To Allies:" chat has. OURS, the ninth row. */
   allTalk: boolean;
+  /** The create screen's Game Speed slider (src/data/gameSpeed.ts) — not a row of THIS pane, but
+   *  it travels the same road (create screen → every `lobby` broadcast → `start`), so it rides
+   *  in the same record. An older host's silence reads as Fast (`advancedOf`). */
+  gameSpeed: GameSpeed;
 }
 
 /**
@@ -74,12 +79,15 @@ export const DEFAULT_ADVANCED: AdvancedOptions = {
   visibility: "DEFAULT",
   computerPlus: false,
   allTalk: false,
+  gameSpeed: DEFAULT_GAME_SPEED,
 };
 
 /** Every row still as the pane opened it — the game lobby prints the Advanced Options block
  *  only when there is something in it to tell a joiner. */
 export function isDefaultAdvanced(a: AdvancedOptions): boolean {
-  return (Object.keys(DEFAULT_ADVANCED) as Array<keyof AdvancedOptions>).every((k) => a[k] === DEFAULT_ADVANCED[k]);
+  // The speed is not a row of the summary the lobby prints, so it cannot make it print one.
+  return (Object.keys(DEFAULT_ADVANCED) as Array<keyof AdvancedOptions>)
+    .every((k) => k === "gameSpeed" || a[k] === DEFAULT_ADVANCED[k]);
 }
 
 /**
@@ -109,5 +117,7 @@ export function visibilityFog(v: Visibility, mapExplored: boolean): FogMode {
 
 /** A broadcast from an older client may carry no options at all; read it as the defaults. */
 export function advancedOf(a: Partial<AdvancedOptions> | undefined): AdvancedOptions {
-  return { ...DEFAULT_ADVANCED, ...(a ?? {}) };
+  const out = { ...DEFAULT_ADVANCED, ...(a ?? {}) };
+  out.gameSpeed = toGameSpeed(out.gameSpeed); // off the wire: never trust it to be a rung
+  return out;
 }

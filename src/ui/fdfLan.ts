@@ -1,5 +1,6 @@
 import type { DataSource } from "../vfs/types";
 import { edition } from "../data/edition";
+import { gameSpeedLabel, toGameSpeed } from "../data/gameSpeed";
 import type { MapInfo } from "../world/mapInfo";
 import type { MapPreview } from "../world/mapPreview";
 import type { FdfFrame } from "./fdf/parser";
@@ -71,7 +72,7 @@ export async function mountLanScreen(
 ): Promise<FdfScreen> {
   const minimapIcons = loadMinimapIcons(vfs);
   let screen: FdfScreen;
-  /** The screen's own strings — GAMELIST_OBSERVERS, FAST — captured on build. */
+  /** The screen's own strings — GAMELIST_OBSERVERS, the Game Speed words — captured on build. */
   let strings: FdfLibrary | null = null;
   /** The lobby OUTLIVES this screen (main.ts owns it), and the screen it hands over to
    *  installs its own `onChange` while this one is still mounted — GlueManager builds the
@@ -232,11 +233,13 @@ export async function mountLanScreen(
       if (picked) list.select(picked);
     }
     s.setText("GameListTitle", "Network Games");
-    // The two rows under the summary: who made the game, and the one speed we run at — WC3's
-    // "Fast" (GlobalStrings FAST), the setting the create screen's slider is parked on.
+    // The two rows under the summary: who made the game, and the speed the host set it to on
+    // the create screen's slider (src/data/gameSpeed.ts) — Fast when the room does not say.
     const room = picked ? st.rooms.find((r) => r.key === picked) : null;
     s.setText("GameCreatorValue", room?.hostName ?? "");
-    s.setText("GameSpeedValue", room ? (strings?.string("FAST") ?? "Fast") : "");
+    s.setText("GameSpeedValue", room ? gameSpeedLabel(toGameSpeed(room.speed), strings ?? null) : "");
+    const speedValue = s.frame("GameSpeedValue");
+    if (speedValue) speedValue.style.whiteSpace = "nowrap"; // "Fast (Default)" on one line
     if (!st.error) {
       s.setText(
         "CustomCreateInfo",
@@ -322,6 +325,8 @@ export function toConfig(msg: StartMatch, me: number | undefined, mapExplored: b
     lockTeams: advanced.lockTeams,
     sharedControl: advanced.sharedControl,
     allTalk: advanced.allTalk,
+    // The create screen's Game Speed slider — every machine runs the host's clock.
+    gameSpeed: advanced.gameSpeed,
   };
 }
 

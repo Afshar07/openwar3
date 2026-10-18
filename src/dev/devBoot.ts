@@ -1,4 +1,5 @@
 import { loadProfile } from "../vfs/loader";
+import { toGameSpeed } from "../data/gameSpeed";
 import { DEFAULT_PROFILE } from "../vfs/profiles";
 import type { InstallFiles } from "../assets/opfs";
 import {
@@ -368,6 +369,9 @@ async function devLanBoot(
     // human host would have picked Open or Computer per row.
     const seated = seatPeers(newSetup(mapPath, info.name, "dev-lan", info), lobby.snapshot.peers).setup;
     for (const slot of seated.slots) if (slot.kind === "open") slot.kind = "computer";
+    // `&speed=0..3` — the create screen's Game Speed slider (src/data/gameSpeed.ts).
+    const speed = new URLSearchParams(location.search).get("speed");
+    if (speed !== null) seated.advanced = { ...seated.advanced, gameSpeed: toGameSpeed(speed) };
     start = buildStart(seated, seed);
     lobby.startMatch(start); // tell the joiner
     log(`LAN host: started, seed ${seed}`);

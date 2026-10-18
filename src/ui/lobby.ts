@@ -184,6 +184,10 @@ export interface MeleeConfig {
   sharedControl?: boolean;
   /** Advanced Options → All Talk (issue #133): voice chat reaches everybody, not just allies. */
   allTalk?: boolean;
+  /** The HOST's Game Speed (src/data/gameSpeed.ts) — present on every networked match, where it
+   *  is the same on every machine and F10 cannot change it. Absent is single player, which runs
+   *  at the player's own remembered speed. */
+  gameSpeed?: import("../data/gameSpeed").GameSpeed;
   /**
    * The CAMPAIGN difficulty the player chose on the campaign screen, as the common.j
    * `gamedifficulty` index (MAP_DIFFICULTY_EASY 0 / NORMAL 1 / HARD 2 / INSANE 3). Omitted

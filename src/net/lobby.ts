@@ -356,13 +356,13 @@ export class LanLobby {
    * server that is not answering, because a `create` sent into a connection that is still
    * knocking is dropped without a word, and the host would sit in a lobby that does not exist.
    */
-  host(name: string, playerName: string, mapName: string, mapPath: string, maxPlayers = 12, observers = false, on = ""): void {
+  host(name: string, playerName: string, mapName: string, mapPath: string, maxPlayers = 12, observers = false, on = "", speed?: number): void {
     if (on && on !== this.primaryUrl) {
       const entry = this.remotes.get(on);
       if (!entry?.connected || !entry.transport) throw new Error("That server is not answering.");
       this.promote(on);
     }
-    this.transport?.send({ t: "create", name, playerName, mapName, mapPath, maxPlayers, observers, edition: edition() });
+    this.transport?.send({ t: "create", name, playerName, mapName, mapPath, maxPlayers, observers, edition: edition(), speed });
   }
 
   /** Every place a game could be announced right now: the connection we stand on, then each

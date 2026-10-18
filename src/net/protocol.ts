@@ -45,13 +45,17 @@ export interface RoomInfo {
    *  different object tables, so the two can never share a match and each lists only its own.
    *  Absent from a relay older than this field, and read as the expansion then. */
   edition?: "roc" | "tft";
+  /** The host's Game Speed rung (src/data/gameSpeed.ts), printed on the join screen. Absent from
+   *  an older relay or host, and read as Fast then. The MATCH takes its speed from `start`'s
+   *  `advanced`, never from this. */
+  speed?: number;
 }
 
 // --- client → relay ---------------------------------------------------------------
 
 export type ClientMessage =
   /** Announce a game. The sender becomes the room's host, hence its authority. */
-  | { t: "create"; name: string; playerName: string; mapName: string; mapPath: string; maxPlayers: number; observers?: boolean; edition?: "roc" | "tft" }
+  | { t: "create"; name: string; playerName: string; mapName: string; mapPath: string; maxPlayers: number; observers?: boolean; edition?: "roc" | "tft"; speed?: number }
   /** Ask for the game list. The relay also pushes `rooms` unprompted when it changes. */
   | { t: "list" }
   /** Join a room. `token` is a REJOIN token from an earlier `created`/`joined` in this room —

@@ -97,6 +97,9 @@ export interface SliderControl extends Control {
   /** The value on the slider's own scale (SliderMinValue…SliderMaxValue). */
   get value(): number;
   set value(v: number);
+  /** Re-range the slider — for a control whose FDF range is the 2003 game's and not ours (Game
+   *  Speed: the file's three steps, our four). The value is re-snapped into the new range. */
+  setRange(min: number, max: number): void;
   onChange?: (value: number) => void;
 }
 
@@ -199,11 +202,11 @@ export function buildCheckBox(el: HTMLElement): CheckBoxControl {
  */
 export function buildSlider(el: HTMLElement, f: FdfFrame, thumb: HTMLElement | null): SliderControl {
   el.classList.add("fdf-slider");
-  const min = firstProp(f, "SliderMinValue")?.args[0]?.n ?? 0;
-  const max = firstProp(f, "SliderMaxValue")?.args[0]?.n ?? 100;
+  let min = firstProp(f, "SliderMinValue")?.args[0]?.n ?? 0;
+  let max = firstProp(f, "SliderMaxValue")?.args[0]?.n ?? 100;
   const step = firstProp(f, "SliderStepSize")?.args[0]?.n ?? 1;
   const initial = firstProp(f, "SliderInitialValue")?.args[0]?.n ?? min;
-  const span = max - min || 1;
+  let span = max - min || 1;
 
   let value = initial;
   let enabled = true;
@@ -238,6 +241,13 @@ export function buildSlider(el: HTMLElement, f: FdfFrame, thumb: HTMLElement | n
   const control: SliderControl = {
     get value(): number { return value; },
     set value(v: number) { set(v, false); },
+    setRange(lo: number, hi: number): void {
+      min = lo;
+      max = hi;
+      span = max - min || 1;
+      value = snap(value);
+      place();
+    },
     setEnabled(on: boolean): void {
       enabled = on;
       el.classList.toggle("fdf-disabled", !on);
