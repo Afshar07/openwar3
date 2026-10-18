@@ -11,7 +11,7 @@ const { join } = require("node:path");
 const REPO = join(__dirname, "..");
 require("node:fs").writeFileSync(join(REPO, ".sim-build", "package.json"), '{"type":"commonjs"}');
 const { SPELL_HANDLERS } = require(join(REPO, ".sim-build", "src", "sim", "spells.js"));
-const { corpseAdmits, corpseUseError } = require(join(REPO, ".sim-build", "src", "sim", "corpses.js"));
+const { corpseAdmits, corpseNeed, corpseUseError } = require(join(REPO, ".sim-build", "src", "sim", "corpses.js"));
 
 let failed = 0;
 function ok(name, cond, extra) {
@@ -55,12 +55,17 @@ eq("…nor eaten", corpseUseError(corpse({ isHero: true }), TARGS.Acan, "ally", 
 eq("a machine leaves a wreck, not a body", corpseUseError(corpse({ mechanical: true }), TARGS.AUan, "ally"), "mechanical");
 eq("no type = nothing to rebuild", corpseUseError(corpse({ unitId: "" }), TARGS.AUan, "ally"), "notype");
 ok("…but a meal does not care what died", corpseAdmits(corpse({ unitId: "" }), TARGS.Acan, "ally", { needsType: false }));
-eq("a unit still FALLING is not a corpse yet", corpseUseError(corpse({ fallingLeft: 1.5 }), TARGS.Arai, "ally"), "falling");
-eq("…not to a meal or a wagon either", [
-  corpseUseError(corpse({ fallingLeft: 1.5 }), TARGS.Acan, "ally", { needsType: false }),
-  corpseUseError(corpse({ fallingLeft: 1.5 }), TARGS.AHre, "ally"),
+eq("a unit still FALLING is not a corpse to Raise Dead yet", corpseUseError(corpse({ fallingLeft: 1.5 }), TARGS.Arai, "ally", corpseNeed("Arai")), "falling");
+eq("…nor to the Rod of Necromancy, nor to a meal", [
+  corpseUseError(corpse({ fallingLeft: 1.5 }), TARGS.Arai, "ally", corpseNeed("AIrd")),
+  corpseUseError(corpse({ fallingLeft: 1.5 }), TARGS.Acan, "ally", corpseNeed("Acan")),
 ], ["falling", "falling"]);
-eq("…and is one the moment its death has played", corpseUseError(corpse({ fallingLeft: 0 }), TARGS.Arai, "ally"), null);
+eq("…but Resurrection, Animate Dead and the wagon take it at once", [
+  corpseUseError(corpse({ fallingLeft: 1.5 }), TARGS.AHre, "ally", corpseNeed("AHre")),
+  corpseUseError(corpse({ fallingLeft: 1.5 }), TARGS.AUan, "ally", corpseNeed("AUan")),
+  corpseUseError(corpse({ fallingLeft: 1.5 }), TARGS.AUan, "ally", { ...corpseNeed("Amel"), forLoad: true }),
+], [null, null, null]);
+eq("…and it is one to Raise Dead the moment its death has played", corpseUseError(corpse({ fallingLeft: 0 }), TARGS.Arai, "ally", corpseNeed("Arai")), null);
 
 console.log("whose dead — read off the ability's own targs1");
 ok("Resurrection takes an ally's", corpseAdmits(corpse(), TARGS.AHre, "ally"));
@@ -268,7 +273,7 @@ TARGS.Amed = [];
   eq("a full wagon (8) picks up nothing more", spare.heldBy, 0);
 }
 
-console.log("the Rod of Necromancy waits for the body to finish falling (Art - Death Time)");
+console.log("Raise Dead and eating wait for the body to finish falling (Art - Death Time); nothing else does");
 {
   // A real world: the clock is filed by SimWorld.spawnCorpse off the type's own `death`
   // (a Footman's 3.04 s) and run down by tickCorpses, and corpsesFor is the one door every
@@ -291,6 +296,13 @@ console.log("the Rod of Necromancy waits for the body to finish falling (Art - D
   eq("…a corpse once its death has played", world.corpsesFor(hero, rod, 0, 0, 900).length, 1);
   world.spawnCorpseOf("hfoo", 0, 0, 0);
   eq("a body that never fell (Create Corpse) is usable at once", world.corpsesFor(hero, rod, 0, 0, 900).length, 2);
+  // Resurrection and Animate Dead do not wait: a fresh body is theirs the instant it drops,
+  // through the same door with no need passed (raiseCorpses claims with only an order).
+  world.spawnCorpse({ id: 3, typeId: "hfoo", owner: 0, x: 20, y: 0, facing: 0 });
+  eq("…a Footman that has JUST fallen is not the Rod's", world.corpsesFor(hero, rod, 0, 0, 900).length, 2);
+  eq("…but it is Resurrection's at once", world.corpsesFor(hero, { code: "AHre", targetFlags: TARGS.AHre }, 0, 0, 900, { order: "freshest" }).length, 3);
+  eq("…and Animate Dead's", world.corpsesFor(hero, { code: "AUan", targetFlags: TARGS.AUan }, 0, 0, 900, { order: "freshest" }).length, 3);
+  eq("…and still not a Ghoul's meal", world.corpsesFor(hero, { code: "Acan", targetFlags: TARGS.Acan }, 0, 0, 900, { eat: true }).length, 2);
 }
 
 console.log(failed ? `\ncorpses: ${failed} FAILED` : "\ncorpses: all checks passed");

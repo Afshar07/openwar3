@@ -18526,6 +18526,9 @@ export class SimWorld {
    */
   corpsesFor(caster: SimUnit, def: AbilityDef, x: number, y: number, radius: number, o: CorpseClaim = {}): SimCorpse[] {
     const out: SimCorpse[] = [];
+    // The ability's own needs underneath whatever the caller asked — Raise Dead and eating
+    // wait for a body to finish falling (corpseNeed), whichever door the claim came in by.
+    const need = { ...corpseNeed(def.code), ...o };
     for (const c of this.corpses.values()) {
       const [cx, cy] = this.corpseAt(c);
       if (Math.hypot(cx - x, cy - y) > radius) continue;
@@ -18533,7 +18536,7 @@ export class SimWorld {
       // has no team of its own any more, so it answers for the player who owned it.
       const allied = this.alliedPlayers(caster.owner, c.owner);
       const stance = (allied === null ? caster.owner === c.owner : allied) ? "ally" : "enemy";
-      if (!corpseAdmits(c, def.targetFlags, stance, o)) continue;
+      if (!corpseAdmits(c, def.targetFlags, stance, need)) continue;
       out.push(c);
     }
     return o.order === "freshest"

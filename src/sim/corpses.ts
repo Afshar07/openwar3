@@ -67,8 +67,9 @@ export interface CorpseKind {
    *  (UnitData `death`, UnitDef.deathTime) since the unit died. Until it reaches 0 the unit is
    *  still playing its death and is not a corpse yet, so nothing may raise, eat or load it
    *  (the developer's word, first for the Rod of Necromancy, which could raise a Footman the
-   *  instant it fell instead of after its 3.04 s). Optional so a record from before the field
-   *  existed — and a body that never fell (Create Corpse, Exhume Corpses) — reads as down. */
+   *  instant it fell instead of after its 3.04 s). Only a taker that asks (CorpseNeed.fallen)
+   *  waits for it. Optional so a record from before the field existed — and a body that never
+   *  fell (Create Corpse, Exhume Corpses) — reads as down. */
   fallingLeft?: number;
 }
 
@@ -80,6 +81,11 @@ export interface CorpseNeed {
   /** The taker rebuilds the unit that died, so it needs to know what that was. False for a
    *  consumer that spends the body on something else (Cannibalize does not care). */
   needsType?: boolean;
+  /** Only a body that has finished FALLING (CorpseKind.fallingLeft). The developer's rule: the
+   *  death clip holds back what EATS the body (Cannibalize) and what RAISES DEAD out of it
+   *  (the Necromancer, the creep copy, the Rod of Necromancy) — and nothing else, so
+   *  Resurrection, Animate Dead and the rest take a body the instant it drops. */
+  fallen?: boolean;
 }
 
 /** How the caster stands toward the corpse's owner, resolved by the caller (the alliance
@@ -112,7 +118,7 @@ export function corpseUseError(
 ): string | null {
   if (c.raised) return "spent";
   if (c.eatenBy) return "eaten"; // somebody's meal — see CorpseKind.eatenBy
-  if ((c.fallingLeft ?? 0) > 0) return "falling"; // still dying — see CorpseKind.fallingLeft
+  if (need.fallen && (c.fallingLeft ?? 0) > 0) return "falling"; // still dying — see CorpseNeed.fallen
   if (c.isHero) return "hero";
   if (c.mechanical) return "mechanical";
   if (need.forLoad && c.heldBy) return "held"; // already in a wagon — one cargo at a time
@@ -231,9 +237,15 @@ export function corpseReach(code: string, lvl: CorpseSpellRow): number {
 
 /** What a member of the family needs of the body. Only Cannibalize eats it rather than
  *  rebuilding the unit that died, so only it takes a body whose type is unknown — and the
- *  refusal has to look with the same eyes the handler takes with, or they disagree. */
+ *  refusal has to look with the same eyes the handler takes with, or they disagree. Eating
+ *  and Raise Dead wait for the body to finish falling (CorpseNeed.fallen): `Acan` is also the
+ *  Abomination's `Acn2` and the creep's `ACcn`, `Arai` the creep's `ACrd`, and `AIrd` the Rod
+ *  of Necromancy's own code (AbilityData.slk `code`). SimWorld.corpsesFor lays this under
+ *  every claim, so the cast, the refusal, the autocast and Computer+ all ask the same thing. */
 export function corpseNeed(code: string): CorpseNeed {
-  return code === "Acan" ? { needsType: false } : {};
+  if (code === "Acan") return { needsType: false, fallen: true };
+  if (code === "Arai" || code === "AIrd") return { fallen: true };
+  return {};
 }
 
 /** Does this ability need a body, and therefore refuse without one? */
