@@ -164,6 +164,13 @@ export interface PlusProfile {
    * (`liveProfile`), so every gate that is stated against the ceiling moves with it. OURS.
    */
   readonly unlockAt: number;
+  /**
+   * …and the army food a wave waits for from then on, in place of `attackFood`. The developer:
+   * "late game waves should wait for a bit more food". With the ceiling off, a wave that still
+   * left at twelve food walked out in a trickle of small groups while the army behind it grew,
+   * which is the stuck game the unlock was meant to end, from the other side. OURS.
+   */
+  readonly lateAttackFood: number;
   /** Towers it will ever put up. Easy builds none at all. */
   readonly towers: number;
   /**
@@ -416,7 +423,7 @@ export const PLUS_EASY: PlusProfile = {
   // beside them. Eight then proved TOO easy to beat ("about 2 units more"), so it is back to two
   // more bodies than that: twelve is six Footmen or three Riflemen, and the wave (`squadFood`
   // counts the hero's five) is the hero and about three soldiers.
-  armyFood: 12, wholeArmyCeiling: false, unlockAt: Infinity, towers: 0, siegeUnits: 0, heroes: 1, techTier: 1, upgradeRank: 1,
+  armyFood: 12, wholeArmyCeiling: false, unlockAt: Infinity, lateAttackFood: 10, towers: 0, siegeUnits: 0, heroes: 1, techTier: 1, upgradeRank: 1,
   // Seven minutes at the EARLIEST, and each seat somewhere in the three after it
   // (`firstAttackSpread`) — so a table of Easy computers does not all leave home on one tick.
   firstAttack: 420, firstAttackSpread: 180, waveGap: 150, wonGap: 1, attackFood: 10, retreatHp: 0, refill: true,
@@ -489,7 +496,7 @@ export const PLUS_NORMAL: PlusProfile = {
   // average army a beginner already met — 22.4 — but stops the tail (17–34), and nothing past
   // the mix's leftovers is ever bought on top of it again. 22 was measured too and was the
   // bigger army of the two at every minute (23.9, up to 36), so not the one the issue asks for.
-  armyFood: 20, wholeArmyCeiling: true, unlockAt: 1500, towers: 1, siegeUnits: 1, heroes: 2, techTier: 3, upgradeRank: 2,
+  armyFood: 20, wholeArmyCeiling: true, unlockAt: 1500, lateAttackFood: 30, towers: 1, siegeUnits: 1, heroes: 2, techTier: 3, upgradeRank: 2,
   // Six minutes at the earliest and each seat somewhere in the two after it — it was five on the
   // dot, which is both two minutes sooner than Easy and the "every computer leaves on one tick"
   // habit `firstAttackSpread` was added to Easy to cure. A wave of twelve (the hero's five on top)
@@ -542,8 +549,10 @@ export const PLUS_INSANE: PlusProfile = {
   // Full countering, off a small sample and a long memory: six units and a quarter of them one
   // type is enough to start shifting, and it remembers what it saw four minutes ago.
   counterWeight: 1, counterSample: 6, counterShare: 0.25, counterMemory: 240,
-  armyFood: UPKEEP_TIER2, wholeArmyCeiling: false, unlockAt: Infinity, towers: 4, siegeUnits: 2, heroes: 3, techTier: 3, upgradeRank: 3,
-  firstAttack: 150, firstAttackSpread: 0, waveGap: 30, wonGap: 0.5, attackFood: 16, retreatHp: 0.4, refill: false,
+  armyFood: UPKEEP_TIER2, wholeArmyCeiling: false, unlockAt: Infinity, lateAttackFood: 16, towers: 4, siegeUnits: 2, heroes: 3, techTier: 3, upgradeRank: 3,
+  // Half a minute of `firstAttackSpread` — it was none, so two Insane computers left home on the
+  // same tick at 2:30 every game ("attack each other at the same moment").
+  firstAttack: 150, firstAttackSpread: 30, waveGap: 30, wonGap: 0.5, attackFood: 16, retreatHp: 0.4, refill: false,
   // Creeping starts at ninety seconds with the hero and eight food — the ladder's own answer,
   // which is "as soon as the hero walks out of the altar".
   focusFire: true, pullOutHp: 0.25, stutterStep: true, creeps: true, creepAt: 90, creepFood: 8,
@@ -562,11 +571,15 @@ export function plusProfile(difficulty: number): PlusProfile {
 }
 
 /**
- * The profile as the plan should read it at `clock` — `profile` itself, or, from
- * `PlusProfile.unlockAt` on, the same profile with its army ceiling lifted to the engine's own
- * food ceiling. A new object only once unlocked; before then the seat's own profile, unchanged.
+ * The profile as the plan (and the wave gate) should read it at `clock` — `profile` itself, or,
+ * from `PlusProfile.unlockAt` on, the same profile with its army ceiling lifted to the engine's
+ * own food ceiling and its waves waiting for `lateAttackFood`. A new object only once unlocked; before then the seat's own profile, unchanged.
  */
 export function liveProfile(profile: PlusProfile, clock: number): PlusProfile {
   if (clock < profile.unlockAt) return profile;
-  return { ...profile, armyFood: Math.max(profile.armyFood, engineFoodCeiling()) };
+  return {
+    ...profile,
+    armyFood: Math.max(profile.armyFood, engineFoodCeiling()),
+    attackFood: Math.max(profile.attackFood, profile.lateAttackFood),
+  };
 }

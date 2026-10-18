@@ -393,9 +393,9 @@ Blizzard's unless a comment says otherwise) every value here is ours.
 | upgrade rank | 1 | 2 | 3 |
 | animation-cancels | no | no | **yes** |
 | stutter-steps its ranged units | no | no | **yes** |
-| first attack | 7–10 min, rolled per seat | 6–8 min, rolled per seat | 2½ min |
-| army food that makes a wave | 10 | 12 | 16 |
-| quiet time between waves | 150 s | 120 s (60 s after a won fight) | 30 s (15 s after a won fight) |
+| first attack | 7–10 min, rolled per seat | 6–8 min, rolled per seat | 2½–3 min, rolled per seat |
+| army food that makes a wave | 10 | 12 (**30 from 25:00**) | 16 |
+| quiet time between waves (rolled ±25 % per wave) | 150 s | 120 s (half after a won fight) | 30 s (half after a won fight) |
 | **after falling back, waits for the whole army** | **yes** (`refill`) | no | no |
 | **first creep camp** | 4 min — **two green camps near home, then never** | 5 min, green only until 7 min, a minute at home between camps | 1½ min, camp to camp |
 | army food that makes a creeping party | 8 | 10 | 8 |
@@ -1486,7 +1486,16 @@ food ceiling, which the workers share. The developer: "right now games tend to g
 must unlock it after minute 25 so that games can finish in all-out brawls" — twenty food is
 the right army against a newer player early and the wrong one forty minutes in, when two
 maxed-out bases trade waves neither can push through. Easy and Insane never unlock (Insane's
-ceiling is already upkeep, not a handicap).
+ceiling is already upkeep, not a handicap). From the same minute a Normal wave waits for `lateAttackFood` (30) rather than
+`attackFood` (12) — "late game waves should wait for a bit more food" — or the unlocked army
+walked out in a trickle of twelve-food groups.
+
+**Each wave's gap is ROLLED** (`rollWaveGap`, `WAVE_GAP_SPREAD` ±25 % of `waveGap`, off the seat's
+own stream, re-rolled when a wave ends): a fixed gap measured from the end of a wave
+synchronised two computers for the rest of the match the first time their armies met in the
+middle — both waves ended on one pass, so both next waves left on one pass ("the two Computer+
+AI players decided to attack each other at the same moment"). Insane's first wave got a 30 s
+`firstAttackSpread` for the same reason.
 
 **The undead's second wave brings its Meat Wagon** (the developer's call). Under the ceiling the
 wagon had stopped coming at all — its Slaughterhouse waited behind the Temple of the Damned and

@@ -1080,6 +1080,10 @@ const CREEP_UNTIL_LEVEL = 5;
  * seven minutes is already the whole of its opening.
  */
 const EARLY_GAME = 600;
+/** How far either side of `PlusProfile.waveGap` a wave's own gap is rolled (`rollWaveGap`) — a
+ *  quarter, so Normal's two minutes is 90-150 s and two computers that fought each other do not
+ *  both come back on one tick. OURS. */
+const WAVE_GAP_SPREAD = 0.25;
 /** The longest a wave waits for its siege unit (`siegeHeld`) — a Meat Wagon's training time
  *  (36 s, UnitBalance `bldtm`) and a few steps to the rally point. It was 90, and a wave
  *  standing at home for a minute and a half read as "not keen on attacking". OURS. */
@@ -2111,6 +2115,9 @@ interface Brain {
   afield: boolean;
   target: { id: number; x: number; y: number } | null;
   reissueIn: number;
+  /** This wave's GAP, rolled off the seat's own stream each time a wave ends (`rollWaveGap`) —
+   *  `PlusProfile.waveGap` give or take `WAVE_GAP_SPREAD`. */
+  waveGapNow: number;
   /** When the last wave came home — `waveGap` is measured from it. */
   lastWaveEnd: number;
   /** THIS seat's first-wave clock: the difficulty's `firstAttack` floor plus its own roll of
@@ -2489,6 +2496,7 @@ export class ComputerPlusAi {
       target: null,
       reissueIn: 0,
       lastWaveEnd: 0,
+      waveGapNow: profile.waveGap,
       // Whole seconds off the seat's own stream (`PlusProfile.firstAttackSpread`).
       firstAttackAt: profile.firstAttack + (profile.firstAttackSpread > 0 ? ai.randomInt(0, profile.firstAttackSpread) : 0),
       refill: false,
@@ -4536,12 +4544,14 @@ export class ComputerPlusAi {
   /** Are the WAVE's own clocks open — is there an attack to be preferred over a camp? One
    *  question in one place, because `creepNext` has to ask it too and the two must agree. */
   private waveReady(b: Brain): boolean {
-    const { profile } = b;
+    // LIVE — after `PlusProfile.unlockAt` a wave waits for a bigger army (`lateAttackFood`).
+    const profile = liveProfile(b.profile, b.clock);
     if (b.clock < b.firstAttackAt) return false;
     // …and a WON fight shortens the gap (`PlusProfile.wonGap`): the army that just beat theirs
-    // is back out while their heroes are still in the altar, rather than a full gap later.
+    // is back out while their heroes are still in the altar, rather than a full gap later. The
+    // gap itself is this seat's own roll for this wave (`Brain.waveGapNow`), not the profile's.
     const won = b.lastWon >= 0 && b.lastWon >= b.lastWaveEnd - WON_RECENT;
-    if (b.clock - b.lastWaveEnd < profile.waveGap * (won ? profile.wonGap : 1)) return false;
+    if (b.clock - b.lastWaveEnd < b.waveGapNow * (won ? profile.wonGap : 1)) return false;
     // THE OPENING BELONGS TO THE CAMPS — see `EARLY_GAME`. A closed wave window is an OPEN creep
     // window, because this is the same question `creepNext` asks before it lets the hero's level
     // cap refuse a camp: for the first ten minutes a party led by a hero that has been nowhere
@@ -4650,7 +4660,7 @@ export class ComputerPlusAi {
     const u = this.host.world.units.get(target.id);
     if (!u || u.owner < 0 || u.owner >= MELEE.MAX_PLAYERS) return true;
     if (this.host.registry.get(u.typeId)?.race !== "undead") return true;
-    const { profile } = b;
+    const profile = liveProfile(b.profile, b.clock);
     const bar = Math.min(profile.attackFood * UNDEAD_ARMY, profile.armyFood * UNDEAD_CEILING);
     return this.squadFood(b, this.mustered(b)) >= bar;
   }
@@ -6560,6 +6570,19 @@ export class ComputerPlusAi {
     return false;
   }
 
+  /**
+   * THIS WAVE'S GAP — the profile's `waveGap` give or take `WAVE_GAP_SPREAD`, off the seat's own
+   * stream. Reported: "the two Computer+ AI players decided to attack each other at the same
+   * moment … we should probably use a range". A fixed gap measured from the end of a wave
+   * synchronises two computers for the rest of the match the first time their armies meet in
+   * the middle: both waves end on the same pass, so both next waves leave on the same pass —
+   * the same "every computer keeps one clock" that `firstAttackSpread` cures for the opening.
+   */
+  private rollWaveGap(b: Brain): number {
+    const r = b.ai.randomInt(0, 9999) / 10000;
+    return b.profile.waveGap * (1 - WAVE_GAP_SPREAD + 2 * WAVE_GAP_SPREAD * r);
+  }
+
   private endWave(b: Brain): void {
     if (b.creeping) b.lastCreepEnd = b.clock;
     b.resume = null;
@@ -6567,6 +6590,7 @@ export class ComputerPlusAi {
     b.creeping = false;
     b.retreatFrom = null;
     b.lastWaveEnd = b.clock;
+    b.waveGapNow = this.rollWaveGap(b);
     // The wave is over, so both halves of what it was TOLD ABOUT are too: the next one announces
     // itself even if it happens to pick the same opponent, and nothing is still promised to a
     // teammate. See `attackTalk` / `joinWave`.
@@ -7734,7 +7758,7 @@ export class ComputerPlusAi {
   private rallyBusy(b: Brain): readonly string[] | null {
     if (b.mode === "defending" || b.ai.townThreatened()) return RALLY_BUSY_LINES.attacked;
     if (b.mode === "retreating") return RALLY_BUSY_LINES.broken;
-    if (this.squadFood(b) < b.profile.attackFood) return RALLY_BUSY_LINES.small;
+    if (this.squadFood(b) < liveProfile(b.profile, b.clock).attackFood) return RALLY_BUSY_LINES.small;
     if (b.mode === "attacking") return b.creeping ? RALLY_BUSY_LINES.creeping : RALLY_BUSY_LINES.fighting;
     return null;
   }

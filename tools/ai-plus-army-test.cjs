@@ -650,7 +650,11 @@ console.log("\n-- STUTTER-STEP (Insane's ranged micro between shots) -----------
   check("Normal keeps its ceiling before 25:00", liveProfile(PLUS_NORMAL, 1499).armyFood, PLUS_NORMAL.armyFood);
   check("…and the very same profile object", liveProfile(PLUS_NORMAL, 1499) === PLUS_NORMAL, true);
   check("Normal's ceiling comes off at 25:00", liveProfile(PLUS_NORMAL, 1500).armyFood >= 90, true);
-  check("…and nothing else about it changes", liveProfile(PLUS_NORMAL, 1500).attackFood, PLUS_NORMAL.attackFood);
+  check("…and its waves wait for more army", liveProfile(PLUS_NORMAL, 1500).attackFood, PLUS_NORMAL.lateAttackFood);
+  check("…which is more than before", PLUS_NORMAL.lateAttackFood > PLUS_NORMAL.attackFood, true);
+  check("…and nothing else about it changes", liveProfile(PLUS_NORMAL, 1500).waveGap, PLUS_NORMAL.waveGap);
+  check("no two seats of one difficulty keep one first-wave clock",
+    [PLUS_EASY, PLUS_NORMAL, PLUS_INSANE].every((p) => p.firstAttackSpread > 0), true);
   check("Easy never unlocks", liveProfile(PLUS_EASY, 99999).armyFood, PLUS_EASY.armyFood);
   check("Insane never unlocks", liveProfile(PLUS_INSANE, 99999).armyFood, PLUS_INSANE.armyFood);
 }
