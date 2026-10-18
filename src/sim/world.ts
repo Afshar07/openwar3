@@ -2310,7 +2310,7 @@ export interface SimUnit {
    *  hiring one does not make it a member of the buyer's tech tree: an orc who hires a Shadow
    *  Priest has never been able to research Resi at all. See `unitMeets`. Its UnitBalance
    *  `upgrades` column is empty, so no research reaches it the other way either. A CHARMED
-   *  creep is not one — the requirement still binds it (techMeets). */
+   *  unit is marked the same way when it kept everything it had (spells.ts keepAbilities). */
   mercenary: boolean;
   /** The ability that RAISED this unit from a corpse on a clock ("" = anything else) — Animate
    *  Dead's shell. Its id, not its code, so the timer bar can print that row's own Name
@@ -4124,10 +4124,9 @@ export class SimWorld {
     // `[ACen] Requires=Roen` (Ensnare (Creep) wants the orc Ensnare research), `[ACwb]`
     // Web's the same — and no neutral player ever researches anything, so read literally the
     // Forest Troll Trapper, the Murloc Huntsman and every other trapper in the game could
-    // never ensnare anyone. They do, in every melee match ever played; and the same rule seen
-    // from the other side is the known quirk that a CHARMED trapper's Ensnare goes dark for a
-    // player who lacks the upgrade — the requirement is real, and it is the neutral owner
-    // that is exempt from it, not the row.
+    // never ensnare anyone. They do, in every melee match ever played — the requirement is
+    // real, and it is the neutral owner that is exempt from it, not the row. A CHARMED or
+    // HIRED creep carries the exemption with it (SimUnit.mercenary, `unitMeets`).
     if (player < 0) return true;
     return !this.tech || this.tech.meets(player, id);
   }
@@ -18726,6 +18725,7 @@ export class SimWorld {
     mirrorImage: (caster, def, rank) => this.startMirrorImage(caster, def, rank),
     inferno: (caster, def, rank, x, y) => this.startInferno(caster, def, rank, x, y),
     changeOwner: (u, owner, team) => this.changeUnitOwner(u, owner, team),
+    techMeets: (player, id) => this.techMeets(player, id),
     possess: (casterId, targetId, seconds) => this.beginPossession(casterId, targetId, seconds),
     killUnit: (u) => this.kill(u),
     transmute: (target, caster, goldFactor, lumberFactor) => this.transmuteInternal(target, caster, goldFactor, lumberFactor),

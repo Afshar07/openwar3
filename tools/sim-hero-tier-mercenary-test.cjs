@@ -94,7 +94,7 @@ console.log("\na mercenary's abilities are live whatever its buyer researched");
 {
   const camp = put("nmer", -1, { neutralPassive: true, building: { queue: [], constructionLeft: 0 } });
   const charmed = put("nfsp", 0, { abilities: [{ id: "ACdm", code: "ACdm", level: 1 }] });
-  check("a creep that is merely OURS still needs Resi (the charmed quirk)", world.unitMeets(charmed, "ACdm"), false);
+  check("a creep that is merely OURS (never hired or charmed) still needs Resi", world.unitMeets(charmed, "ACdm"), false);
   check("…and the creep camp's own priest needs nothing", world.unitMeets({ owner: -1, mercenary: false }, "ACdm"), true);
   const hired = put("nfsp", 0, { abilities: [{ id: "ACdm", code: "ACdm", level: 1 }] });
   world.noteTrainFinish(camp.id, hired.id);

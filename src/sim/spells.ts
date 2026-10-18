@@ -226,6 +226,8 @@ export interface SpellApi {
   massTeleport(caster: SimUnit, def: AbilityDef, dest: SimUnit): void;
   /** Change a unit's controller (Charm): new owner + team. */
   changeOwner(unit: SimUnit, owner: number, team: number): void;
+  /** SimWorld.techMeets — does `player` meet an id's `Requires`? */
+  techMeets(player: number, id: string): boolean;
   /** Start a Possession (`Aps2`): after `seconds`, IF both bodies are still standing, the
    *  target changes hands permanently and the caster is destroyed. The stuns and the
    *  vulnerability that hold the two of them there are the handler's; this is the clock, and
@@ -1342,6 +1344,15 @@ const thunderClap: Handler = (api, caster, def, rank, ctx) => {
     api.applyBuff(t, { kind: "slow", timeLeft: dur(lvl, t), sourceId: caster.id, value: d(lvl, 2, 0.25), value2: d(lvl, 3, 0.25), ...fx(def) });
   }
 };
+
+/** A unit TAKEN (Charm, the Scepter of Mastery) keeps the abilities it could use under its old
+ *  owner (the developer's rule): a creep keeps all of them, since a neutral owner meets every
+ *  `Requires` (techMeets), and so does a player's unit whose owner had researched them all.
+ *  It then reads as a MERCENARY (SimUnit.mercenary) — its abilities are its own, whatever its
+ *  new owner has researched. */
+function keepAbilities(api: SpellApi, t: SimUnit): void {
+  if (t.owner < 0 || t.abilities.every((a) => api.techMeets(t.owner, a.id))) t.mercenary = true;
+}
 
 export const SPELL_HANDLERS: Record<string, Handler> = {
   // Holy Light — heal a friendly living unit for dataA, or smite an enemy Undead
@@ -3305,10 +3316,12 @@ export const SPELL_HANDLERS: Record<string, Handler> = {
     api.possess(caster.id, t.id, hold);
   },
 
-  // Charm (Dark Ranger, ult) — take control of a non-hero enemy of level ≤ dataA.
+  // Charm (Dark Ranger, ult) — take control of a non-hero enemy of level ≤ dataA. The unit
+  // keeps the abilities it could use before (keepAbilities).
   ANch: (api, caster, def, rank, ctx) => {
     const t = api.getUnit(ctx.targetId);
     if (!t || t.isHero || t.level > d(def.levelData[rank - 1], 0, 5)) return;
+    keepAbilities(api, t);
     api.changeOwner(t, caster.owner, caster.team);
     if (def.targetArt) api.emitEffect(def.targetArt, t.x, t.y, t.id);
   },
@@ -3844,6 +3857,7 @@ export const SPELL_HANDLERS: Record<string, Handler> = {
   AIco: (api, caster, def, _rank, ctx) => {
     const t = api.getUnit(ctx.targetId);
     if (!t || t.isHero) return;
+    keepAbilities(api, t);
     api.changeOwner(t, caster.owner, caster.team);
     if (def.targetArt) api.emitEffect(def.targetArt, t.x, t.y, t.id);
   },
