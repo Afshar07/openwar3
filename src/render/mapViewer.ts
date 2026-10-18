@@ -371,6 +371,24 @@ const GOLD_MINE_COLLAPSE_ART = "Objects\\Spawnmodels\\Other\\NeutralBuildingExpl
  * whistled there, 0.8 s before the flare came down on the other side of the map.
  */
 const SOUNDED_BY_EFFECT = new Set(["AIta", "AOfs", "Andt", "AItb", "AIfa", "Afla"]);
+/**
+ * Abilities whose whole sound is their MISSILE's — so the cast-fire chain guesses nothing for
+ * them either. Storm Bolt names no art of its own, and the chain's last rung, the BUFF's worn
+ * model, is the shared stun `[BPSE]` (`AbilityData.slk` BuffID1 = BPSE), whose
+ * `Targetart = Abilities\Spells\Human\Thunderclap\ThunderclapTarget.mdl` led the folder scan to
+ * ThunderClapCaster.wav: every Storm Bolt was thrown to the sound of a Thunder Clap. The hammer
+ * carries both of its own sounds:
+ *
+ *     StormBoltMissile.mdx  SNDXAHSL @ Birth → AnimLookups "StormBoltLaunch" → StormBoltLaunch.wav
+ *                           SNDXAHTB @ Death → AnimLookups "StormBolt" → ThunderBoltMissileDeath.wav
+ *
+ * — the throw is the projectile's launch (playMissile, at the shooter) and the crash is its
+ * Death clip, played at the hit (impactProjectile, via `missileHitArts`). The creeps' Hurl
+ * Boulder (`ACtb`, the same stun buff) throws `RockBoltMissile.mdx`, which parks the same
+ * `SNDXAHTB` on its Death. Keyed on the base `code`, so `ANsb` and Frost Bolt (`ACcb`, both
+ * code `AHtb`) come along.
+ */
+const SOUNDED_BY_MISSILE = new Set(["AHtb", "ACtb"]);
 // Cast sounds for spells whose effect model doesn't sit next to a folder WAV
 // (e.g. Divine Shield has no target/caster art), by base ability code.
 const SPELL_SOUND_FALLBACK: Record<string, string> = {
@@ -1722,6 +1740,13 @@ export class MapViewerScene {
   private projectileLoading = new Set<number>();
   // Missiles currently hidden because their point is fogged (see setProjectileShown).
   private projectileHidden = new Set<number>();
+  // Each live missile's model path, for the hit sound impactProjectile plays off it.
+  private projectileArt = new Map<number, string>();
+  // Missile models (lowercased) whose HIT is sounded by their own Death clip's events — the
+  // missiles of the SOUNDED_BY_MISSILE abilities, learnt off each cast as it fires, so a map's
+  // own Storm Bolt with its own hammer is covered and a LAN client (whose missiles carry no
+  // ability) learns them from the same cast it is shown.
+  private missileHitArts = new Set<string>();
   // Blood Mage orbiting spheres (issue #37): one rig per live Blood Mage, keyed by
   // sim id. Spawned on demand; balls ride the hero model's sprite attachment nodes.
   private bloodMageSpheres = new Map<number, SphereRig>();
@@ -8620,6 +8645,7 @@ export class MapViewerScene {
   private detachProjectile(id: number): void {
     this.projectileLoading.delete(id);
     this.projectileHidden.delete(id);
+    this.projectileArt.delete(id);
     const inst = this.projectileInsts.get(id);
     if (inst) {
       inst.detach();
@@ -8633,6 +8659,14 @@ export class MapViewerScene {
   private impactProjectile(id: number, x: number, y: number, z: number): void {
     this.projectileLoading.delete(id);
     const wasHidden = this.projectileHidden.delete(id);
+    // A hammer's crash is an event parked in its own Death clip (see SOUNDED_BY_MISSILE) — heard
+    // whether or not the model has streamed in yet, under the same eyes-on-the-spot rule.
+    const art = this.projectileArt.get(id);
+    this.projectileArt.delete(id);
+    if (art && this.missileHitArts.has(art.toLowerCase()) && this.pointVisible(x, y)) {
+      const w = this.sounds?.modelClipWindow(art, "death");
+      if (w) this.sounds?.playModelEventsIn(art, w[0], w[1], { x, y, z: this.rts!.groundHeightAt(x, y) + z });
+    }
     const inst = this.projectileInsts.get(id);
     if (!inst) return;
     this.projectileInsts.delete(id);
@@ -8657,6 +8691,7 @@ export class MapViewerScene {
   private async loadProjectile(id: number, art: string): Promise<void> {
     const map = this.viewer.map;
     if (!map) return;
+    this.projectileArt.set(id, art);
     let model = this.projectileModels.get(art);
     if (model === undefined) {
       model = ((await this.viewer.load(art, this.solver)) as SpawnModel | undefined) ?? null;
@@ -14439,6 +14474,10 @@ export class MapViewerScene {
           }
           if (this.sounds?.playModelAbilityEvent(this.rts!.renderedModelPath(c.casterId), c.code, at)) continue;
           if (SOUNDED_BY_EFFECT.has(c.code)) continue; // …heard where it lands instead
+          if (SOUNDED_BY_MISSILE.has(c.code)) {
+            if (def.missileArt) this.missileHitArts.add(def.missileArt.toLowerCase());
+            continue; // …heard off the hammer: its launch here, its crash at the hit
+          }
           // An ITEM's press is keyed by its own ability code straight into AnimLookups — `AIMA`
           // → "ManaPotion", `AIRE` → "RestorationPotion" (UI\SoundInfo\AnimLookups.slk) — which is
           // the game naming that press's sound outright. The art chain below only reaches
@@ -14936,6 +14975,7 @@ export class MapViewerScene {
     this.projectileInsts.clear();
     this.projectileLoading.clear();
     this.projectileHidden.clear();
+    this.projectileArt.clear();
     this.projectileModels.clear();
     for (const rig of this.bloodMageSpheres.values()) this.destroySphereRig(rig);
     this.bloodMageSpheres.clear();
