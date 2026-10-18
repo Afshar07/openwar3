@@ -201,7 +201,7 @@ export interface HudSelection {
   queueLength: number;
   /** The queue, head first: each job's icon, name and `BuildJob` kind (unit / research /
    *  upgrade / revive — which verb the observer's readout words it with). */
-  queue: Array<{ icon: string; name: string; kind: string }>;
+  queue: Array<{ icon: string; name: string; kind: string; desc: string }>;
   icon: string; // the selected thing's own command icon (BLP path)
   builderId: number; // the worker hidden INSIDE this structure while it goes up (0 = none)
   builderIcon: string; // that worker's icon (BLP path) — the button under the building's icon
@@ -1442,6 +1442,10 @@ export class GameHud {
   /** Which info-panel ICON is under the cursor — Damage, Armor or the hero's primary attribute —
    *  so its slab re-reads the live numbers (a buff lands, a level comes in) while it is up. */
   private statHover: StatTip | null = null;
+  /** Which training-queue icon is under the cursor — 0 the job in progress (the status icon),
+   *  1..6 the queue slots — so its slab follows the queue as jobs finish and shift up. */
+  private queueHover = -1;
+  private queueTipped = false; // the status icon currently answers "Cancel" (a training job, not a building)
   private cmdSlots: HTMLButtonElement[] = [];
   private cmdLabels: HTMLSpanElement[] = []; // per-slot fallback text (icon-less buttons)
   private cmdCdOverlay: HTMLDivElement[] = []; // per-slot radial cooldown sweep
@@ -1748,6 +1752,7 @@ export class GameHud {
       this.textT = 0;
       this.updateTexts();
       this.refreshStatTooltip(); // at the panel's own rate: it reads the numbers the panel just drew
+      this.refreshQueueTooltip(); // …and so does the queue's: a finished job shifts the slots under the cursor
     }
     // A live ping PULSES, so while one is up the minimap redraws every frame instead of at
     // the 10 Hz the static dots are content with.
@@ -3172,12 +3177,13 @@ export class GameHud {
     statusLine.className = "hud-status-line";
     this.statusIcon = document.createElement("div");
     this.statusIcon.className = "hud-status-icon";
-    setGameTip(this.statusIcon, "Cancel");
     // Clicking the in-progress icon cancels the unit currently training (queue
-    // slot 0) — only when it's a training job, never a building under construction.
+    // slot 0) — only when it's a training job, never a building under construction. The
+    // "Cancel" hint at the cursor is set with the job (updateTexts), for the same reason.
     this.statusIcon.onclick = () => {
       if (this.queueTrainable) this.driver.runCommand("cancelqueue:0");
     };
+    this.bindQueueTooltip(this.statusIcon, 0);
     // The builder's button, under the building's own icon. An Orc peon builds from INSIDE the
     // structure, so while it is up there is no peon on the terrain to click — this is how you
     // get it back (and queue orders on it) without cancelling the build. `InfoPanelBuildingDetail.fdf`
@@ -3216,6 +3222,7 @@ export class GameHud {
       slot.onclick = () => {
         if (slot.classList.contains("filled")) this.driver.runCommand(`cancelqueue:${i + 1}`);
       };
+      this.bindQueueTooltip(slot, i + 1);
       this.queueSlots.push(slot);
       this.queueRow.appendChild(slot);
     }
@@ -3727,7 +3734,7 @@ export class GameHud {
     this.padLive = on;
     this.syncPadCard();
     if (on) this.padTooltip(this.driver.commandCard());
-    else if (this.cmdHover < 0 && this.invHover < 0 && this.buffHover < 0 && !this.statHover) this.cmdTooltip.hidden = true;
+    else if (this.cmdHover < 0 && this.invHover < 0 && this.buffHover < 0 && !this.statHover && this.queueHover < 0) this.cmdTooltip.hidden = true;
   }
 
   /** Start the selector over when the selection or the card page changes, and paint it. */
@@ -3781,7 +3788,7 @@ export class GameHud {
     if (!btn || !isHovered(btn)) {
       this.cmdHover = -1;
       // Another slab owner (an item, a buff) may already have taken over; leave its text up.
-      if (this.invHover < 0 && this.buffHover < 0 && !this.statHover) this.cmdTooltip.hidden = true;
+      if (this.invHover < 0 && this.buffHover < 0 && !this.statHover && this.queueHover < 0) this.cmdTooltip.hidden = true;
       return;
     }
     const slot = this.cmdHover;
@@ -3976,6 +3983,10 @@ export class GameHud {
         this.statusIcon.style.backgroundImage = url ? `url(${url})` : "";
         this.statusIcon.style.visibility = url ? "visible" : "hidden";
         this.statusIcon.classList.toggle("clickable", training);
+        if (this.queueTipped !== training) {
+          this.queueTipped = training;
+          setGameTip(this.statusIcon, training ? "Cancel" : null);
+        }
         // The peon walled into the site (Orc only — nothing else builds from inside), as a
         // button that selects it. Its art is the icon's own, frame included, so there is no
         // border of ours around it.
@@ -3989,6 +4000,9 @@ export class GameHud {
           this.queueSlots.forEach((slot, i) => {
             const q = rest[i];
             const qUrl = q?.icon ? this.driver.blpUrl(q.icon) : null;
+            // A filled slot is a cancel button exactly as the status icon is, and says so at
+            // the cursor; an empty one is a number and says nothing.
+            if (!!qUrl !== slot.classList.contains("filled")) setGameTip(slot, qUrl ? "Cancel" : null);
             if (qUrl) {
               slot.style.backgroundImage = `url(${qUrl})`;
               slot.textContent = "";
@@ -4299,6 +4313,43 @@ export class GameHud {
     el.style.backgroundImage = url ? `url(${url})` : "";
   }
 
+
+  /** Hovering a training-queue icon raises the queued job's own slab in the command tooltip's
+   *  place — its name and its `Ubertip`, as its button read when it was bought — under the
+   *  "Cancel" hint the icon already shows at the cursor. No cost row: the job is paid for. */
+  private bindQueueTooltip(el: HTMLElement, index: number): void {
+    el.addEventListener("pointerenter", () => {
+      this.queueHover = index;
+      this.refreshQueueTooltip();
+    });
+    el.addEventListener("pointerleave", () => {
+      if (this.queueHover !== index) return;
+      this.queueHover = -1;
+      this.cmdTooltip.hidden = true;
+    });
+  }
+
+  /** Re-draw the hovered queue icon's slab off the CURRENT queue. A job that finishes moves
+   *  every one behind it up a slot, so the slab follows whatever now sits under the cursor; an
+   *  emptied slot takes its slab down but keeps the hover, and a panel hidden from under the
+   *  pointer (the selection changed) sends no `pointerleave` — `:hover` is asked instead. */
+  private refreshQueueTooltip(): void {
+    const index = this.queueHover;
+    if (index < 0) return;
+    const el = index === 0 ? this.statusIcon : this.queueSlots[index - 1];
+    if (!el || !isHovered(el) || this.progressWrap.hidden) {
+      this.queueHover = -1;
+      this.cmdTooltip.hidden = true;
+      return;
+    }
+    const job = this.queueTrainable ? this.driver.selection()?.queue[index] : undefined;
+    if (!job) {
+      this.cmdTooltip.hidden = true;
+      return;
+    }
+    const desc = job.desc ? `<div class="hud-tooltip-desc">${wc3ToHtml(job.desc)}</div>` : "";
+    this.setTooltip(`<div class="hud-tooltip-title">${wc3ToHtml(job.name)}</div>${desc}`);
+  }
 
   /** Hovering an info-panel icon raises its slab in the command tooltip's place. */
   private bindStatTooltip(el: HTMLElement, which: StatTip): void {

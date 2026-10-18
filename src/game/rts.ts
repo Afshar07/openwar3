@@ -202,7 +202,7 @@ export interface SelectionInfo {
   trainProgress: number; // 0..1 of the unit currently training (queue[0])
   secondsLeft: number; // seconds remaining on the active construction/training job
   queueLength: number;
-  queue: Array<{ icon: string; name: string; kind: string }>; // the queue, head first (HudSelection.queue)
+  queue: Array<{ icon: string; name: string; kind: string; desc: string }>; // the queue, head first (HudSelection.queue)
   icon: string; // the selected thing's own command-card icon (BLP path)
   /** The worker HIDDEN inside this structure while it goes up — an Orc peon, and only an Orc
    *  peon (`buildsFromInside`): every other race's builder is still standing on the terrain
@@ -7905,6 +7905,9 @@ export class RtsController {
         icon: (j.kind === "research" ? this.upgrades.icon(j.unitId, j.level ?? 0) : this.registry.get(j.unitId)?.icon) ?? "",
         name: (j.kind === "research" ? this.upgrades.name(j.unitId, j.level ?? 0) : this.registry.get(j.unitId)?.name) ?? j.unitId,
         kind: j.kind,
+        // What the queue slot's hover slab says under the name: the same `Ubertip` the card's
+        // button showed when the job was bought (the research's at the LEVEL in the queue).
+        desc: this.tipText((j.kind === "research" ? this.upgrades.uberTip(j.unitId, j.level ?? 0) : this.registry.get(j.unitId)?.description) ?? ""),
       })),
       icon: def?.icon ?? "",
       builderId,
