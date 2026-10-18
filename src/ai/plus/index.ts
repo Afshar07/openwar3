@@ -2890,6 +2890,9 @@ export class ComputerPlusAi {
       tier: this.tier(b),
       threatened: b.ai.townThreatened(),
       workerChops: this.workerChops(b),
+      // The Ghouls actually kept in the trees — the rest are the wave's (`recruit`), and the
+      // plan's whole-army ceiling prices them as soldiers (plus/plan.ts `soldiers`).
+      lumberCrew: this.lumberCrew(b),
       portalReserve: b.items.portalSaving(this.itemCtx(b)) + b.items.fightSaving(this.itemCtx(b)),
       wonAt: b.wonAt,
       foodOf: (id) => this.host.registry.get(id)?.foodUsed ?? 0,

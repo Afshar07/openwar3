@@ -1449,6 +1449,27 @@ have produced an AI that builds twenty Grunts, attacks with six, and still has t
 standing when you walk into its base — which is exactly what "must NOT mass armies at all" rules
 out.
 
+Where the ceiling is the WHOLE army's (`wholeArmyCeiling`, Normal), pricing the bodies outside
+the mix (`offMixFood`) was not enough, and a Normal orc was reported walking out on its FIRST
+wave with two heroes, a Catapult, six Grunts and three or four more — some 30 food of soldiers
+on a 20 ceiling. Four leaks, each a body nobody charged:
+
+- **A mix row's surplus.** The shares are absolute counts, and a row the mix still NAMES is
+  skipped by `offMixFood`. A Grunt-only opening (before the War Mill) spends all twenty on six
+  Grunts; the War Mill drops the Grunt share to four and the Head Hunter row fills its whole
+  share beside the six. Every re-weighting — a tier, a counter, `thenAt3` — ratchets the same way.
+- **The side rows.** `siegeLine`, `always` and `antiAir` were absolute counts that never asked the
+  ceiling, so the Catapult landed on an army that was already full.
+- **The undead's fighting Ghouls.** The plan left the whole lumber row (six) out as economy, but
+  `recruit` keeps only `lumberCrew` (about a third) in the trees and walks the rest into the wave.
+
+So `fitted` measures every row — mix and side alike — against `soldierFood` (every catalogue
+soldier standing or queued, less the brain's real forest crew), with a per-pass ledger so two
+rows cannot both spend the same room, and the mix keeps back what the side rows are owed
+(`sideOwed`: the siege from the start, the statues once their tier stands, the anti-air while its
+trigger holds), so they arrive inside the ceiling rather than on top of it. A full army grows
+again only as it loses bodies. Ten headless minutes: 13–31 food of soldiers before, 13–21 after.
+
 ## Strategies: a race is a table of builds, not one build
 
 Each race owns several named builds ([`races.ts`](../src/ai/plus/races.ts)) — Human plays

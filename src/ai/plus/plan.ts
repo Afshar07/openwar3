@@ -1,5 +1,6 @@
 import type { UnitDef } from "../../data/units";
 import type { AiPlayer } from "../aiPlayer";
+import { BLK_SPHINX, OBSIDIAN_STATUE, PIT_FIEND, TOWN_COUNT_EQUIVALENTS } from "../ids";
 import { AIR_HEAVY, counterScore, type EnemyRead } from "./counter";
 import type { PlusProfile } from "./profile";
 import type { PlusRaceTable, PlusStrategy } from "./races";
@@ -49,6 +50,13 @@ export interface PlusCtx {
   /** Food currently spent on FIGHTERS — workers, buildings and the things they are building
    *  left out, production queues counted in. The number the whole plan is scaled by. */
   readonly armyFood: number;
+  /**
+   * How many of the race's LUMBER units the brain is keeping in the trees this pass — the
+   * undead's Ghouls (plus/index.ts `lumberCrew`, about a third of them). Only those are the
+   * economy; every other Ghoul is recruited into the waves and is a soldier the ceiling prices.
+   * Absent = the old flat `LUMBER_UNITS`.
+   */
+  readonly lumberCrew?: number;
   /** The highest hall tier STANDING (1/2/3). */
   readonly tier: number;
   /** Is something hostile in one of our towns right now. */
@@ -323,6 +331,9 @@ const EXPAND_GOLD = 2000;
 export function buildPlan(c: PlusCtx): void {
   const { ai, table } = c;
   ai.initBuildArray();
+  // A new pass, a new ledger: what `fitted` let through last pass is standing or queued now,
+  // and `soldierFood` counts it there. Cleared here rather than trusted to a fresh ctx.
+  passLedger.delete(c);
 
   // THE GOLD CREW, AND THEN THE FOREST CREW. FIRST, ALWAYS, AT EVERY DIFFICULTY.
   //
@@ -773,7 +784,13 @@ function army(c: PlusCtx, budget: number): void {
   // whole shortfall would hold the entire ladder under it — the tier-up, the tech, the
   // upgrades — until the army was full. One more at a time per row keeps production
   // continuous and lets the rest of the plan breathe.
-  for (const r of armyRows(c, budget)) c.ai.setBuildNext(r.want, r.unit);
+  //
+  // Each row's count is FITTED under the whole army's ceiling first (`fitted`): the shares are
+  // a target, the ceiling is the limit, and the room the side rows are owed is kept back.
+  for (const r of armyRows(c, budget)) {
+    const want = fitted(c, r.unit, r.want, sideOwed(c, buildableMix(c)));
+    if (want > 0) c.ai.setBuildNext(want, r.unit);
+  }
 }
 
 /**
@@ -788,7 +805,7 @@ function army(c: PlusCtx, budget: number): void {
  */
 function armyRows(c: PlusCtx, budget: number): Array<{ unit: string; want: number }> {
   const rows = buildableMix(c);
-  const spend = Math.max(0, Math.min(budget, c.profile.armyFood) - offMixFood(c, rows));
+  const spend = Math.max(0, Math.min(budget, c.profile.armyFood) - offMixFood(c, rows) - sideOwed(c, rows));
   const total = rows.reduce((n, r) => n + r.weight, 0);
   if (total <= 0) return [];
   const out: Array<{ unit: string; want: number }> = [];
@@ -825,11 +842,120 @@ function offMixFood(c: PlusCtx, rows: ReadonlyArray<{ unit: string }>): number {
   const inMix = new Set(rows.map((r) => r.unit));
   let food = 0;
   for (const unit of Object.keys(c.table.units)) {
-    if (inMix.has(unit)) continue;
-    let n = c.ai.count(unit);
-    if (unit === c.table.lumberUnit && !c.workerChops) n = Math.max(0, n - LUMBER_UNITS);
-    food += n * Math.max(1, c.foodOf(unit));
+    if (!inMix.has(unit)) food += soldiers(c, unit) * Math.max(1, c.foodOf(unit));
   }
+  return food;
+}
+
+/**
+ * How many of `unit` are SOLDIERS — standing, queued or reviving, less the forest crew if it is
+ * the race's lumber unit. The forest crew is the brain's real one (`PlusCtx.lumberCrew`): the
+ * flat six this used to subtract was every Ghoul the economy row asks for, and `recruit`
+ * (plus/index.ts) walks all but a third of those into the wave — four Ghouls, eight food, on
+ * top of an undead Normal's ceiling in every fight.
+ */
+function soldiers(c: PlusCtx, unit: string): number {
+  const n = c.ai.count(unit);
+  if (unit !== c.table.lumberUnit || c.workerChops) return n;
+  return Math.max(0, n - Math.min(LUMBER_UNITS, c.lumberCrew ?? LUMBER_UNITS));
+}
+
+/**
+ * Food of EVERY soldier this race's catalogue can field, in the mix or not — the number the
+ * whole army's ceiling is measured against (`fitted`). `offMixFood` alone was not that: it
+ * skips the units the current mix still names, so the six Grunts a Grunt-only opening bought
+ * stood uncounted beside the Head Hunters' full share once the War Mill went up, and every
+ * re-weighting (a tier, a counter, `thenAt3`) left the old row's surplus standing the same way.
+ */
+function soldierFood(c: PlusCtx): number {
+  let food = 0;
+  const seen = new Set<string>();
+  const add = (id: string, n: number): void => {
+    if (seen.has(id)) return;
+    seen.add(id);
+    food += n * Math.max(1, c.foodOf(id));
+  };
+  for (const unit of Object.keys(c.table.units)) add(unit, soldiers(c, unit));
+  // …and every soldier standing in ANOTHER FORM, which the census counts under that form's own
+  // id (`AiPlayer.censusOf` folds a morph back for heroes alone) and so under no catalogue row:
+  // a Berserker, a Druid in Bear Form, a Destroyer — each a body the ceiling would otherwise
+  // hand to somebody else, priced at its own food (a Destroyer is 5 against a Statue's 3).
+  for (const unit of Object.keys(c.table.units)) {
+    for (const form of [...(TOWN_COUNT_EQUIVALENTS[unit] ?? []), ...(OTHER_FORMS[unit] ?? [])]) {
+      add(form, c.ai.count(form));
+    }
+  }
+  return food;
+}
+
+/** Forms a soldier can take that `TOWN_COUNT_EQUIVALENTS` does not fold — because common.ai's
+ *  `TownCountEx` does not, and folding them there would change what the build rows ask for —
+ *  but which are still the same body on the field. */
+const OTHER_FORMS: Record<string, string[]> = {
+  [OBSIDIAN_STATUE]: [BLK_SPHINX], // Destroyer Form (`Rusp`)
+  [PIT_FIEND]: ["ucrm"], // a burrowed Crypt Fiend (`Abur`)
+};
+
+/** Bodies each unit's rows have been let through this pass, beyond what already stands —
+ *  emptied by `buildPlan` at the top of every pass. Without it every row would see
+ *  the same room and each spend all of it; per UNIT, because `army` is asked twice a pass (the
+ *  core and the full budget) and the second call's row for a unit is the same bodies again. */
+const passLedger = new WeakMap<PlusCtx, Map<string, number>>();
+
+/**
+ * `want` of `unit`, cut down to what fits under the WHOLE army's ceiling — or `want` itself
+ * when the profile's ceiling is the mix's alone (`PlusProfile.wholeArmyCeiling` off).
+ *
+ * The room is the ceiling less every soldier standing or queued (`soldierFood`), less what this
+ * pass has already let through for OTHER units, less `keep` — the room the side rows are owed
+ * and have not claimed yet, which the MIX must leave them. A count already met asks for nothing
+ * new and passes unchanged; a count that does not fit is lowered to the most that does, so a
+ * full army grows again only as it loses bodies, which is what a ceiling is.
+ */
+function fitted(c: PlusCtx, unit: string, want: number, keep = 0): number {
+  if (!c.profile.wholeArmyCeiling) return want;
+  const have = c.ai.count(unit);
+  if (want <= have) return want;
+  let ledger = passLedger.get(c);
+  if (!ledger) passLedger.set(c, (ledger = new Map()));
+  const food = Math.max(1, c.foodOf(unit));
+  let others = 0;
+  for (const [id, n] of ledger) if (id !== unit) others += n * Math.max(1, c.foodOf(id));
+  const room = c.profile.armyFood - soldierFood(c) - others - keep;
+  const prior = ledger.get(unit) ?? 0;
+  const more = Math.max(prior, Math.min(want - have, Math.floor(room / food)));
+  ledger.set(unit, more);
+  return have + Math.min(more, want - have);
+}
+
+/**
+ * Room under the ceiling the SIDE rows are owed and have not yet claimed — the siege, the
+ * `always` rows and the anti-air (while its trigger holds), each once it can be trained. An
+ * army that filled the ceiling before then makes the row wait for its first loss, which is a
+ * ceiling doing its job rather than a leak. Kept back from the mix so the side rows arrive INSIDE the ceiling
+ * rather than on top of it. A unit the mix itself names is the mix's, and owed nothing here.
+ */
+function sideOwed(c: PlusCtx, rows: ReadonlyArray<{ unit: string }>): number {
+  const { profile, table, tier } = c;
+  if (!profile.wholeArmyCeiling) return 0;
+  const inMix = new Set(rows.map((r) => r.unit));
+  const owed = new Map<string, number>();
+  const owe = (unit: string | undefined, n: number): void => {
+    if (unit && n > 0 && !inMix.has(unit)) owed.set(unit, Math.max(owed.get(unit) ?? 0, n));
+  };
+  // Owed only once the row could actually TRAIN — its tier standing and its producer up. Held
+  // from the start instead, an undead Normal kept ten of its twenty food back for a Meat Wagon
+  // and two Statues it had no Slaughterhouse or Temple for, and fielded half an army for it.
+  const cap = Math.min(profile.techTier, tier);
+  const ready = (unit: string | undefined): boolean => {
+    const row = unit ? table.units[unit] : undefined;
+    return !!row && row.tier <= cap && producerReady(c, row.from, row.needs);
+  };
+  if (tier >= SIEGE_TIER && ready(table.siegeUnit)) owe(table.siegeUnit, profile.siegeUnits);
+  for (const r of table.always ?? []) if (ready(r.unit)) owe(r.unit, r.count);
+  if (table.antiAir && antiAirDue(c) && ready(table.antiAir.unit)) owe(table.antiAir.unit, table.antiAir.count);
+  let food = 0;
+  for (const [unit, n] of owed) food += Math.max(0, n - c.ai.count(unit)) * Math.max(1, c.foodOf(unit));
   return food;
 }
 
@@ -1233,11 +1359,17 @@ function extraCopies(c: PlusCtx, stuck: boolean): Array<[string, number]> {
  * Blacksmith is `support`, the orc's Voodoo Lounge is `shop` — rather than asked for twice, since
  * a duplicated row reserves its gold twice over (`OneBuildLoop`).
  */
+/** Has this player SEEN enough enemy air, at a difficulty that counters at all, to want the
+ *  race's anti-air row? `antiAir`'s gate, shared with `sideOwed`. */
+function antiAirDue(c: PlusCtx): boolean {
+  const { profile, enemy } = c;
+  return profile.counterWeight > 0 && enemy.seen >= profile.counterSample && enemy.air >= AIR_HEAVY;
+}
+
 function antiAir(c: PlusCtx): void {
-  const { ai, profile, table, tier, enemy } = c;
+  const { ai, profile, table, tier } = c;
   const answer = table.antiAir;
-  if (!answer || profile.counterWeight <= 0) return;
-  if (enemy.seen < profile.counterSample || enemy.air < AIR_HEAVY) return;
+  if (!answer || !antiAirDue(c)) return;
   const row = table.units[answer.unit];
   if (!row || row.tier > Math.min(profile.techTier, tier)) return;
   for (const need of row.needs ?? []) if (ai.countDone(need) < 1) return;
@@ -1248,7 +1380,8 @@ function antiAir(c: PlusCtx): void {
     if (!mixBuildings(c).some((b) => b.build === row.from)) ai.setBuildUnit(1, row.from);
     return;
   }
-  ai.setBuildNext(answer.count, answer.unit);
+  const want = fitted(c, answer.unit, answer.count);
+  if (want > 0) ai.setBuildNext(want, answer.unit);
 }
 
 /**
@@ -1288,7 +1421,8 @@ function siegeLine(c: PlusCtx): void {
     return;
   }
   if (!ai.techMeets(unit)) return;
-  ai.setBuildUnit(profile.siegeUnits, unit);
+  const want = fitted(c, unit, profile.siegeUnits);
+  if (want > 0) ai.setBuildUnit(want, unit);
 }
 
 /** The hall tier `siegeLine` waits for — the Keep, the Stronghold, the Halls of the Dead, the
@@ -1316,7 +1450,8 @@ function always(c: PlusCtx): void {
   for (const row of table.always ?? []) {
     const unit = table.units[row.unit];
     if (!unit || unit.tier > cap || !producerReady(c, unit.from, unit.needs)) continue;
-    ai.setBuildUnit(row.count, row.unit);
+    const want = fitted(c, row.unit, row.count);
+    if (want > 0) ai.setBuildUnit(want, row.unit);
   }
 }
 
