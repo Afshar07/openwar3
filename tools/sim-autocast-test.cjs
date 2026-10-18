@@ -43,6 +43,14 @@ const ABOLISH = {
   levelData: [{ cost: 50, cooldown: 0, castRange: 500, area: 0, duration: 0, heroDuration: 0, castTime: 0, data: [0, 250], buffs: [], summon: "" }],
 };
 
+/** Bloodlust (`Ablo`) as the 1.30.4 row has it — `targs1` "air,ground,friend,organic,self,neutral",
+ *  `Cost1` 35, `Rng1` 600, `Cool1` 1, `BuffID1` Bblo. */
+const BLOODLUST = {
+  id: "Ablo", code: "Ablo", target: "unit", autocast: true,
+  targetFlags: ["air", "ground", "friend", "organic", "self", "neutral"],
+  levelData: [{ cost: 35, cooldown: 1, castRange: 600, area: 0, duration: 60, heroDuration: 60, castTime: 0, data: [0.4, 0.25], buffs: ["Bblo"], summon: "" }],
+};
+
 /** The Priest's ranged slot — `acquire` 600 is the number this whole issue turns on. */
 // Every `base*` twin is spelled out because recomputeStats REBUILDS the live fields off them
 // each tick (`w.range = w.baseRange + upg.range`) — leave one out and the weapon's range comes
@@ -71,7 +79,7 @@ function world() {
   const W = 64, H = 64;
   const g = new PathingGrid({ width: W, height: H, flags: new Uint8Array(W * H) }, [-(W * 32) / 2, -(H * 32) / 2]);
   const w = new SimWorld(g, 1);
-  const rows = { Ahea: HEAL, Aadm: ABOLISH };
+  const rows = { Ahea: HEAL, Aadm: ABOLISH, Ablo: BLOODLUST };
   w.abilities = { get: (id) => rows[id], all: () => Object.values(rows) };
   return w;
 }
@@ -390,6 +398,70 @@ const from = (src, over = {}) => ({
   chilled.buffs.push(from(wyrm, { kind: "slow", group: "slow", timeLeft: 9, buffId: "Bslo" }));
   w.dispelUnit(chilled);
   check("a dispel takes the Slow and leaves the frost", chilled.buffs.map((b) => b.buffId).join(","), "Bfro");
+}
+
+// ==========================================================================================
+// BLOODLUST'S AUTOCAST IS FOR A FIGHTER (issue #213): only an ally that is itself attacking an
+// enemy, and never a worker — while a Bloodlust pressed by hand still goes on either.
+// ==========================================================================================
+function shaman(w, over = {}) {
+  const u = add(w, {
+    typeId: "oshm", hp: 335, maxHp: 335, mana: 200, maxMana: 200, race: "orc",
+    weapon: PRIEST_WEAPON, weapons: [PRIEST_WEAPON], oldWeapons: [PRIEST_WEAPON], name: "Shaman",
+    ...over,
+  });
+  u.abilities = [{ id: "Ablo", code: "Ablo", level: 1, cooldownLeft: 0, autocastOn: true }];
+  u.mana = 200;
+  return u;
+}
+{
+  const w = world();
+  const s = shaman(w, { x: 0, y: 0 });
+  add(w, { typeId: "ogru", x: 200, y: 0, hp: 200, maxHp: 700, race: "orc" }); // hurt, but standing about
+  check("a wounded Grunt that is not fighting is not Bloodlusted", w.tickAutocast(s), false);
+}
+{
+  const w = world();
+  const s = shaman(w, { x: 0, y: 0 });
+  const g = add(w, { typeId: "ogru", x: 200, y: 0, race: "orc" });
+  const foe = add(w, { owner: 1, team: 1, x: 260, y: 0 });
+  foe.order = "attack";
+  foe.targetId = g.id;
+  check("…nor one being hit that has not hit back", w.tickAutocast(s), false);
+  w.issueAttack(g.id, foe.id);
+  check("a Grunt attacking an enemy is", w.tickAutocast(s), true);
+  check("…as a cast aimed at it", [s.order, s.pendingCast.targetId], ["cast", g.id]);
+}
+{
+  const w = world();
+  const s = shaman(w, { x: 0, y: 0 });
+  const g = add(w, { typeId: "ogru", x: 200, y: 0, race: "orc" });
+  const pal = add(w, { typeId: "ogru", x: 260, y: 0, race: "orc" });
+  g.order = "attack";
+  g.targetId = pal.id; // a forced attack on its own side
+  check("a Grunt attacking an ALLY is not Bloodlusted", w.tickAutocast(s), false);
+}
+{
+  const w = world();
+  const s = shaman(w, { x: 0, y: 0 });
+  const peon = add(w, { typeId: "opeo", x: 200, y: 0, race: "orc", name: "Peon" });
+  peon.isPeon = true;
+  const foe = add(w, { owner: 1, team: 1, x: 260, y: 0 });
+  peon.order = "attack";
+  peon.targetId = foe.id;
+  check("a Peon attacking an enemy is not Bloodlusted by autocast", w.tickAutocast(s), false);
+  check("…but a player may still Bloodlust it by hand", w.issueCast(s.id, "Ablo", peon.id), true);
+}
+{
+  const w = world();
+  const s = shaman(w, { x: 0, y: 0 });
+  const g = add(w, { typeId: "ogru", x: 200, y: 0, race: "orc" });
+  const foe = add(w, { owner: 1, team: 1, x: 260, y: 0 });
+  w.issueAttack(g.id, foe.id);
+  check("the Shaman sets off for a Grunt in the fight", w.tickAutocast(s), true);
+  g.order = "idle";
+  g.targetId = null;
+  check("…and gives it up once the Grunt stops fighting", w.autocastStillWanted(s, g, BLOODLUST), false);
 }
 
 console.log(`\n${failed ? `${failed} FAILED` : "all passed"}`);

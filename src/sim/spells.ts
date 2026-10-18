@@ -1118,6 +1118,15 @@ export function worthDispelling(t: SimUnit, units: ReadonlyMap<number, SimUnit>,
 // `replenishRefusal`.
 export const HEAL_SPELLS = new Set(["Ahea", "Anhe"]);
 
+/** Friendly buffs whose AUTOCAST is for a unit that is FIGHTING — Bloodlust (`Ablo`, the
+ *  Shaman's, and the code behind the Ogre Magi's `ACbb`): attack speed and movement are worth
+ *  nothing to a unit that is not swinging at anybody. Autocast lays it only on an ally that is
+ *  itself attacking an ENEMY (a player's or Neutral Hostile's unit or building — never an ally
+ *  it was ordered to hit), and never on a WORKER (issue #213, the developer's observation of the
+ *  real client). Both are rules of the AUTOCAST, asked in `autocastWants`; a Bloodlust pressed
+ *  by hand still goes on whatever `targs1` allows, a Peon included. */
+export const FIGHTER_BUFFS = new Set(["Ablo"]);
+
 /** Spells that need the TARGET to have a mana pool, and the [Errors] line each says when
  *  it doesn't. Nothing in `targs1` can express this — Mana Burn's is
  *  `air,ground,enemy,organic,nonancient,vuln,invu`, which a Footman satisfies in full — so

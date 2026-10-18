@@ -47,7 +47,7 @@ import {
 import { perfNow, simProfile } from "./profile";
 import { flyHeight, type MissileFlight } from "./missile";
 import { HERO_KILL_VALUE, MatchStats } from "./matchStats";
-import { SPELL_HANDLERS, ITEM_INVULN_GROUP, AURA_BUFFS, SELF_INVIS_GROUP, BLADESTORM_GROUP, FIELD_PIERCES_SPELL_IMMUNITY, POLARITY_SPELLS, HEAL_SPELLS, MANA_TARGET_SPELLS, NO_SUMMON_TARGET, UNDEAD_TARGET_SPELLS, DISPEL_CODES, REPLENISH_BAR, replenishRefusal, survivesDispel, clockedBuff, worthDispelling, invisTransition, waveSchedule, WAVE_FIELDS, fx, buffIdOf, spellShieldBuff, drainTag, DRAIN_GROUP, CANNIBALIZE_GROUP, POSSESSION_GROUP, type SpellApi, type SimBuffInit, type SpellFieldInit, type CastContext, type WaveOptions, type RaiseOptions } from "./spells";
+import { SPELL_HANDLERS, ITEM_INVULN_GROUP, AURA_BUFFS, SELF_INVIS_GROUP, BLADESTORM_GROUP, FIELD_PIERCES_SPELL_IMMUNITY, POLARITY_SPELLS, HEAL_SPELLS, FIGHTER_BUFFS, MANA_TARGET_SPELLS, NO_SUMMON_TARGET, UNDEAD_TARGET_SPELLS, DISPEL_CODES, REPLENISH_BAR, replenishRefusal, survivesDispel, clockedBuff, worthDispelling, invisTransition, waveSchedule, WAVE_FIELDS, fx, buffIdOf, spellShieldBuff, drainTag, DRAIN_GROUP, CANNIBALIZE_GROUP, POSSESSION_GROUP, type SpellApi, type SimBuffInit, type SpellFieldInit, type CastContext, type WaveOptions, type RaiseOptions } from "./spells";
 /** The buff group a Tornado's toss is applied under — both halves, so the invulnerability's wipe
  *  spares the stun it came with (clearStatusForInvulnerable). See tickTornado. */
 const TORNADO_SPIN_GROUP = "tornadoSpin";
@@ -16140,6 +16140,10 @@ export class SimWorld {
       // was re-made every autocast tick on whoever was topmost in the fight, and the mana
       // went with it.
       if (!HEAL_SPELLS.has(code) && buffs.length && t.buffs.some((b) => b.buffId && buffs.includes(b.buffId.toLowerCase()))) return false;
+      // A FIGHTER's buff (Bloodlust) goes on a soldier that is swinging at an enemy, and on
+      // nothing else: not a Peon that happens to be hurt, and not a Grunt standing about —
+      // even one being hit — until it hits back (FIGHTER_BUFFS, issue #213).
+      if (FIGHTER_BUFFS.has(code) && (t.isPeon || t.worker || !this.attackingEnemy(t))) return false;
       return true;
     }
     if (!this.hostile(u, t) || t.invulnerable) return false;
@@ -16167,6 +16171,17 @@ export class SimWorld {
       out.add(a.id);
     }
     return out;
+  }
+
+  /** Is `u` attacking an ENEMY right now — a live unit or building hostile to it (a player's or
+   *  Neutral Hostile's), held as its target under an order that fights? A forced attack on an
+   *  ally is not this (`hostile` is false), nor is a tree, an item or the ground: those orders
+   *  hold no unit target. Hold Position keeps the body it strikes in `targetId` too. */
+  private attackingEnemy(u: SimUnit): boolean {
+    if (u.targetId === null) return false;
+    if (u.order !== "attack" && u.order !== "attackmove" && u.order !== "hold" && u.order !== "patrol") return false;
+    const t = this.units.get(u.targetId);
+    return !!t && t.hp > 0 && this.hostile(u, t);
   }
 
   /** Re-ask autocastWants for a cast the unit is still walking to. Rebuilds the same
