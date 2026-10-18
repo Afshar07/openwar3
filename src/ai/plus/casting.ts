@@ -776,7 +776,7 @@ export class PlusCaster {
       const def = this.view.def(ab.id);
       if (!def?.autocast) continue;
       if (NEVER.has(def.code) || HAND_AUTOCAST.has(def.code) || isRepairCode(def.code)) continue;
-      if (!this.view.world.techMeets(u.owner, ab.id)) continue;
+      if (!this.view.world.unitMeets(u, ab.id)) continue;
       this.view.order({ c: "autocast", unitId: u.id, code: ab.code });
     }
   }

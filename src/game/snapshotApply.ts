@@ -199,6 +199,7 @@ export function writeUnitSnapshot(u: SimUnit, s: UnitSnapshot): void {
   u.raisedBy = s.raisedBy;
   u.isIllusion = s.isIllusion;
   u.illusionOf = s.illusionOf;
+  u.mercenary = s.mercenary;
 
   u.guardX = s.guardX;
   u.guardY = s.guardY;

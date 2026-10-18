@@ -31,6 +31,8 @@ export interface SimView {
   readonly dawnDusk: boolean;
 
   techMeets(player: number, id: string): boolean;
+  /** `techMeets` for an ability ON a unit — a mercenary's are live whatever its buyer researched. */
+  unitMeets(u: { owner: number; mercenary: boolean }, id: string): boolean;
   /** A script's per-unit `BlzUnitDisableAbility` / `BlzUnitHideAbility` on this entry. */
   scriptDisabled(ab: SimAbility): boolean;
   scriptHidden(ab: SimAbility): boolean;

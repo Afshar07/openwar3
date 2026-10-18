@@ -298,7 +298,7 @@ export class Authority {
     let n = 0;
     for (const u of this.sim.units.values()) {
       if (u.hp <= 0) continue;
-      if (u.owner === owner && u.typeId === typeId) n++;
+      if (u.owner === owner && u.typeId === typeId && !u.isIllusion) n++; // a copy is not a copy owned
       if (u.building && (u.owner === owner || u.neutralPassive)) {
         for (const job of u.building.queue) {
           if (job.kind !== "unit" || job.unitId !== typeId) continue;
@@ -478,7 +478,11 @@ export class Authority {
       // Under its NORMAL form (SimWorld.normalFormOf): a Demon Hunter in Metamorphosis is an
       // `Edmm` for 45 seconds, and counted as one the altar offered — and a computer bought —
       // a second Demon Hunter while the first was on the field in his demon body.
-      if (u.owner === player && this.registry.get(u.typeId)?.isHero) add(this.sim.normalFormOf(u));
+      // …and never an ILLUSION: a Blademaster's Mirror Image is the same TYPE as the hero it
+      // copies and so read as a second hero — one image made the altar's next hero the THIRD and
+      // asked for a Fortress at a Stronghold, two put a one-hero player at the three-hero cap.
+      // The game's own word for it is in `IsUnitIllusion`: a copy is not a unit you own.
+      if (u.owner === player && !u.isIllusion && this.registry.get(u.typeId)?.isHero) add(this.sim.normalFormOf(u));
       if (u.building && (u.owner === player || u.neutralPassive)) {
         for (const job of u.building.queue) {
           if (job.kind !== "unit" || !this.registry.get(job.unitId)?.isHero) continue;

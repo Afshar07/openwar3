@@ -521,7 +521,7 @@ export class AiCaster {
       const def = this.view.def(ab.id);
       if (!def?.autocast) continue;
       if (NEVER.has(def.code) || HAND_AUTOCAST.has(def.code) || isRepairCode(def.code)) continue;
-      if (!this.view.world.techMeets(u.owner, ab.id)) continue;
+      if (!this.view.world.unitMeets(u, ab.id)) continue;
       this.view.order({ c: "autocast", unitId: u.id, code: ab.code, arm: true });
     }
   }
@@ -537,7 +537,7 @@ export class AiCaster {
    */
   private tickDefend(u: SimUnit, foes: SimUnit[]): void {
     const ab = u.abilities.find((a) => a.code === "Adef" && a.level >= 1);
-    if (!ab || !this.view.world.techMeets(u.owner, ab.id)) return;
+    if (!ab || !this.view.world.unitMeets(u, ab.id)) return;
     const look = this.lookRange(u);
     const want = foes.some((f) => near(u, f, look) && f.weapons.some((w) => w.enabled && w.attackType === AttackType.Pierce));
     if (want !== ab.autocastOn) this.view.order({ c: "autocast", unitId: u.id, code: "Adef" });

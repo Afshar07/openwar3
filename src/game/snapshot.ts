@@ -402,6 +402,7 @@ export interface UnitSnapshot {
   timedLifeBuff: string; // not on the wire — see RenderUnit.timedLifeBuff
   isIllusion: boolean;
   illusionOf: number;
+  mercenary: boolean; // SimUnit.mercenary — the client's command card asks it (unitMeets)
 
   // --- creep guard, for the minimap's camp markers ---------------------------
   guardX: number;
@@ -797,6 +798,7 @@ export function rememberedUnit(u: SimUnit): UnitSnapshot {
     timedLifeBuff: "",
     isIllusion: false,
     illusionOf: 0,
+    mercenary: false,
 
     guardX: 0,
     guardY: 0,
@@ -972,6 +974,7 @@ export function snapshotFor(
       timedLifeBuff: "", // never sent — see RenderUnit.timedLifeBuff
       isIllusion: knowsIllusion,
       illusionOf: knowsIllusion ? u.illusionOf : 0,
+      mercenary: u.mercenary,
 
       guardX: u.guardX,
       guardY: u.guardY,

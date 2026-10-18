@@ -2303,6 +2303,15 @@ export interface SimUnit {
    *  be findable FROM their original — they level with it — and matching on owner+typeId
    *  would be a guess that quietly breaks the moment a player fields two of the same type. */
   illusionOf: number;
+  /** A MERCENARY: a non-hero unit a shop SOLD this player (a Mercenary Camp's Troll Shadow
+   *  Priest, a Goblin Laboratory's Zeppelin). It arrives with every ability it owns live — the
+   *  creep rows carry the racial research's `Requires` (`[ACdm] Requires=Resi`, Abolish Magic
+   *  (Creep) wants the Dryad's research) and a neutral owner is exempt from it (techMeets), but
+   *  hiring one does not make it a member of the buyer's tech tree: an orc who hires a Shadow
+   *  Priest has never been able to research Resi at all. See `unitMeets`. Its UnitBalance
+   *  `upgrades` column is empty, so no research reaches it the other way either. A CHARMED
+   *  creep is not one — the requirement still binds it (techMeets). */
+  mercenary: boolean;
   /** The ability that RAISED this unit from a corpse on a clock ("" = anything else) — Animate
    *  Dead's shell. Its id, not its code, so the timer bar can print that row's own Name
    *  ("Animate Dead") where every other summon reads "Summoned Unit", and the renderer can give
@@ -4121,6 +4130,14 @@ export class SimWorld {
     // that is exempt from it, not the row.
     if (player < 0) return true;
     return !this.tech || this.tech.meets(player, id);
+  }
+
+  /** `techMeets` asked of the unit that HAS the ability — which is the question every ability
+   *  gate is really asking. The same answer, except for a MERCENARY (SimUnit.mercenary): a unit a
+   *  shop sold keeps every ability it came with live, because the research its creep row names
+   *  belongs to another race's tree and the buyer could never meet it. */
+  unitMeets(u: { owner: number; mercenary: boolean }, id: string): boolean {
+    return u.mercenary || this.techMeets(u.owner, id);
   }
 
   addMine(x: number, y: number, gold: number, radius = 96): SimMine {
@@ -7415,7 +7432,7 @@ export class SimWorld {
     if (!this.abilities) return;
     for (const u of this.units.values()) {
       if (u.hp <= 0 || !u.building || this.raising(u)) continue;
-      const ab = u.abilities.find((a) => a.code === "Agyd" && a.level >= 1 && this.techMeets(u.owner, a.id));
+      const ab = u.abilities.find((a) => a.code === "Agyd" && a.level >= 1 && this.unitMeets(u, a.id));
       if (!ab) continue;
       const def = this.abilityDefOf(ab);
       const lvl = def?.levelData[0];
@@ -8880,7 +8897,7 @@ export class SimWorld {
    */
   private tickExhume(u: SimUnit, dt: number): void {
     const ab = u.abilities.find((a) => a.code === "Aexh");
-    if (!ab || ab.level < 1 || !this.techMeets(u.owner, ab.id)) {
+    if (!ab || ab.level < 1 || !this.unitMeets(u, ab.id)) {
       u.exhumeLeft = 0;
       return;
     }
@@ -9342,6 +9359,7 @@ export class SimWorld {
       | "teleports"
       | "isIllusion"
       | "illusionOf"
+      | "mercenary"
       | "raisedBy"
       | "illusionDamageDealt"
       | "illusionDamageTaken"
@@ -9636,6 +9654,7 @@ export class SimWorld {
       teleports: 0,
       isIllusion: false,
       illusionOf: 0,
+      mercenary: false,
       raisedBy: "",
       illusionDamageDealt: 1,
       illusionDamageTaken: 1,
@@ -10235,7 +10254,10 @@ export class SimWorld {
     if (!revive && this.shopWaresOf(buildingId).units.includes(t.typeId)) {
       // Mercenaries Hired: a unit bought off a neutral building. A Tavern's HERO is not one —
       // it lands in Heroes Used like any other hero.
-      if (!t.isHero) this.stats.hired(t.owner);
+      if (!t.isHero) {
+        this.stats.hired(t.owner);
+        t.mercenary = true; // …and its abilities are its own, whatever the buyer has researched
+      }
       if (this.captureSellUnits) this.sellUnitEvents.push({ shop: eventInfo(b), sold: eventInfo(t) });
       return;
     }
@@ -13009,7 +13031,7 @@ export class SimWorld {
    *  not taken back, and a hero's six are its own. */
   private openBackpacks(u: SimUnit): void {
     for (const p of u.backpacks!) {
-      if (p.slots <= u.inventory.length || !this.techMeets(u.owner, p.id)) continue;
+      if (p.slots <= u.inventory.length || !this.unitMeets(u, p.id)) continue;
       while (u.inventory.length < p.slots) u.inventory.push(null);
     }
   }
@@ -13339,7 +13361,7 @@ export class SimWorld {
     // (The Necklace of Spell Immunity's `AImx` is that same `Amim` in an inventory, so the
     // carried half is asked too — see itemAbilityLevel.)
     u.magicImmune = magicImmuneBuff
-      || u.abilities.some((a) => a.code === "Amim" && a.level >= 1 && this.techMeets(u.owner, a.id))
+      || u.abilities.some((a) => a.code === "Amim" && a.level >= 1 && this.unitMeets(u, a.id))
       || this.itemAbilityLevel(u, "Amim") !== null;
     // …and RESISTANT SKIN (`Arsk`) the same way, with one difference that matters: it DOES
     // carry a `Requires` (`[Arsk] Requires=Rers`, the Ancient of Lore upgrade), which is what
@@ -13347,7 +13369,7 @@ export class SimWorld {
     // are born with it (Tauren, Spirit Walker, Infernal, Phoenix, Avatar of Vengeance) list
     // the ungated creep copy `ACrk`, whose row has no requirement at all. Both share `code =
     // Arsk`, so one derivation covers them and `techMeets` tells them apart.
-    u.resistant = u.abilities.some((a) => a.code === "Arsk" && a.level >= 1 && this.techMeets(u.owner, a.id));
+    u.resistant = u.abilities.some((a) => a.code === "Arsk" && a.level >= 1 && this.unitMeets(u, a.id));
     // PERMANENT IMMOLATION (`ANpi`, and the graphic-only twin `Apig` on the same code) — the
     // Infernal's fire and another of Wowpedia's creep abilities: "Burns nearby enemy units for
     // 10 points of damage per second." It is Immolation with the toggle taken off (no
@@ -13382,7 +13404,7 @@ export class SimWorld {
     u.detectRadius = 0;
     for (const a of u.abilities) {
       if ((a.code !== "Atru" && a.code !== "Adet" && a.code !== "Adts") || a.level < 1) continue;
-      if (!this.techMeets(u.owner, a.id)) continue;
+      if (!this.unitMeets(u, a.id)) continue;
       const lvl = this.abilityDefOf(a)?.levelData[Math.max(0, a.level - 1)];
       const r = lvl?.castRange;
       if (r !== undefined && !Number.isNaN(r)) u.detectRadius = Math.max(u.detectRadius, r);
@@ -14961,7 +14983,7 @@ export class SimWorld {
     if (u.stunned || u.silenced) return SILENT_REFUSAL;
     // …and neither does an ability whose upgrade is not researched (`[Aweb] Requires=Ruwb`).
     // Same shape, same silence: WC3 greys the button, so there is nothing to say.
-    if (!this.techMeets(u.owner, ab.id)) return SILENT_REFUSAL;
+    if (!this.unitMeets(u, ab.id)) return SILENT_REFUSAL;
     // …nor one the map has made unavailable to this player (`SetPlayerAbilityAvailable`,
     // TechState.abilityAvailable). Its button is not on the card at all, so this is only ever
     // reached by a hotkey or a computer, and is silent for the same reason.
@@ -15139,7 +15161,7 @@ export class SimWorld {
     // autocast, a JASS `IssueTargetOrder`, a networked command. The command card already
     // refuses the press (the button is drawn unavailable), but a gate that only the UI keeps
     // is not a gate: `[Aweb] Requires=Ruwb` has to mean the same thing to a trigger.
-    if (!this.techMeets(u.owner, ab.id)) return false;
+    if (!this.unitMeets(u, ab.id)) return false;
     // …and so does `SetPlayerAbilityAvailable`, at the same door and for the same reason — a
     // trigger's order and an autocast included. That a disabled ability cannot be cast even
     // by a trigger is INFERRED rather than stated: the whole "disabled spellbook" idiom exists
@@ -15744,7 +15766,7 @@ export class SimWorld {
       // upgrade is what unlocks the row — so a Crypt Fiend fresh from the Crypt would have
       // been webbing gargoyles before the Web upgrade was ever paid for. The card shows the
       // same thing from the other side: an unavailable button draws no autocast ring.
-      if (!this.techMeets(u.owner, ab.id)) continue;
+      if (!this.unitMeets(u, ab.id)) continue;
       // The Moon Well's Replenish is autocast, but not through here: it is a POUR, held open
       // across seconds, and it is the caster's own tick that opens and closes it
       // (tickReplenish). Left in, this would re-issue a fresh cast every tick — and pick its
@@ -21185,7 +21207,7 @@ export class SimWorld {
     if (u.targetId !== null || u.inCombat) return; // fighting — on Hold, or between orders
     // A carried Cloak of Shadows is on the sheet too (syncCarriedAbilities), so this one test
     // covers the unit's own Shadow Meld and the cloak's alike.
-    const own = u.abilities.find((a) => a.code === "Ashm" && a.level >= 1 && this.techMeets(u.owner, a.id));
+    const own = u.abilities.find((a) => a.code === "Ashm" && a.level >= 1 && this.unitMeets(u, a.id));
     if (!own) return;
     // …and by day only a meld that works by day (meldsByDay, the 1.31.0 Cloak of Shadows):
     // asked after the cheap tests, of the few units that can hide at all.
@@ -22721,7 +22743,7 @@ export class SimWorld {
       // upgrade-granted ability makes.
       if (isArrowOrb(ab.code)) {
         if (!ab.autocastOn && ab.code !== aimed) continue;
-      } else if (!this.techMeets(attacker.owner, ab.id)) continue;
+      } else if (!this.unitMeets(attacker, ab.id)) continue;
       const def = this.abilityDefOf(ab);
       if (!def) continue;
       // …and what this particular orb may strike is its own `targs1`, read by the same
@@ -23204,7 +23226,7 @@ export class SimWorld {
     if (!attacker.abilities.length) return 1;
     let mult = 1;
     for (const ab of attacker.abilities) {
-      if (ab.code !== "Aaab" || ab.level < 1 || !this.techMeets(attacker.owner, ab.id)) continue;
+      if (ab.code !== "Aaab" || ab.level < 1 || !this.unitMeets(attacker, ab.id)) continue;
       const lvl = this.unitPassiveLevel(attacker, "Aaab");
       const cls = DEFENSE_TYPE_ORDER[lvl?.data[2] ?? -1];
       if (lvl && cls === target.armorType && Number.isFinite(lvl.data[1])) mult *= 1 + lvl.data[1];
@@ -26606,7 +26628,7 @@ export class SimWorld {
    * does nothing before its row's `Requires` is met (the stock row has none).
    */
   private prioritizesAir(u: SimUnit): boolean {
-    for (const ab of u.abilities) if (ab.code === "Aatp" && ab.autocastOn && ab.level >= 1) return this.techMeets(u.owner, ab.id);
+    for (const ab of u.abilities) if (ab.code === "Aatp" && ab.autocastOn && ab.level >= 1) return this.unitMeets(u, ab.id);
     return false;
   }
 

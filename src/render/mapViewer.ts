@@ -12203,7 +12203,7 @@ export class MapViewerScene {
       // that the Crypt Fiend is the unit that gets it, and what to research for it, instead of
       // having to know the tech tree by heart. (`disabled` is where the greying lives, and
       // `cmd()` derives the DIS* twin from the icon — see disabledArt.)
-      const techMet = this.rts.simView.techMeets(su.owner, ab.id);
+      const techMet = this.rts.simView.unitMeets(su, ab.id);
       // …and an Ancient's card depends on which way up it is: one short list of what only a
       // walker can reach (Eat Tree, Entangle Gold Mine). The rest of the split is structural —
       // the building card itself is withheld while it walks, see buildCommandCard. Asked only
