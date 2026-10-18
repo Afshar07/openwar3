@@ -1081,9 +1081,16 @@ const CREEP_UNTIL_LEVEL = 5;
  */
 const EARLY_GAME = 600;
 /** The longest a wave waits for its siege unit (`siegeHeld`) — a Meat Wagon's training time
- *  (36 s, UnitBalance `bldtm`) two and a half times over, so one ordered late, or waiting on
- *  its last fifty lumber, still makes it. OURS. */
-const SIEGE_WAIT = 90;
+ *  (36 s, UnitBalance `bldtm`) and a few steps to the rally point. It was 90, and a wave
+ *  standing at home for a minute and a half read as "not keen on attacking". OURS. */
+const SIEGE_WAIT = 45;
+/** How long before a wave ENDED a win may have come and still count as that wave's win —
+ *  `endWave` lands after the march home, the verdict `WON_QUIET` after the last enemy. OURS. */
+const WON_RECENT = 120;
+/** How far past its minimum range a siege gun backs off to (`siegeBackOff`) — enough that a
+ *  step of the building's own footprint or a shove from the army does not put it straight back
+ *  inside. OURS. */
+const SIEGE_BACKOFF = 96;
 const EARLY_HERO_LEVEL = 3;
 
 /**
@@ -1388,21 +1395,21 @@ const HERO_DOWN_SEEN = 3;
  *
  *  · `WIN_EXPAND` — clear the nearest free mine and take it (`expandOnWin`): the tempo a won
  *    fight buys spent on a second base, while the army that could punish a new hall walks home.
- *  · CARRY ON, 35 % — nothing special: the wave ends as it would have and the army goes back to
- *    creeping and to its own clocks.
- *  · `WIN_ATTACK_EARLY` / `WIN_ATTACK_LATE` — press on at the loser's base (`pressOn`), rare
- *    before `WIN_LATE` (7:30) and the likeliest answer after it. Early on a won fight is two
- *    openings bumping into each other and a base is towers and a full militia; late, the army
- *    that just lost is most of what the other player had.
- *
- * Before 7:30 the three add up to 70 %, and the missing 30 % is CARRYING ON: the two numbers the
- * developer stated for expanding and attacking are kept exactly, and the rest is the default.
+ *  · CARRY ON — the rest: the wave ends as it would have and the army goes back to creeping and
+ *    to its own clocks, at a SHORTER wave gap (`PlusProfile.wonGap`).
+ *  · `WIN_ATTACK_EARLY` / `WIN_ATTACK_LATE` — press on at the loser's base (`pressOn`), 30 %
+ *    before `WIN_LATE` (7:30) and the likeliest answer after it (60 %). Early on a won fight is
+ *    two openings bumping into each other and a base is towers and a full militia; late, the
+ *    army that just lost is most of what the other player had. They were 10 % and 40 %, and
+ *    were raised on the developer's "after a fight is won, the Computer+ Normal doesn't seem
+ *    very keen on attacking its opponent's base … I want there to be more velocity between
+ *    fights".
  * An expansion the player cannot take (Easy, its ceiling reached, no free mine, before
  * `WON_EXPAND_FLOOR`) also falls back to carrying on.
  */
 const WIN_EXPAND = 0.25;
-const WIN_ATTACK_EARLY = 0.1;
-const WIN_ATTACK_LATE = 0.4;
+const WIN_ATTACK_EARLY = 0.3;
+const WIN_ATTACK_LATE = 0.6;
 const WIN_LATE = 450;
 export type WinPlan = "expand" | "carryOn" | "attack";
 
@@ -1415,7 +1422,7 @@ export function winPlan(r: number, clock: number, canExpand: boolean): WinPlan {
   const attack = clock < WIN_LATE ? WIN_ATTACK_EARLY : WIN_ATTACK_LATE;
   if (r < attack) return "attack";
   if (r < attack + WIN_EXPAND) return canExpand ? "expand" : "carryOn";
-  // Carrying on: its own 35 %, and whatever the three leave over (30 % before `WIN_LATE`).
+  // Carrying on: whatever the other two leave over — 45 % before `WIN_LATE`, 15 % after.
   return "carryOn";
 }
 
@@ -2119,6 +2126,11 @@ interface Brain {
   assaults: number;
   /** When the wave first stood waiting for its siege unit (`siegeHeld`), -1 = not waiting. */
   siegeWaitFrom: number;
+  /** When this army last WON a fight against a player's army (`victoryPass`'s verdict), -1 =
+   *  never. The next wave's gap is shortened off it (`PlusProfile.wonGap`). */
+  lastWon: number;
+  /** Creep runs set off on so far — what `PlusProfile.creepCamps` limits. */
+  creepRuns: number;
   /** When something hostile first appeared in one of our towns (-1 = nothing there). The
    *  difficulty's `defendDelay` is measured off this: an easy computer lets you kill four
    *  workers before it looks up. */
@@ -2479,6 +2491,8 @@ export class ComputerPlusAi {
       refill: false,
       assaults: 0,
       siegeWaitFrom: -1,
+      lastWon: -1,
+      creepRuns: 0,
       threatSince: -1,
       recall: null,
       recallNext: 0,
@@ -4149,6 +4163,7 @@ export class ComputerPlusAi {
       // standing in front of ours.
       if (!battle.pressed && heroesDown(battle.heroes, battle.killed) && theirs < mine) {
         battle.pressed = true; // once a fight: see `pressOn` on what re-deciding it every pass did
+        b.lastWon = b.clock;
         battle.plan ??= this.rollWin(b);
         if (battle.plan === "attack") this.pressOn(b, this.pressFoe(battle));
       }
@@ -4160,6 +4175,7 @@ export class ComputerPlusAi {
     if (Math.hypot(anchor.x - battle.x, anchor.y - battle.y) > CONTACT_LOOK) return; // WE left
     if (mine < WON_KEEP * battle.ours) return; // it cost us the army
     if (this.creepForce(b).health < WON_HEALTH) return; // …or what is left is on its last legs
+    b.lastWon = b.clock;
     switch (battle.plan ?? this.rollWin(b)) {
       case "attack": return this.pressOn(b, this.pressFoe(battle));
       case "expand": return this.expandOnWin(b);
@@ -4517,12 +4533,18 @@ export class ComputerPlusAi {
   private waveReady(b: Brain): boolean {
     const { profile } = b;
     if (b.clock < b.firstAttackAt) return false;
-    if (b.clock - b.lastWaveEnd < profile.waveGap) return false;
+    // …and a WON fight shortens the gap (`PlusProfile.wonGap`): the army that just beat theirs
+    // is back out while their heroes are still in the altar, rather than a full gap later.
+    const won = b.lastWon >= 0 && b.lastWon >= b.lastWaveEnd - WON_RECENT;
+    if (b.clock - b.lastWaveEnd < profile.waveGap * (won ? profile.wonGap : 1)) return false;
     // THE OPENING BELONGS TO THE CAMPS — see `EARLY_GAME`. A closed wave window is an OPEN creep
     // window, because this is the same question `creepNext` asks before it lets the hero's level
     // cap refuse a camp: for the first ten minutes a party led by a hero that has been nowhere
     // goes creeping instead of walking at a player's base with a level-1 Blademaster.
-    if (profile.creeps && b.clock < EARLY_GAME) {
+    // A computer that creeps only a LITTLE (`PlusProfile.creepCamps` — Easy's two green camps)
+    // is not held to the camps: two camps are not ten minutes of them, and its waves keep the
+    // difficulty's own clock.
+    if (profile.creeps && profile.creepCamps === Infinity && b.clock < EARLY_GAME) {
       const captain = this.squadHero(b);
       if (!captain || captain.level < EARLY_HERO_LEVEL) return false;
     }
@@ -4539,13 +4561,13 @@ export class ComputerPlusAi {
   /**
    * THE UNDEAD'S SECOND WAVE BRINGS ITS MEAT WAGON — the developer's: "we must also add the Meat
    * Wagon to the undead's second wave". For a race whose siege row is EARLY
-   * (`PlusRaceTable.siegeEarly`), every wave after the first waits while a siege unit is ON ITS
-   * WAY — ordered, or its producer standing or going up — and none is finished yet.
+   * (`PlusRaceTable.siegeEarly`), the SECOND wave waits while a siege unit is ON ITS WAY —
+   * ordered, or its producer standing or going up — and none is finished yet.
    *
    * On its way, never merely wanted: with no Slaughterhouse and none ordered there is nothing to
    * wait FOR, and the wave goes as it always did. And for at most `SIEGE_WAIT`, measured from
    * the first pass it held, so a razed Slaughterhouse or a lumber-starved base costs one wave
-   * a minute and a half rather than the rest of the game; the clock re-arms once a siege unit
+   * under a minute rather than the rest of the game; the clock re-arms once a siege unit
    * stands, so a lost wagon is waited for again. A held wave is an open CREEP window (the same
    * question `creepNext` asks), so the army is not idle while it waits.
    */
@@ -4556,7 +4578,12 @@ export class ComputerPlusAi {
       b.siegeWaitFrom = -1;
       return false;
     }
-    if (b.assaults < 1) return false;
+    // The SECOND wave alone, and never straight after a WON fight — a wave that waits for a
+    // wagon while the loser's heroes revive throws away the very window the win bought (the
+    // developer: "after a fight is won … not very keen on attacking"). Every later wave goes as
+    // it is; the plan keeps the wagon coming whether or not anybody waits for it.
+    if (b.assaults !== 1) return false;
+    if (b.lastWon >= 0 && b.clock - b.lastWon < PRESS_WINDOW * 2) return false;
     const from = b.table.units[unit]?.from;
     if (b.ai.count(unit) < 1 && !(from && b.ai.count(from) > 0)) return false;
     if (b.siegeWaitFrom < 0) b.siegeWaitFrom = b.clock;
@@ -4720,6 +4747,7 @@ export class ComputerPlusAi {
 
   /** Set off — the commit half of a creep run, once `creepNext` has said which camp. */
   private creepGo(b: Brain, camp: { x: number; y: number; level: number }): void {
+    b.creepRuns++;
     b.target = { id: 0, x: camp.x, y: camp.y };
     b.creeping = true;
     b.creepLevel = camp.level;
@@ -4741,11 +4769,26 @@ export class ComputerPlusAi {
    * party that `creepNext` had refused to send was sent anyway a moment later.
    */
   private creepTarget(b: Brain): { x: number; y: number; level: number } | null {
+    // A computer that creeps only a little has its own three limits — see
+    // `PlusProfile.creepCamps`: so many runs, so hard a camp, so far from home.
+    const { profile } = b;
+    if (b.creepRuns >= profile.creepCamps) return null;
     // Priced off the party that is actually STANDING at the muster point — see `mustered`. A
     // camp chosen for an army that is still in the forest is a camp the hero walks into alone.
-    const ceiling = maxCampLevel(this.creepForce(b, this.mustered(b)));
+    const ceiling = Math.min(maxCampLevel(this.creepForce(b, this.mustered(b))), profile.creepCampMax);
     if (ceiling < 0) return null;
     const air = this.hasAir(b);
+    if (profile.creepRange < Infinity) {
+      const home = b.ai.home();
+      const skipOnly = (camp: { x: number; y: number }): boolean => isShunned(b.shunned, camp, b.clock);
+      for (;;) {
+        const camp = b.ai.creepCamp(CREEP_FLOOR, ceiling, air, profile.creepRange, home, skipOnly);
+        if (!camp) return null;
+        const aim = this.campAim(b, camp);
+        if (aim) return { x: aim.x, y: aim.y, level: camp.level };
+        b.shunned.push({ x: camp.x, y: camp.y, until: b.clock + CAMP_SHUN });
+      }
+    }
     // NEAREST TO THE PARTY, not to the base it left. A party that has just cleared a camp is
     // standing on the map, and "the camp nearest home" from out there is usually the one it
     // has to walk past its own front door to reach — which is most of why a Computer+ army
@@ -5597,12 +5640,26 @@ export class ComputerPlusAi {
       // reach takes the best building it CAN reach (`siegeNear`) rather than walking through
       // the defence to the one the wave picked.
       if (!u.isPeon && isSiege(u)) {
-        const aim = razeAim && this.host.world.weaponVs(u, razeAim)
+        let aim = razeAim && this.host.world.weaponVs(u, razeAim)
           && Math.hypot(u.x - razeAim.x, u.y - razeAim.y) <= this.siegeReach(u)
           ? razeAim
           : this.siegeNear(u, near.buildings)
             ?? (razeAim && this.host.world.weaponVs(u, razeAim)
               && Math.hypot(u.x - razeAim.x, u.y - razeAim.y) <= CLEARED_RADIUS ? razeAim : null);
+        // TOO CLOSE TO SHOOT — the siege four's `minRange` (250, UnitWeapons) is a DEAD ZONE the
+        // gun simply stands in (docs/artillery.md), so a Demolisher ordered at the Barracks it
+        // has walked up against stands beside it doing nothing for the rest of the fight.
+        // Reported: "it cannot attack because some siege units … have a minimum range". Another
+        // building it CAN shell from where it stands comes first (`siegeNear` skips the dead
+        // zone); failing that the gun backs off to beyond its minimum range and fires from there.
+        if (aim && this.siegeTooClose(u, aim)) {
+          const other = this.siegeNear(u, near.buildings);
+          if (!other) {
+            this.siegeBackOff(b, u, aim);
+            continue;
+          }
+          aim = other;
+        }
         if (aim) {
           if (u.order === "attack" && u.targetId === aim.id) continue;
           this.issue(b, { c: "order", unitId: u.id, order: { kind: "attack", targetId: aim.id }, queued: false });
@@ -5890,6 +5947,41 @@ export class ComputerPlusAi {
     return range + SIEGE_STEP;
   }
 
+  /** Is `t` inside the DEAD ZONE of the weapon `u` would hit it with — nearer, hull to hull,
+   *  than its `minRange`? The sim's own test (SimWorld's `deadZone`, measured as `gap`), so the
+   *  AI and the gun never disagree about whether it can fire. */
+  private siegeTooClose(u: SimUnit, t: SimUnit): boolean {
+    const w = this.host.world.weaponVs(u, t);
+    const dz = w && w.ranged ? w.minRange : 0;
+    return dz > 0 && Math.hypot(t.x - u.x, t.y - u.y) - u.radius - t.radius < dz;
+  }
+
+  /**
+   * Walk a siege gun straight AWAY from a building it is too close to shell, to just beyond its
+   * minimum range (`SIEGE_BACKOFF` past it), where the next pass finds it able to fire. Away
+   * along the line from the building to the gun — the side it came in from, which is the side
+   * its own army is on — and once: a gun already walking to about that point is left to walk.
+   */
+  private siegeBackOff(b: Brain, u: SimUnit, t: SimUnit): void {
+    const w = this.host.world.weaponVs(u, t);
+    const dz = w && w.ranged ? w.minRange : 0;
+    let dx = u.x - t.x;
+    let dy = u.y - t.y;
+    let len = Math.hypot(dx, dy);
+    if (len < 1) {
+      const home = this.armyAnchor(b) ?? this.rally(b);
+      dx = home.x - t.x;
+      dy = home.y - t.y;
+      len = Math.hypot(dx, dy) || 1;
+    }
+    const out = t.radius + u.radius + dz + SIEGE_BACKOFF;
+    const x = t.x + (dx / len) * out;
+    const y = t.y + (dy / len) * out;
+    const end = moveGoal(u);
+    if (end && Math.hypot(end.x - x, end.y - y) <= SIEGE_BACKOFF) return;
+    this.issue(b, { c: "order", unitId: u.id, order: { kind: "move", x, y }, queued: false });
+  }
+
   /** The best building a siege gun can hit from about where it stands (`siegeReach`) — for a gun
    *  the wave's own target is out of reach of. By `razeValue` alone, distance only breaking
    *  ties: a gun does not WALK to what is already in its range, so the nearer of two is not the
@@ -5901,7 +5993,7 @@ export class ComputerPlusAi {
     for (const t of buildings) {
       if (t.hp <= 0) continue;
       const d = Math.hypot(t.x - u.x, t.y - u.y);
-      if (d > reach || !this.host.world.weaponVs(u, t)) continue;
+      if (d > reach || !this.host.world.weaponVs(u, t) || this.siegeTooClose(u, t)) continue;
       const cost = d - razeValue(t, this.producing(t)) * 1000;
       if (cost < bestCost) { bestCost = cost; best = t; }
     }
@@ -6266,6 +6358,7 @@ export class ComputerPlusAi {
       if (camp) {
         b.creeping = true;
         b.creepLevel = camp.level;
+        b.creepRuns++;
         return { id: 0, x: camp.x, y: camp.y };
       }
     }
@@ -6297,6 +6390,7 @@ export class ComputerPlusAi {
       if (camp) {
         b.creeping = true;
         b.creepLevel = camp.level;
+        b.creepRuns++;
         return { id: 0, x: camp.x, y: camp.y };
       }
     }

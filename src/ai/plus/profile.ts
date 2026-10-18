@@ -1,4 +1,5 @@
 import { MELEE_INSANE, MELEE_NEWBIE, MELEE_NORMAL, UPKEEP_TIER2 } from "../ids";
+import { CAMP_GREEN_MAX } from "./power";
 import type { TargetSkill } from "./targeting";
 
 // Computer+ — what a difficulty MEANS (issue #124).
@@ -185,6 +186,13 @@ export interface PlusProfile {
   /** Quiet time between waves. */
   readonly waveGap: number;
   /**
+   * …as a share of itself after a WON fight (`Brain.lastWon`): 0.5 = the next wave may leave
+   * after half the gap. The developer's "more velocity between fights" — the army that just
+   * beat theirs goes back out while the loser's heroes are still in the altar. 1 on Easy, which
+   * is not meant to punish anybody. OURS.
+   */
+  readonly wonGap: number;
+  /**
    * Army food that makes a wave.
    *
    * Kept at or below `CORE_ARMY_FOOD` (plus/plan.ts), which is the army the plan holds while it
@@ -262,6 +270,20 @@ export interface PlusProfile {
    *  a hero and two soldiers clear a green camp, and waiting for a wave's worth is waiting
    *  until creeping is pointless. */
   readonly creepFood: number;
+  /**
+   * How many creep RUNS it will ever set off on (a run that is beaten counts too), the hardest
+   * camp it will walk into (a level sum on plus/power.ts's own colour scale — `CAMP_GREEN_MAX`
+   * is "green"), and how far from HOME a camp may be. Infinity for all three = creeping as the
+   * rest of this file describes it.
+   *
+   * Easy's, and the developer's own: "let's make Computer+ Easy … also take/farm creep camps,
+   * but only one to two green camps that are close to its base and that's it". So it is two
+   * runs, green only, within the first ring of `CREEP_REACH` measured from its own town rather
+   * than from wherever the party stands — a beginner's habit, not a route. OURS.
+   */
+  readonly creepCamps: number;
+  readonly creepCampMax: number;
+  readonly creepRange: number;
   /** In an enemy base, does it turn on the WORKERS rather than whatever swung first? */
   readonly harass: boolean;
   /** Does it send an early scout? (Only matters for finding expansions — a melee player is
@@ -370,14 +392,15 @@ export const PLUS_EASY: PlusProfile = {
   armyFood: 12, wholeArmyCeiling: false, towers: 0, siegeUnits: 0, heroes: 1, techTier: 1, upgradeRank: 1,
   // Seven minutes at the EARLIEST, and each seat somewhere in the three after it
   // (`firstAttackSpread`) — so a table of Easy computers does not all leave home on one tick.
-  firstAttack: 420, firstAttackSpread: 180, waveGap: 150, attackFood: 10, retreatHp: 0, refill: true,
-  // It never creeps and never shops, so neither clock nor purse below ever matters — the two
-  // booleans are the switch. They are still stated rather than left to a default, because a
-  // profile that only half-describes a difficulty is how one of them ends up playing another's
-  // game by accident.
+  firstAttack: 420, firstAttackSpread: 180, waveGap: 150, wonGap: 1, attackFood: 10, retreatHp: 0, refill: true,
+  // It never shops, so the purse below never matters. It DOES creep now, and only a little:
+  // from four minutes, with the hero and a soldier or two, at most TWO green camps near its own
+  // base and then never again (`creepCamps`) — the developer's "only one to two green camps
+  // that are close to its base and that's it".
   // …and it does NOT micro its wounded out of a fight — issue #124's Easy is a player who
   // gives an order and then watches it happen. `pullOutHp` 0 is that in one number.
-  focusFire: false, pullOutHp: 0, stutterStep: false, creeps: false, creepAt: Infinity, creepFood: Infinity,
+  focusFire: false, pullOutHp: 0, stutterStep: false, creeps: true, creepAt: 240, creepFood: 8,
+  creepCamps: 2, creepCampMax: CAMP_GREEN_MAX, creepRange: 3000,
   harass: false, scout: false, sweepEvery: Infinity, expansionFirst: 0.5,
   shopping: 0, itemReserve: Infinity, keepPortal: false,
   concedeAfter: 24,
@@ -404,7 +427,11 @@ export const PLUS_NORMAL: PlusProfile = {
   difficulty: MELEE_NORMAL,
   // `defendDelay` 10, not the 6 it was: the beginner's raid gets a few more seconds in the base
   // before the army comes home — still a third less than Easy's fifteen.
-  buildPeriod: 2, armyPeriod: 1.5, castPeriod: 1, defendDelay: 10, castDelay: 1,
+  // `castPeriod` and `castDelay` 1.5, not 1: a hero presses one button per spell pass, so at
+  // one pass a second two heroes had emptied both bars within a few seconds of contact — the
+  // developer's "not so fast at casting all of their heroes' abilities (just a bit)". Half a
+  // second more on each; Easy's 2 / 2.5 is still slower.
+  buildPeriod: 2, armyPeriod: 1.5, castPeriod: 1.5, defendDelay: 10, castDelay: 1.5,
   // It knows what the units are and mostly aims at the right one, and misclicks about one
   // spell in seven. It does not price a spell's effect — a nuke goes on whoever is lowest
   // rather than on whoever it can finish.
@@ -440,7 +467,7 @@ export const PLUS_NORMAL: PlusProfile = {
   // dot, which is both two minutes sooner than Easy and the "every computer leaves on one tick"
   // habit `firstAttackSpread` was added to Easy to cure. A wave of twelve (the hero's five on top)
   // and two minutes between waves rather than a minute and a half.
-  firstAttack: 360, firstAttackSpread: 120, waveGap: 120, attackFood: 12, retreatHp: 0.35, refill: false,
+  firstAttack: 360, firstAttackSpread: 120, waveGap: 120, wonGap: 0.5, attackFood: 12, retreatHp: 0.35, refill: false,
   // Creeps from four minutes with the hero and ten food behind it — about a hero, a couple of
   // soldiers and whatever else is standing around, which is what clears a green camp. It was two
   // and a half, and that was most of the gap to Easy on its own: a hero creeping from 2:30 met
@@ -448,6 +475,7 @@ export const PLUS_NORMAL: PlusProfile = {
   // It does not focus-fire, but it DOES pull a soldier out of the line at a quarter health —
   // the one piece of micro a player picks up long before they learn to focus a target.
   focusFire: false, pullOutHp: 0.25, stutterStep: false, creeps: true, creepAt: 240, creepFood: 10,
+  creepCamps: Infinity, creepCampMax: Infinity, creepRange: Infinity,
   harass: false, scout: true, sweepEvery: 120, expansionFirst: 0.75,
   // A third of a belt, and it keeps 500 gold back for the build order. It DOES keep a Town
   // Portal and replace it: a scroll is the difference between losing a fight and losing an army,
@@ -485,10 +513,11 @@ export const PLUS_INSANE: PlusProfile = {
   // type is enough to start shifting, and it remembers what it saw four minutes ago.
   counterWeight: 1, counterSample: 6, counterShare: 0.25, counterMemory: 240,
   armyFood: UPKEEP_TIER2, wholeArmyCeiling: false, towers: 4, siegeUnits: 2, heroes: 3, techTier: 3, upgradeRank: 3,
-  firstAttack: 150, firstAttackSpread: 0, waveGap: 30, attackFood: 16, retreatHp: 0.4, refill: false,
+  firstAttack: 150, firstAttackSpread: 0, waveGap: 30, wonGap: 0.5, attackFood: 16, retreatHp: 0.4, refill: false,
   // Creeping starts at ninety seconds with the hero and eight food — the ladder's own answer,
   // which is "as soon as the hero walks out of the altar".
   focusFire: true, pullOutHp: 0.25, stutterStep: true, creeps: true, creepAt: 90, creepFood: 8,
+  creepCamps: Infinity, creepCampMax: Infinity, creepRange: Infinity,
   harass: true, scout: true, sweepEvery: 75, expansionFirst: 0.85,
   // A full belt and a Town Portal on the hero. Both are what separates a player who has been
   // here before from one who has not.

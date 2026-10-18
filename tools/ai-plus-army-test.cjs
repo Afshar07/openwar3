@@ -643,8 +643,8 @@ console.log("\n-- STUTTER-STEP (Insane's ranged micro between shots) -----------
 
 
 // WHAT A WON FIGHT IS SPENT ON (`winPlan`). The developer: winning used to mean attacking the
-// loser's base every time; now it is a roll — expand 25 %, carry on 35 %, attack 10 % before
-// 7:30 and 40 % after (the 30 % the early odds leave over is carrying on).
+// loser's base every time; now it is a roll — expand 25 %, attack 30 % before 7:30 and 60 %
+// after ("more velocity between fights"), and carrying on is whatever is left over.
 {
   const { winPlan } = require(join(REPO, ".sim-build", "src", "ai", "plus", "index.js"));
   const share = (clock, canExpand) => {
@@ -654,15 +654,15 @@ console.log("\n-- STUTTER-STEP (Insane's ranged micro between shots) -----------
     return { attack: n.attack / N, expand: n.expand / N, carryOn: n.carryOn / N };
   };
   const early = share(300, true);
-  check("before 7:30: attack 10 %", early.attack, 0.1);
+  check("before 7:30: attack 30 %", Math.round(early.attack * 100) / 100, 0.3);
   check("before 7:30: expand 25 %", early.expand, 0.25);
-  check("before 7:30: carry on 65 % (its 35 and the 30 left over)", Math.round(early.carryOn * 100) / 100, 0.65);
+  check("before 7:30: carry on 45 %", Math.round(early.carryOn * 100) / 100, 0.45);
   const late = share(450, true);
-  check("from 7:30: attack 40 %", late.attack, 0.4);
+  check("from 7:30: attack 60 %", Math.round(late.attack * 100) / 100, 0.6);
   check("from 7:30: expand 25 %", late.expand, 0.25);
-  check("from 7:30: carry on 35 %", Math.round(late.carryOn * 100) / 100, 0.35);
+  check("from 7:30: carry on 15 %", Math.round(late.carryOn * 100) / 100, 0.15);
   const shut = share(600, false);
-  check("an expansion it cannot take is carrying on instead", shut.expand === 0 && Math.round(shut.carryOn * 100) === 60, true);
+  check("an expansion it cannot take is carrying on instead", shut.expand === 0 && Math.round(shut.carryOn * 100) === 40, true);
 }
 
 

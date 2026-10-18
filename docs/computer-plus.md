@@ -395,13 +395,13 @@ Blizzard's unless a comment says otherwise) every value here is ours.
 | stutter-steps its ranged units | no | no | **yes** |
 | first attack | 7–10 min, rolled per seat | 6–8 min, rolled per seat | 2½ min |
 | army food that makes a wave | 10 | 12 | 16 |
-| quiet time between waves | 150 s | 120 s | 30 s |
+| quiet time between waves | 150 s | 120 s (60 s after a won fight) | 30 s (15 s after a won fight) |
 | **after falling back, waits for the whole army** | **yes** (`refill`) | no | no |
-| **first creep camp** | **never** | 4 min | 1½ min |
-| army food that makes a creeping party | — | 10 | 8 |
+| **first creep camp** | 4 min — **two green camps near home, then never** | 4 min | 1½ min |
+| army food that makes a creeping party | 8 | 10 | 8 |
 | retreats a broken army | **no** | at 35 % | at 40 % |
 | **walks a wounded unit out of the fight** | **no** | at 25 % | at 25 % |
-| focus-fires / creeps / raids workers | no / no / no | no / yes / no | yes / yes / yes |
+| focus-fires / creeps / raids workers | no / a little / no | no / yes / no | yes / yes / yes |
 | belt slots it shops for | **0** | 2 (6 when rich) | 6 |
 | gold it keeps back from the shop | — | 500 | 200 |
 | keeps and replaces a Town Portal | no | **yes** | **yes** |
@@ -716,8 +716,10 @@ questions now** — orange no longer asks for a level at all (above), because th
 be earned on a map with no green camps, while this one still may: it is a preference between a
 camp and a player's base, and a party refused here is a party sent creeping. After ten minutes the ordinary clocks
 decide alone, because a hero still at level 1 then is not going to get there by waiting. Easy is
-exempt through its own profile rather than through a test — it does not creep at all, so there is
-nothing to prefer over the attack.
+exempt through its own profile rather than through a test — it creeps only a LITTLE
+(`creepCamps` 2, `creepCampMax` green, `creepRange` 3000 from its own town: the developer's "only
+one to two green camps that are close to its base and that's it"), and two camps are not ten
+minutes of them, so its waves keep their own clock.
 
 ### An UNDEAD base needs a real army
 
@@ -905,9 +907,12 @@ brought into it is still standing (the same army came out of the human's base wi
 twelve, healthy ones) and what is left holds `WON_HEALTH` (40 %) of its hit points.
 
 What the win is SPENT on is a roll (`rollWin` → `winPlan`), once per fight, at the developer's
-odds: **expand 25 %, carry on 35 %, attack the loser's base 10 % before 7:30 (`WIN_LATE`) and 40 %
-after**. Before 7:30 the three leave 30 % over and that is carrying on too — the two numbers stated
-for expanding and attacking are kept exactly and the rest is the default. Winning used to mean
+odds: **expand 25 %, attack the loser's base 30 % before 7:30 (`WIN_LATE`) and 60 % after, and
+carry on with what is left** (45 % / 15 %). The attack odds were 10 % and 40 % and were raised on
+the developer's "after a fight is won, the Computer+ Normal doesn't seem very keen on attacking
+its opponent's base … I want there to be more velocity between fights" — and a win that is
+carried on still shortens the next wave's gap (`PlusProfile.wonGap`, half on Normal and Insane,
+measured off `Brain.lastWon`). Winning used to mean
 attacking every time (see the push below), which is exactly what a ladder player does NOT always
 do with a won fight. An expansion the player could not take (`expansionOpen`: Easy, its ceiling
 reached, before `TIER2_CLOCK`) is carrying on instead. *Carry on* is nothing special — the wave
@@ -1202,7 +1207,7 @@ scattered squad, read the scroll 2.6 s later and landed with it beside the raide
 ### A won fight MAY be the start of a PUSH, not the end of a wave
 
 Since the won-fight roll (above) this is one of three answers, taken when the roll says
-*attack* — 10 % of wins before 7:30 and 40 % after. Everything below is what that answer does.
+*attack* — 30 % of wins before 7:30 and 60 % after. Everything below is what that answer does.
 
 Reported: *"when the enemy heroes are dead, the Computer+ AI that won the fight must attack their
 enemy's base"*. It did not, and the reason was the wave's own ending: a fight met in the field is
@@ -1477,8 +1482,9 @@ army filled the ceiling. So the undead's siege row is EARLY (`PlusRaceTable.sieg
 the first tower and the tech buildings), the siege's room is owed from the pass `siegeLine`
 starts working toward it (`siegeDue`), the Statue row leaves that room alone, the wagon may take
 the last of the room even if it is a little short of four (`fitted`'s `roundUp`, siege only —
-at most three food over), and every wave after the first waits up to `SIEGE_WAIT` (90 s) for a
-siege unit that is on its way (`siegeHeld`). Headless, every undead build has its wagon out at
+at most three food over), and the SECOND wave waits up to `SIEGE_WAIT` (45 s) for a siege unit
+that is on its way (`siegeHeld`) — never straight after a won fight, which is the window the win
+bought (it was every wave after the first, for 90 s, and read as "not keen on attacking"). Headless, every undead build has its wagon out at
 9:40–10:20, where before none had one by thirteen minutes.
 
 ## Strategies: a race is a table of builds, not one build
@@ -3362,7 +3368,7 @@ It leaves at `ESCAPE_HP` (40 %) **against a player** — against creeps it leave
 and 40 % rather than the panic line, for a reason that is easy to get backwards: once the scroll is *pressed* the hero is invulnerable for the whole five seconds and
 **cannot die mid-channel**. The only window in which a hero holding one can be killed is the
 window *before* it presses, and the width of that window is the AI's own reaction — the belt is
-walked once per `castPeriod`, a whole second on Normal. A hero at 30 % with an army on it does not
+walked once per `castPeriod`, a second and a half on Normal. A hero at 30 % with an army on it does not
 reliably survive a second, so a threshold set at the panic line is one that is sometimes read for
 the first time after the hero is already dead. 40 % is `HERO_KILL_HP`: the point the AI's own
 targeting would start treating this hero as a kill.

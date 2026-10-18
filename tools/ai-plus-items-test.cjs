@@ -149,7 +149,13 @@ for (const [name, p] of [["Normal", PLUS_NORMAL], ["Insane", PLUS_INSANE]]) {
   check(`${name} creeps with less than a wave (${p.creepFood} vs ${p.attackFood} food)`,
     p.creepFood < p.attackFood, true);
 }
-check("Easy never creeps", PLUS_EASY.creeps, false);
+// Easy creeps a LITTLE — the developer's "only one to two green camps that are close to its base
+// and that's it": two runs, green only, near home; the other two rungs are unlimited.
+check("Easy creeps, but only two camps", PLUS_EASY.creeps && PLUS_EASY.creepCamps, 2);
+check("…green ones", PLUS_EASY.creepCampMax <= 9, true);
+check("…near its own base", PLUS_EASY.creepRange <= 3000, true);
+check("…before its first wave", PLUS_EASY.creepAt < PLUS_EASY.firstAttack, true);
+check("Normal and Insane creep without a limit", PLUS_NORMAL.creepCamps === Infinity && PLUS_INSANE.creepCamps === Infinity, true);
 check("Insane starts creeping before Normal", PLUS_INSANE.creepAt < PLUS_NORMAL.creepAt, true);
 
 console.log("\n-- …and shops ---------------------------------------------------------------");

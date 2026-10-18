@@ -117,6 +117,12 @@ next to them. You will have to move them away." So the unit **stands**, it does 
   something it can hit, while an ORDERED target is waited on;
 - Attack Ground into the dead zone stands and does not fire.
 
+So a PLAYER moves the gun away, and Computer+ does the same (plus/index.ts `siegeTooClose` /
+`siegeBackOff`): a building inside the dead zone is never picked as a gun's aim when another in
+reach is not, and a gun left with only that one walks straight away from it to `SIEGE_BACKOFF`
+past its minimum range and fires from there. Reported: a Demolisher ordered at the building it
+had walked up against stood beside it doing nothing for the rest of the fight.
+
 It applies to RANGED slots only (`deadZone`): the Corrupted Ancient Protector (`ncap`) states
 200 beside a 128-reach melee slot, and read against that slot the row would be a unit that can
 never strike at all.
