@@ -92,7 +92,7 @@ import { TerrainCull } from "./terrainCull";
 import type { PickVolume } from "./modelCollision";
 import { setSimProfiler } from "../sim/profile";
 import { wc3ToPlain } from "../ui/wc3Text";
-import { GameHud, isTyping, upkeepBand, PLAYER_COLORS, type HudDriver, type CommandButton, type SpawnEntry, type SpawnOwner, type SpawnRequest } from "../ui/hud";
+import { GameHud, isTyping, upkeepBand, PLAYER_COLORS, type HudDriver, type MinimapBlight, type CommandButton, type SpawnEntry, type SpawnOwner, type SpawnRequest } from "../ui/hud";
 import { GAME_HEIGHT, disposeWorldLayer, worldLayer } from "../ui/stage";
 import { EscMenu } from "../ui/escMenu";
 import { AllianceDialogOverlay } from "../ui/allianceDialog";
@@ -756,7 +756,7 @@ interface W3xMap {
   flushBlight(): void;
   // --- what a script's SetTerrainType reaches (docs/map-compatibility.md pass 10) ---
   /** The viewer's own corner records, row-major — the tile each corner wears. */
-  corners: Array<Array<{ groundTexture: number; groundVariation: number }>>;
+  corners: Array<Array<{ groundTexture: number; groundVariation: number; blight?: number | boolean }>>;
   /** The patch's set of tiles waiting for `flushBlight` — a re-tiled corner joins it too. */
   blightDirty?: Set<number>;
   columns: number;
@@ -861,6 +861,14 @@ interface DoodadActor {
 interface TerrainRow {
   string(key: string): string | undefined;
 }
+/** Each tileset's blight texture, `TerrainArt\Blight\<name>_Blight.blp` — mdx-m3-viewer's own
+ *  `blights` table (viewer/handlers/w3x/map.js), which picks the file the ground wears. The
+ *  minimap's blight colour is read out of the same file (MapViewerScene.blightMinimapColor). */
+const BLIGHT_TEXTURE_NAMES: Readonly<Record<string, string>> = {
+  A: "Ashen", B: "Barrens", C: "Felwood", D: "Cave", F: "Lordf", G: "Dungeon", I: "Ice", J: "DRuins", K: "Citadel",
+  L: "Lords", N: "North", O: "Outland", Q: "VillageFall", V: "Village", W: "Lordw", X: "Village", Y: "Village", Z: "Ruins",
+};
+
 /** Stands in the viewer's row list at the BLIGHT texture's index, which has no Terrain.slk row
  *  — only `cliffGroundIndex` walks that list, looking for a `tileID` this never matches. */
 const NO_TILE_ROW: TerrainRow = { string: () => "" };
@@ -9184,7 +9192,78 @@ export class MapViewerScene {
       for (const [col, row] of cells) consider(col, row);
       if (sweep) for (const i of [...this.blightPending]) consider(i % grid.columns, (i / grid.columns) | 0);
     }
-    if (dirty) map.flushBlight();
+    if (dirty) {
+      map.flushBlight();
+      this.minimapBlightStale = true;
+    }
+  }
+
+  /**
+   * The minimap's blight layer (issue #212, ui/hud.ts MinimapBlight): the TERRAIN's corner
+   * flags — the map's own pre-placed blight plus everything syncBlight has pushed, which is to
+   * say blight as the local player last SAW it — and the tileset's blight colour. Re-read only
+   * when syncBlight changed a corner, so the 10 Hz ask costs nothing on a settled map.
+   */
+  private minimapBlight(): MinimapBlight | null {
+    const map = this.viewer.map;
+    const grid = map?.corners;
+    if (!map || !grid?.length || !grid[0]?.length) return null;
+    const prev = this.minimapBlightView;
+    if (prev?.map === map && !this.minimapBlightStale) return prev.blight;
+    const rows = grid.length, columns = grid[0].length;
+    const same = prev?.map === map && prev.corners.length === rows * columns;
+    const corners = same ? prev.corners : new Uint8Array(rows * columns);
+    for (let row = 0; row < rows; row++) {
+      const line = grid[row];
+      for (let col = 0; col < columns; col++) corners[row * columns + col] = line[col]?.blight ? 1 : 0;
+    }
+    const color = same ? prev.color : this.blightMinimapColor();
+    const blight = color ? { version: ++this.minimapBlightSerial, columns, rows, corners, color } : null;
+    this.minimapBlightView = { map, corners, color, blight };
+    this.minimapBlightStale = false;
+    return blight;
+  }
+  private minimapBlightView: {
+    map: W3xMap;
+    corners: Uint8Array;
+    color: MinimapBlight["color"] | null;
+    blight: MinimapBlight | null;
+  } | null = null;
+  private minimapBlightStale = true;
+  private minimapBlightSerial = 0;
+
+  /**
+   * What colour blight is on the minimap: the mean of the very texture the ground wears,
+   * `TerrainArt\Blight\<name>_Blight.blp` through the tileset overlay — the same file
+   * mdx-m3-viewer's w3x handler loads into the tile stack (its own `blights` table, copied
+   * below). Lordaeron Summer's comes out 56,51,38 in the page (and the others alike: Village
+   * ~55,48,34, Ashenvale ~26,44,19, Northrend ~20,43,37, decoded headless) — a duller, browner
+   * patch than the grass around it, as on the ground. Null (no layer) for an install without
+   * the file.
+   *
+   * Not used: `UI\MiscData.txt` [FogOfWar] `FogColorBlightMask=0,63,63,64`. It sits among the
+   * minimap's fog alphas and is plainly the minimap's blight entry, but nothing documents how
+   * the client combines a zero-alpha mask with the picture, and every reading tried (add, OR,
+   * modulate) paints the same neutral grey on every tileset — so it waits for a measurement
+   * off the real client rather than a guess.
+   */
+  private blightMinimapColor(): [number, number, number] | null {
+    const letter = this.terrainData?.tileset ?? "";
+    const name = BLIGHT_TEXTURE_NAMES[letter];
+    if (!name) return null;
+    const art = tilesetOverlay(this.vfs)(`TerrainArt\\Blight\\${name}_Blight.blp`, letter);
+    const bytes = art.source.rawBytes(art.path);
+    const canvas = bytes ? blpToCanvas(bytes) : null;
+    if (!canvas || !canvas.width || !canvas.height) return null;
+    const px = canvas.getContext("2d")!.getImageData(0, 0, canvas.width, canvas.height).data;
+    let r = 0, g = 0, b = 0;
+    for (let i = 0; i < px.length; i += 4) {
+      r += px[i];
+      g += px[i + 1];
+      b += px[i + 2];
+    }
+    const n = px.length / 4;
+    return [Math.round(r / n), Math.round(g / n), Math.round(b / n)];
   }
 
   /** What the TERRAIN is wearing, corner by corner — see syncBlight. Not the sim's grid: the
@@ -9514,6 +9593,7 @@ export class MapViewerScene {
         this.hud?.setArmed(!!this.rts?.orderMode); // enter "target to move" mode
       },
       minimapImage: () => this.minimap,
+      minimapBlight: () => this.minimapBlight(),
       consoleSkinned: () => this.consoleSkinned(),
       skinPath: (key) => this.skinPath(key),
       cheat: (kind) => this.rts?.cheat(kind) ?? false,

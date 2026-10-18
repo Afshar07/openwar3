@@ -1169,6 +1169,7 @@ body:not(.hud-tooltip-skinned) .dev-drawer { outline: 1px solid rgba(200, 160, 5
   border: 1px solid #6b6b6b; /* discrete hairline around the map itself */
 }
 .hud-minimap-img,
+.hud-minimap-blight,
 .hud-minimap-dots {
   position: absolute;
   inset: 0;
@@ -1176,6 +1177,8 @@ body:not(.hud-tooltip-skinned) .dev-drawer { outline: 1px solid rgba(200, 160, 5
   height: 100%;
 }
 .hud-minimap-img { image-rendering: pixelated; }
+/* One pixel per terrain tile, stretched SMOOTH: the bilinear filter is the corner blend (GameHud.paintBlight). */
+.hud-minimap-blight { image-rendering: auto; }
 /* The camera box (#112): a white hairline rectangle with NO fill, over the map picture, at the
    spot the viewport is looking at. Placed and sized in GameHud.updateCameraRect. The wrapper
    clips it — near a map edge the view spills past the terrain, and that overhang stops at the

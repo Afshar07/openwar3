@@ -273,6 +273,29 @@ export interface SpawnRequest {
   at: [number, number] | null;
 }
 
+/**
+ * Blight on the minimap (issue #212). The minimap's terrain is a PICTURE (war3mapMap.blp, or
+ * whatever `BlzChangeMinimapTerrainTex` put there), drawn once by the World Editor — so it cannot
+ * know about ground that rots during a match, and the real client paints blight OVER it: a
+ * mapmaker who replaced the picture with art of their own still found every blighted patch
+ * drawn on top of it, and no edit to the image or the blight texture moved it
+ * (hiveworkshop.com/threads/minimap-question.318604). So this is a layer of its own, between
+ * the picture and the fog.
+ *
+ * `corners` is the TERRAIN's blight, corner by corner on the w3e lattice — what the ground is
+ * wearing, not what the sim says — which makes it terrain memory for free: mapViewer.syncBlight
+ * only repaints a corner the local player can see, so blight grown in the fog appears on the
+ * minimap exactly when it appears on the ground ("when scouted"). `version` moves whenever any
+ * corner does; `color` is the tileset's own blight texture, averaged.
+ */
+export interface MinimapBlight {
+  version: number;
+  columns: number;
+  rows: number;
+  corners: Uint8Array;
+  color: readonly [number, number, number];
+}
+
 export interface HudDriver {
   /** `EnableUserControl` — false while a cinematic owns the input (7.24). The console's own
    *  keys stand down with it: a control group recalled or a hero selected mid-cinematic is
@@ -469,6 +492,9 @@ export interface HudDriver {
   mountClock(slot: HTMLElement): boolean;
   /** The map's own minimap image (war3mapMap.blp), if decodable. */
   minimapImage(): HTMLCanvasElement | null;
+  /** The blight the minimap paints over that image (issue #212) — see `MinimapBlight`. Null
+   *  before a map is up. Asked at the dots' own cadence, so it must be cheap when nothing moved. */
+  minimapBlight?(): MinimapBlight | null;
   /** Is the console's real chrome on screen? True once an install is mounted, in which case
    *  ui/consoleUi.ts is drawing `ConsoleUI.fdf` and the HUD's widgets go in its sockets;
    *  false with no install, and the HUD draws its own placeholder strip instead. */
@@ -2501,7 +2527,7 @@ export class GameHud {
     cropped.className = "hud-minimap-img";
     cropped.hidden = !this.minimapTerrainShown;
     if (this.minimapImg) this.minimapImg.replaceWith(cropped);
-    else this.minimapView.insertBefore(cropped, this.dotsCanvas ?? null);
+    else this.minimapView.insertBefore(cropped, this.blightCanvas ?? this.dotsCanvas ?? null);
     this.minimapImg = cropped;
   }
 
@@ -2533,6 +2559,12 @@ export class GameHud {
       this.minimapImg = cropped;
       view.appendChild(cropped);
     }
+    // Blight sits on the picture and under the fog (MinimapBlight). Built here and sized on
+    // its first paint, because its resolution is the TERRAIN's, not the widget's.
+    this.blightCanvas = document.createElement("canvas");
+    this.blightCanvas.className = "hud-minimap-blight";
+    this.blightCanvas.hidden = true;
+    view.appendChild(this.blightCanvas);
     this.dotsCanvas = document.createElement("canvas");
     this.dotsCanvas.className = "hud-minimap-dots";
     this.dotsCanvas.width = this.mmW;
@@ -2735,6 +2767,7 @@ export class GameHud {
   private toggleMinimapTerrain(): void {
     this.minimapTerrainShown = !this.minimapTerrainShown;
     if (this.minimapImg) this.minimapImg.hidden = !this.minimapTerrainShown;
+    this.blightVersion = -1; // repaint (or hide) the blight with the terrain it belongs to
     this.terrainRefresh?.();
   }
 
@@ -4535,6 +4568,7 @@ export class GameHud {
     const ctx = this.dotsCanvas.getContext("2d")!;
     ctx.clearRect(0, 0, this.mmW, this.mmH);
     const [ox, oy, w, h] = this.driver.mapBounds();
+    this.paintBlight();
     this.paintFog(ctx, ox, oy, w, h); // black/grey fog under the markers (own units always shown)
     // Camp dots and map glyphs ride ON TOP of the fog veil, at full brightness and
     // whatever the fog says — the real client paints them from the opening frame.
@@ -4754,6 +4788,61 @@ export class GameHud {
     this.mapGlyphs.set(path, img);
     return img;
   }
+
+  /**
+   * Repaint the blight layer when the terrain's blight has moved (MinimapBlight).
+   *
+   * One pixel per TILE, its alpha the share of the tile's four corners that are blighted, and
+   * the canvas stretched over the map by CSS with smoothing ON — so the browser's own bilinear
+   * filter feathers the edge across a tile exactly as the ground shader blends a blighted corner
+   * into its neighbours, and a pixel centre lands on a tile centre with no half-cell drift.
+   * Hidden with the terrain picture (Alt-T), because blight is a fact about the terrain.
+   */
+  private paintBlight(): void {
+    const c = this.blightCanvas;
+    if (!c) return;
+    const b = this.driver.minimapBlight?.() ?? null;
+    if (!b || !this.minimapTerrainShown) {
+      c.hidden = true;
+      this.blightVersion = -1;
+      return;
+    }
+    if (b.version === this.blightVersion) return;
+    this.blightVersion = b.version;
+    const tw = b.columns - 1, th = b.rows - 1;
+    if (tw <= 0 || th <= 0) {
+      c.hidden = true;
+      return;
+    }
+    if (c.width !== tw || c.height !== th) {
+      c.width = tw;
+      c.height = th;
+    }
+    const ctx = c.getContext("2d")!;
+    const img = ctx.createImageData(tw, th);
+    const px = img.data, k = b.corners, [r, g, bl] = b.color;
+    let any = false;
+    for (let ty = 0; ty < th; ty++) {
+      // Canvas rows run north → south; the lattice's run south → north (the minimap is north-up).
+      const row = th - 1 - ty;
+      for (let tx = 0; tx < tw; tx++) {
+        const i = row * b.columns + tx;
+        const n = k[i] + k[i + 1] + k[i + b.columns] + k[i + b.columns + 1];
+        if (!n) continue;
+        any = true;
+        const o = (ty * tw + tx) * 4;
+        px[o] = r;
+        px[o + 1] = g;
+        px[o + 2] = bl;
+        px[o + 3] = (n * 255) >> 2;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+    c.hidden = !any;
+  }
+  private blightCanvas: HTMLCanvasElement | null = null;
+  /** The `MinimapBlight.version` the layer was last painted at; -1 forces a repaint. */
+  private blightVersion = -1;
 
   /** Paint the fog-of-war mask onto the minimap: unexplored is opaque black (hiding
    *  the terrain image behind), explored is a translucent grey veil (terrain shown,

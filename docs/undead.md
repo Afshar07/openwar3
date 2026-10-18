@@ -80,6 +80,23 @@ their vision returns; `blightShown` is what the terrain is actually wearing, so 
 changed twice out of sight is one push when it is next looked at and one that changed back is
 none. The parked list is re-examined on the fog's own 10 Hz cadence rather than per frame.
 
+**It is on the MINIMAP too** (issue #212), and there it is a LAYER rather than part of the
+picture. The minimap's terrain is `war3mapMap.blp`, drawn once by the World Editor, so it cannot
+show ground that rots during a match — and the real client paints blight OVER it: a mapmaker who
+swapped in a minimap image of their own still found every blighted patch drawn on top of it,
+whatever they did to the image or the blight texture
+([hiveworkshop 318604](https://www.hiveworkshop.com/threads/minimap-question.318604/)).
+`GameHud.paintBlight` draws one pixel per TILE (alpha = how many of its four corners are
+blighted) and lets the browser's bilinear stretch feather the edge, between the picture and the
+fog veil, hidden with the picture by Alt-T. Its source is the TERRAIN's corner flags
+(`MapViewerScene.minimapBlight`), not the sim's grid — so it is fogged for free, appears on the
+minimap exactly when it appears on the ground, and includes a map's own pre-placed blight. Its
+colour is the mean of the very `TerrainArt\Blight\<name>_Blight.blp` the ground wears
+(Lordaeron Summer 56,51,38 measured in the page). `UI\MiscData.txt` [FogOfWar]
+`FogColorBlightMask=0,63,63,64` is plainly the minimap's own blight entry, but nothing says how
+a zero-alpha mask combines with the picture and every reading tried (add, OR, modulate) gives
+the same neutral grey on every tileset; it waits for a measurement off the real client.
+
 > **Upstream bug fixed on the way:** `this.blightTextureIndex = this.tilesetTextures.length`
 > read the *previous* map's texture list (the current one is still being built in a local), so
 > the index pointed at ground tileset 0 and blight would have drawn as dirt.
