@@ -156,6 +156,10 @@ check("…green ones", PLUS_EASY.creepCampMax <= 9, true);
 check("…near its own base", PLUS_EASY.creepRange <= 3000, true);
 check("…before its first wave", PLUS_EASY.creepAt < PLUS_EASY.firstAttack, true);
 check("Normal and Insane creep without a limit", PLUS_NORMAL.creepCamps === Infinity && PLUS_INSANE.creepCamps === Infinity, true);
+// …but Normal creeps SLOWLY ("creeping both heroes to level 3 quite fast for newer players"):
+// a rest at home between camps and green camps only early on, where Insane goes camp to camp.
+check("Normal rests between camps", PLUS_NORMAL.creepRest > 0 && PLUS_INSANE.creepRest === 0, true);
+check("Normal takes green camps only at first", PLUS_NORMAL.creepGreenUntil > PLUS_NORMAL.creepAt, true);
 check("Insane starts creeping before Normal", PLUS_INSANE.creepAt < PLUS_NORMAL.creepAt, true);
 
 console.log("\n-- …and shops ---------------------------------------------------------------");

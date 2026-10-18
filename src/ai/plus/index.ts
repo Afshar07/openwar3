@@ -2131,6 +2131,9 @@ interface Brain {
   lastWon: number;
   /** Creep runs set off on so far — what `PlusProfile.creepCamps` limits. */
   creepRuns: number;
+  /** When the last creep run ENDED (`endWave` with `creeping` set), -1 = never — what
+   *  `PlusProfile.creepRest` is measured from. */
+  lastCreepEnd: number;
   /** When something hostile first appeared in one of our towns (-1 = nothing there). The
    *  difficulty's `defendDelay` is measured off this: an easy computer lets you kill four
    *  workers before it looks up. */
@@ -2493,6 +2496,7 @@ export class ComputerPlusAi {
       siegeWaitFrom: -1,
       lastWon: -1,
       creepRuns: 0,
+      lastCreepEnd: -1,
       threatSince: -1,
       recall: null,
       recallNext: 0,
@@ -4731,7 +4735,7 @@ export class ComputerPlusAi {
    */
   private creepNext(b: Brain): { x: number; y: number; level: number } | null {
     const { profile } = b;
-    if (!profile.creeps || b.clock < profile.creepAt) return null;
+    if (!profile.creeps || b.clock < profile.creepAt || this.creepResting(b)) return null;
     const hero = this.squadHero(b);
     if (!hero) return null;
     // THE LEVEL CAP IS A PREFERENCE, not an ability. Past it a camp is worth less to the hero
@@ -4743,6 +4747,13 @@ export class ComputerPlusAi {
     if (hero.hp / Math.max(1, hero.maxHp) < CREEP_HEALTH) return null;
     if (this.squadFood(b, this.mustered(b)) < profile.creepFood) return null;
     return this.creepTarget(b);
+  }
+
+  /** Is the party still RESTING at home after its last creep run (`PlusProfile.creepRest`)?
+   *  Asked where creeping is a CHOICE — a run set off on, or a wave preferring a camp to a
+   *  base — and not by `pickTarget`'s last rung, where the alternative is standing still. */
+  private creepResting(b: Brain): boolean {
+    return b.lastCreepEnd >= 0 && b.clock - b.lastCreepEnd < b.profile.creepRest;
   }
 
   /** Set off — the commit half of a creep run, once `creepNext` has said which camp. */
@@ -4775,7 +4786,11 @@ export class ComputerPlusAi {
     if (b.creepRuns >= profile.creepCamps) return null;
     // Priced off the party that is actually STANDING at the muster point — see `mustered`. A
     // camp chosen for an army that is still in the forest is a camp the hero walks into alone.
-    const ceiling = Math.min(maxCampLevel(this.creepForce(b, this.mustered(b))), profile.creepCampMax);
+    const ceiling = Math.min(
+      maxCampLevel(this.creepForce(b, this.mustered(b))),
+      profile.creepCampMax,
+      b.clock < profile.creepGreenUntil ? CAMP_GREEN_MAX : Infinity,
+    );
     if (ceiling < 0) return null;
     const air = this.hasAir(b);
     if (profile.creepRange < Infinity) {
@@ -6353,7 +6368,7 @@ export class ComputerPlusAi {
     // aimed rather than when a creep run is being started, and it must agree with it — an army
     // sent to a camp from here without a hero is the very thing `creepNext` refuses to do.
     const captain = this.squadHero(b);
-    if (profile.creeps && captain && captain.level < CREEP_UNTIL_LEVEL) {
+    if (profile.creeps && captain && captain.level < CREEP_UNTIL_LEVEL && !this.creepResting(b)) {
       const camp = this.creepTarget(b);
       if (camp) {
         b.creeping = true;
@@ -6545,6 +6560,7 @@ export class ComputerPlusAi {
   }
 
   private endWave(b: Brain): void {
+    if (b.creeping) b.lastCreepEnd = b.clock;
     b.resume = null;
     b.target = null;
     b.creeping = false;

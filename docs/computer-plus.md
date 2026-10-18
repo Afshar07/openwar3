@@ -397,7 +397,7 @@ Blizzard's unless a comment says otherwise) every value here is ours.
 | army food that makes a wave | 10 | 12 | 16 |
 | quiet time between waves | 150 s | 120 s (60 s after a won fight) | 30 s (15 s after a won fight) |
 | **after falling back, waits for the whole army** | **yes** (`refill`) | no | no |
-| **first creep camp** | 4 min — **two green camps near home, then never** | 4 min | 1½ min |
+| **first creep camp** | 4 min — **two green camps near home, then never** | 5 min, green only until 7 min, a minute at home between camps | 1½ min, camp to camp |
 | army food that makes a creeping party | 8 | 10 | 8 |
 | retreats a broken army | **no** | at 35 % | at 40 % |
 | **walks a wounded unit out of the fight** | **no** | at 25 % | at 25 % |
@@ -720,6 +720,11 @@ exempt through its own profile rather than through a test — it creeps only a L
 (`creepCamps` 2, `creepCampMax` green, `creepRange` 3000 from its own town: the developer's "only
 one to two green camps that are close to its base and that's it"), and two camps are not ten
 minutes of them, so its waves keep their own clock.
+
+Normal creeps more SLOWLY than the ladder route for the same reason (`creepRest` 60 s at home
+between runs, `creepGreenUntil` 7:00, from 5:00): "creeping both heroes to level 3 quite fast
+for newer players". The rest is asked where creeping is a choice (`creepNext`, `pickTarget`'s
+first camp rung) and not by the last rung, where the alternative is an army standing still.
 
 ### An UNDEAD base needs a real army
 

@@ -284,6 +284,19 @@ export interface PlusProfile {
   readonly creepCamps: number;
   readonly creepCampMax: number;
   readonly creepRange: number;
+  /**
+   * Seconds a party spends at HOME between one creep run and the next (`Brain.lastCreepEnd`),
+   * and the game clock before which it takes GREEN camps only (`CAMP_GREEN_MAX`) whatever it
+   * could price. 0 / 0 = straight on from camp to camp, any colour the party can take.
+   *
+   * Normal's, and the developer's: "slow down the Computer+ Normal difficulty's creeping as it
+   * seems to be creeping both heroes to level 3 quite fast for newer players". Going camp to
+   * camp with no pause, and into orange camps the moment the party priced them, is the route
+   * a ladder player takes; a newer one walks home between camps and leaves the big ones for
+   * later. OURS.
+   */
+  readonly creepRest: number;
+  readonly creepGreenUntil: number;
   /** In an enemy base, does it turn on the WORKERS rather than whatever swung first? */
   readonly harass: boolean;
   /** Does it send an early scout? (Only matters for finding expansions — a melee player is
@@ -400,7 +413,7 @@ export const PLUS_EASY: PlusProfile = {
   // …and it does NOT micro its wounded out of a fight — issue #124's Easy is a player who
   // gives an order and then watches it happen. `pullOutHp` 0 is that in one number.
   focusFire: false, pullOutHp: 0, stutterStep: false, creeps: true, creepAt: 240, creepFood: 8,
-  creepCamps: 2, creepCampMax: CAMP_GREEN_MAX, creepRange: 3000,
+  creepCamps: 2, creepCampMax: CAMP_GREEN_MAX, creepRange: 3000, creepRest: 0, creepGreenUntil: 0,
   harass: false, scout: false, sweepEvery: Infinity, expansionFirst: 0.5,
   shopping: 0, itemReserve: Infinity, keepPortal: false,
   concedeAfter: 24,
@@ -468,14 +481,17 @@ export const PLUS_NORMAL: PlusProfile = {
   // habit `firstAttackSpread` was added to Easy to cure. A wave of twelve (the hero's five on top)
   // and two minutes between waves rather than a minute and a half.
   firstAttack: 360, firstAttackSpread: 120, waveGap: 120, wonGap: 0.5, attackFood: 12, retreatHp: 0.35, refill: false,
-  // Creeps from four minutes with the hero and ten food behind it — about a hero, a couple of
+  // Creeps from FIVE minutes with the hero and ten food behind it — about a hero, a couple of
   // soldiers and whatever else is standing around, which is what clears a green camp. It was two
   // and a half, and that was most of the gap to Easy on its own: a hero creeping from 2:30 met
   // the first fight at level 3–4 with a belt of potions, against an Easy hero still at level 1.
+  // Then four, and still "creeping both heroes to level 3 quite fast for newer players" — so it
+  // is five, with a minute at home between camps (`creepRest`) and green camps only until seven
+  // minutes (`creepGreenUntil`).
   // It does not focus-fire, but it DOES pull a soldier out of the line at a quarter health —
   // the one piece of micro a player picks up long before they learn to focus a target.
-  focusFire: false, pullOutHp: 0.25, stutterStep: false, creeps: true, creepAt: 240, creepFood: 10,
-  creepCamps: Infinity, creepCampMax: Infinity, creepRange: Infinity,
+  focusFire: false, pullOutHp: 0.25, stutterStep: false, creeps: true, creepAt: 300, creepFood: 10,
+  creepCamps: Infinity, creepCampMax: Infinity, creepRange: Infinity, creepRest: 60, creepGreenUntil: 420,
   harass: false, scout: true, sweepEvery: 120, expansionFirst: 0.75,
   // A third of a belt, and it keeps 500 gold back for the build order. It DOES keep a Town
   // Portal and replace it: a scroll is the difference between losing a fight and losing an army,
@@ -517,7 +533,7 @@ export const PLUS_INSANE: PlusProfile = {
   // Creeping starts at ninety seconds with the hero and eight food — the ladder's own answer,
   // which is "as soon as the hero walks out of the altar".
   focusFire: true, pullOutHp: 0.25, stutterStep: true, creeps: true, creepAt: 90, creepFood: 8,
-  creepCamps: Infinity, creepCampMax: Infinity, creepRange: Infinity,
+  creepCamps: Infinity, creepCampMax: Infinity, creepRange: Infinity, creepRest: 0, creepGreenUntil: 0,
   harass: true, scout: true, sweepEvery: 75, expansionFirst: 0.85,
   // A full belt and a Town Portal on the hero. Both are what separates a player who has been
   // here before from one who has not.
