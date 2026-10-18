@@ -31,6 +31,7 @@ const { TechRegistry } = require(join(REPO, ".sim-build", "src", "data", "techtr
 const { UpgradeRegistry } = require(join(REPO, ".sim-build", "src", "data", "upgrades.js"));
 const { UnitRegistry } = require(join(REPO, ".sim-build", "src", "data", "units.js"));
 const { Authority } = require(join(REPO, ".sim-build", "src", "game", "authority.js"));
+const { SPELL_HANDLERS } = require(join(REPO, ".sim-build", "src", "sim", "spells.js"));
 
 let failed = 0;
 function check(what, got, want) {
@@ -329,6 +330,40 @@ console.log("\n-- a FOOD building pays when it is finished (issue #144) --------
   const farm = building("hhou", 0);
   farm.building.queue = [{ kind: "upgrade", unitId: "hhou", level: 1 }];
   check("a building UPGRADING still makes its food", authority.foodFor(0).made, 12);
+}
+
+console.log("\n-- a unit an ABILITY handed over eats no food ------------------------------------");
+
+{
+  // The developer's word: what Charm, Possession or a Rune of Rebirth hands a player "must not
+  // use ANY food at all" (SimUnit.foodFree). Charmed here through the handler itself, so the
+  // test fails if the mark is ever dropped from it.
+  newWorld();
+  world.initStash(0, 10000, 10000);
+  building("hhou", 0);
+  const a = building("hbar", 0);
+  for (let i = 0; i < 5; i++) soldier("hfoo", 0);
+  const ranger = soldier("hfoo", 0);
+  const theirs = soldier("hfoo", 1);
+  theirs.abilities = [];
+  theirs.level = 2;
+  check("six Footmen of our own, the Farm is full", authority.foodFor(0), { used: 12, made: 12 });
+  const api = {
+    getUnit: (id) => world.units.get(id), techMeets: () => true, emitEffect() {},
+    changeOwner: (u, owner, team) => { u.owner = owner; u.team = team; },
+  };
+  SPELL_HANDLERS.ANch(api, ranger, { levelData: [{ data: [5] }], targetArt: "" }, 1, { targetId: theirs.id, x: 0, y: 0 });
+  check("the charmed Footman is ours", theirs.owner, 0);
+  check("…and our food has not moved", authority.foodFor(0), { used: 12, made: 12 });
+  check("…nor has its old owner kept it", authority.foodFor(1).used, 0);
+  // A Rune of Rebirth's monster (and a possessed body) carry the same mark.
+  const reborn = soldier("hfoo", 0);
+  reborn.foodFree = true;
+  check("a reborn unit eats none either", authority.foodFor(0).used, 12);
+  // …which is only the TAKEN ones: a Footman lost frees its two as ever.
+  world.units.delete(ranger.id);
+  check("a trained Footman lost frees its food", authority.foodFor(0).used, 10);
+  check("…and the place is ours to train into", train(0, a, "hfoo"), true);
 }
 
 console.log("\n-- a building still going up is not part of the spread ---------------------------");

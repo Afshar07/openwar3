@@ -784,6 +784,8 @@ export interface SummonRequest {
   /** A Mechanical Critter: the unit is shown to its owner's enemies as a neutral critter
    *  (SimUnit.critterGuise). Only `Amec` sets it. */
   critterGuise?: boolean;
+  /** The unit eats no food (SimUnit.foodFree). Only the Rune of Rebirth sets it. */
+  foodFree?: boolean;
 }
 
 /**
@@ -2316,6 +2318,15 @@ export interface SimUnit {
    *  `upgrades` column is empty, so no research reaches it the other way either. A CHARMED
    *  unit is marked the same way when it kept everything it had (spells.ts keepAbilities). */
   mercenary: boolean;
+  /** The unit was TAKEN or GIVEN by an ability rather than trained, and so eats none of its
+   *  owner's food — Charm and the Scepter of Mastery, Control Magic, Possession, and the
+   *  monster a Rune of Rebirth stands back up (the developer's word: "they must not use ANY
+   *  food at all"). Read by `Authority.foodFor` and `AiPlayer.foodOf`, beside the illusion
+   *  rule. It belongs to the BODY, so it outlives a later change of hands. NOT Resurrection:
+   *  that one ignores the CAP when it raises (it never asks), but what it raises is the
+   *  player's own army again and counts as such — 124/100 after six Knights at 100/100
+   *  (liquipedia.net/warcraft/Scroll_of_Resurrection). */
+  foodFree: boolean;
   /** The ability that RAISED this unit from a corpse on a clock ("" = anything else) — Animate
    *  Dead's shell. Its id, not its code, so the timer bar can print that row's own Name
    *  ("Animate Dead") where every other summon reads "Summoned Unit", and the renderer can give
@@ -9363,6 +9374,7 @@ export class SimWorld {
       | "isIllusion"
       | "illusionOf"
       | "mercenary"
+      | "foodFree"
       | "raisedBy"
       | "illusionDamageDealt"
       | "illusionDamageTaken"
@@ -9658,6 +9670,7 @@ export class SimWorld {
       isIllusion: false,
       illusionOf: 0,
       mercenary: false,
+      foodFree: false,
       raisedBy: "",
       illusionDamageDealt: 1,
       illusionDamageTaken: 1,
@@ -16621,6 +16634,7 @@ export class SimWorld {
       // and the Banshee's body is destroyed — killed rather than removed, so it dies the way
       // anything dies: a death animation, a corpse, and the kill credited to nobody.
       this.stripPossession(target);
+      target.foodFree = true; // a soul taken, not a unit trained (SimUnit.foodFree)
       this.changeUnitOwner(target, caster.owner, caster.team);
       this.recomputeStats(target);
       this.kill(caster, 0);
@@ -24527,6 +24541,7 @@ export class SimWorld {
     this.summonRequests.push({
       unitId: tag.typeId, x: tag.x, y: tag.y, facing: tag.facing, owner: u.owner, team: u.team,
       summonLeft: 0, sourceId: 0, summonArt: art, unsummonArt: "", atPoint: true,
+      foodFree: true, // a monster given back, not a unit trained (SimUnit.foodFree)
     });
     return true;
   }

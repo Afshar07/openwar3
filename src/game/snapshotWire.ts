@@ -381,9 +381,10 @@ function writeUnit(w: Writer, s: UnitSnapshot): void {
     w.i16(quantPos(s.guardX));
     w.i16(quantPos(s.guardY));
   }
-  // The hold's TOP bit carries `mercenary`, because the flags word above is full: no hold in
-  // the game seats anything like 128 (a Zeppelin's is 8), so seven bits lose nothing.
-  w.u8(Math.min(0x7f, s.garrisonCap) | (s.mercenary ? 0x80 : 0));
+  // The hold's TOP bit carries `mercenary` and the next one `foodFree`, because the flags word
+  // above is full: no hold in the game seats anything like 64 (a Zeppelin's is 8), so six bits
+  // lose nothing.
+  w.u8(Math.min(0x3f, s.garrisonCap) | (s.mercenary ? 0x80 : 0) | (s.foodFree ? 0x40 : 0));
 
   if (s.weapon) writeWeapon(w, s.weapon);
   if (s.swingWeapon) writeWeapon(w, s.swingWeapon);
@@ -573,6 +574,7 @@ function readUnit(r: Reader): UnitSnapshot {
     isIllusion: (flags & F_IS_ILLUSION) !== 0,
     illusionOf: 0,
     mercenary: false, // …read below, off the hold byte's top bit
+    foodFree: false, // …and its next bit
     guardX: 0,
     guardY: 0,
     buildPending: null,
@@ -637,8 +639,9 @@ function readUnit(r: Reader): UnitSnapshot {
     s.guardY = r.i16();
   }
   const hold = r.u8();
-  s.garrisonCap = hold & 0x7f;
+  s.garrisonCap = hold & 0x3f;
   s.mercenary = (hold & 0x80) !== 0;
+  s.foodFree = (hold & 0x40) !== 0;
 
   if (flags & F_HAS_WEAPON) s.weapon = readWeapon(r);
   if (flags & F_HAS_SWING_WEAPON) s.swingWeapon = readWeapon(r);

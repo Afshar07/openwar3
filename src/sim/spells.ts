@@ -3347,6 +3347,7 @@ export const SPELL_HANDLERS: Record<string, Handler> = {
     const t = api.getUnit(ctx.targetId);
     if (!t || t.isHero || t.level > d(def.levelData[rank - 1], 0, 5)) return;
     keepAbilities(api, t);
+    t.foodFree = true; // taken, not trained: it eats no food (SimUnit.foodFree)
     api.changeOwner(t, caster.owner, caster.team);
     if (def.targetArt) api.emitEffect(def.targetArt, t.x, t.y, t.id);
   },
@@ -3870,6 +3871,7 @@ export const SPELL_HANDLERS: Record<string, Handler> = {
   Acmg: (api, caster, def, _rank, ctx) => {
     const t = api.getUnit(ctx.targetId);
     if (!t || t.summonLeft <= 0 || !api.hostile(caster, t)) return;
+    t.foodFree = true; // taken, not trained: it eats no food (SimUnit.foodFree)
     api.changeOwner(t, caster.owner, caster.team);
     if (def.targetArt) api.emitEffect(def.targetArt, t.x, t.y, t.id);
   },
@@ -3883,6 +3885,7 @@ export const SPELL_HANDLERS: Record<string, Handler> = {
     const t = api.getUnit(ctx.targetId);
     if (!t || t.isHero) return;
     keepAbilities(api, t);
+    t.foodFree = true; // taken, not trained: it eats no food (SimUnit.foodFree)
     api.changeOwner(t, caster.owner, caster.team);
     if (def.targetArt) api.emitEffect(def.targetArt, t.x, t.y, t.id);
   },

@@ -403,6 +403,7 @@ export interface UnitSnapshot {
   isIllusion: boolean;
   illusionOf: number;
   mercenary: boolean; // SimUnit.mercenary — the client's command card asks it (unitMeets)
+  foodFree: boolean; // SimUnit.foodFree — the client derives its own food bar off the units (Authority.foodFor)
 
   // --- creep guard, for the minimap's camp markers ---------------------------
   guardX: number;
@@ -799,6 +800,7 @@ export function rememberedUnit(u: SimUnit): UnitSnapshot {
     isIllusion: false,
     illusionOf: 0,
     mercenary: false,
+    foodFree: false,
 
     guardX: 0,
     guardY: 0,
@@ -975,6 +977,7 @@ export function snapshotFor(
       isIllusion: knowsIllusion,
       illusionOf: knowsIllusion ? u.illusionOf : 0,
       mercenary: u.mercenary,
+      foodFree: u.foodFree,
 
       guardX: u.guardX,
       guardY: u.guardY,

@@ -200,6 +200,7 @@ export function writeUnitSnapshot(u: SimUnit, s: UnitSnapshot): void {
   u.isIllusion = s.isIllusion;
   u.illusionOf = s.illusionOf;
   u.mercenary = s.mercenary;
+  u.foodFree = s.foodFree;
 
   u.guardX = s.guardX;
   u.guardY = s.guardY;

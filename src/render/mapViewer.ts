@@ -13999,6 +13999,8 @@ export class MapViewerScene {
         if (su && s.cloakAfter !== undefined) world.cloakSummon(su, s.cloakAfter);
         // …and a Mechanical Critter passes for a neutral one with the enemy (SimUnit.critterGuise).
         if (su && s.critterGuise) su.critterGuise = true;
+        // …and a Rune of Rebirth's monster eats no food (SimUnit.foodFree).
+        if (su && s.foodFree) su.foodFree = true;
         this.rts!.beginSummonBirth(simId); // materialize (birth clip + spawn lock)
       });
     }
