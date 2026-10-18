@@ -5632,8 +5632,8 @@ export class MapViewerScene {
     instance.show();
   }
 
-  /** Spawn the ground model for a dropped item (its own .mdx, looping its stand/
-   *  birth clip) at the item's position. Cached by model path like spell effects. */
+  /** Spawn the ground model for a dropped item (its own .mdx, its Birth clip and then
+   *  its looping Stand) at the item's position. Cached by model path like spell effects. */
   private async spawnItemModel(itemId: number, itemDefId: string, x: number, y: number): Promise<void> {
     if (this.itemInstances.has(itemId) || this.itemLoading.has(itemId)) return;
     const def = this.items.get(itemDefId);
@@ -5659,10 +5659,13 @@ export class MapViewerScene {
     const stand = seqs.findIndex((s) => /^stand/i.test(s.name)); // "Stand - 1" (open idle)
     const birth = seqs.findIndex((s) => /birth/i.test(s.name));
     const standIdx = stand >= 0 ? stand : this.effectSequence(inst);
-    // The treasure chest (the shared default item model) sinks into the ground during
-    // its Birth clip, so it just loops its open "Stand" idle. Other item models (tomes,
-    // pot of gold, …) play Birth ONCE on spawn, then switch to looping their Stand idle.
-    if (/treasurechest/i.test(path) || birth < 0) {
+    // Every item model plays Birth ONCE as it lands, then loops its Stand idle — whoever put
+    // it there (a hero's drop, a dying carrier, a creep's loot table, a script). That
+    // includes the treasure chest, the shared default model, which an older reading here
+    // skipped as "sinking into the ground": its Birth (7667–8667) is a wobble of the box,
+    // the lid swinging open and a flicker of sparkle geosets, and it ends on exactly the
+    // lid rotation "Stand - 1" starts from, so the handoff below is seamless.
+    if (birth < 0) {
       inst.setSequence(standIdx);
       inst.setSequenceLoopMode(2); // loop the open idle
     } else {
