@@ -91,7 +91,7 @@ import { TerrainCull } from "./terrainCull";
 import type { PickVolume } from "./modelCollision";
 import { setSimProfiler } from "../sim/profile";
 import { wc3ToPlain } from "../ui/wc3Text";
-import { GameHud, isTyping, upkeepBand, PLAYER_COLORS, type HudDriver, type CommandButton } from "../ui/hud";
+import { GameHud, isTyping, upkeepBand, PLAYER_COLORS, type HudDriver, type CommandButton, type SpawnEntry, type SpawnOwner, type SpawnRequest } from "../ui/hud";
 import { GAME_HEIGHT, disposeWorldLayer, worldLayer } from "../ui/stage";
 import { EscMenu } from "../ui/escMenu";
 import { AllianceDialogOverlay } from "../ui/allianceDialog";
@@ -3058,25 +3058,98 @@ export class MapViewerScene {
     return [...out];
   }
 
-  /** Debug (cheat panel): spawn a hero at the camera centre for the local player, maxed
-   *  to level 6 with every skill at full rank and full mana — so a whole kit can be cast
-   *  on camera for verification. Not a gameplay path; only the debug UI reaches it. */
-  private async spawnTestHero(typeId: string): Promise<void> {
-    const def = this.registry.get(typeId);
-    if (!def || !this.rts || !this.cheatsAllowed) return;
-    const world = this.rts.simWorld;
-    const simId = await this.spawnUnit(def, this.target[0], this.target[1], this.localPlayer, this.teamOf(this.localPlayer));
-    if (simId === null) return;
-    world.setHeroLevel(simId, 6);
-    const u = world.units.get(simId);
-    if (!u) return;
-    for (const ab of u.abilities) {
-      const ad = this.abilities.get(ab.id);
-      if (ad) world.setAbilityLevel(simId, ab.id, ad.levels); // max every learnable/innate spell
+  /** Debug (the dev drawer's Spawn tab, ui/devTools.ts): every unit, hero and building type
+   *  and every item type, for its catalogue. Not a gameplay path; only the debug UI reaches it. */
+  private spawnCatalog(): SpawnEntry[] {
+    const out: SpawnEntry[] = [];
+    for (const d of this.registry.all()) {
+      if (!d.name) continue;
+      out.push({
+        id: d.id,
+        name: d.name,
+        kind: d.isHero ? "hero" : d.isBuilding ? "building" : "unit",
+        group: d.race || "other",
+        icon: d.icon,
+        campaign: d.campaign === true,
+        properName: d.campaign && d.isHero ? d.properNames[0] : undefined,
+      });
     }
-    u.mana = u.maxMana;
-    this.rts.selectSingle(simId);
+    for (const d of this.items.all()) {
+      out.push({ id: d.id, name: d.name || d.id, kind: "item", group: d.classType || "Miscellaneous", icon: d.icon, campaign: d.classType === "Campaign" });
+    }
+    return out;
   }
+
+  /** Debug: who the Spawn tab may hand a unit to — every seat in this match, then the two
+   *  neutral players common.j names (PLAYER_NEUTRAL_AGGRESSIVE = 12, PLAYER_NEUTRAL_PASSIVE
+   *  = 15). A custom map that seats nobody through the lobby falls back on whoever owns a unit. */
+  private spawnOwners(): SpawnOwner[] {
+    const seats = this.watchedSeats.map((s) => s.id);
+    if (!seats.length) {
+      for (const u of this.rts?.simWorld.units.values() ?? []) if (u.owner >= 0 && u.owner < 12 && !seats.includes(u.owner)) seats.push(u.owner);
+      seats.sort((a, b) => a - b);
+    }
+    const colour = (p: number) => PLAYER_COLORS[this.rts?.playerColor(p) ?? p] ?? "#808080";
+    const out: SpawnOwner[] = seats.map((p) => ({
+      player: p,
+      name: this.playerNames.get(p) ?? `Player ${p + 1}`,
+      color: colour(p),
+      team: this.meleeTeams.get(p) ?? null,
+      you: p === this.localPlayer,
+    }));
+    out.push(
+      { player: 12, name: "Neutral Hostile", color: "#262626", team: null, you: false },
+      { player: 15, name: "Neutral Passive", color: "#6e6e6e", team: null, you: false },
+    );
+    return out;
+  }
+
+  /** Debug: make what the Spawn tab asked for. `count` copies are laid out on a square grid
+   *  centred on the point, spaced by the type's own footprint (a building's pathing texture,
+   *  a unit's collision size) so a batch does not land on itself; a hero is raised to the
+   *  level asked and, with `learnAll`, every ability goes to its top rank — so a whole kit
+   *  can be cast on camera. A single unit of the local player's is selected. */
+  private async spawnTest(req: SpawnRequest): Promise<void> {
+    if (!this.rts || !this.cheatsAllowed) return;
+    const world = this.rts.simWorld;
+    const [cx, cy] = req.at ?? [this.target[0], this.target[1]];
+    const count = Math.max(1, Math.min(100, Math.trunc(req.count)));
+    const cols = Math.ceil(Math.sqrt(count));
+    const at = (i: number, step: number): [number, number] => [
+      cx + ((i % cols) - (cols - 1) / 2) * step,
+      cy - (Math.floor(i / cols) - (Math.ceil(count / cols) - 1) / 2) * step,
+    ];
+    if (req.kind === "item") {
+      for (let i = 0; i < count; i++) world.createItem(req.typeId, ...at(i, 48));
+      return;
+    }
+    const def = this.registry.get(req.typeId);
+    if (!def) return;
+    const fp = def.isBuilding && def.pathTex ? this.footprintFor(def.pathTex) : null;
+    const step = fp ? Math.max(fp.w, fp.h) * 32 + 64 : Math.max(48, def.collision * 2 + 16);
+    const team = this.teamOf(req.owner);
+    const made: number[] = [];
+    for (let i = 0; i < count; i++) {
+      const [x, y] = at(i, step);
+      const simId = await this.spawnUnit(def, x, y, req.owner, team);
+      if (simId === null) continue;
+      made.push(simId);
+      const u = world.units.get(simId);
+      if (!u?.isHero) continue;
+      world.setHeroLevel(simId, req.level);
+      if (!req.learnAll) continue;
+      for (const ab of u.abilities) {
+        const ad = this.abilities.get(ab.id);
+        if (ad) world.setAbilityLevel(simId, ab.id, ad.levels); // max every learnable/innate spell
+      }
+      u.mana = u.maxMana;
+    }
+    if (made.length === 1 && req.owner === this.localPlayer) this.rts.selectSingle(made[0]);
+  }
+
+  /** The dev drawer's armed click-to-place (HudDriver.armDevPlace): while set, a left-click
+   *  on the map spawns there instead of selecting, under the green order reticle. */
+  private devPlace: { onPlace: (x: number, y: number) => void; onCancel: () => void } | null = null;
 
   /** Nearest gold mine to (x, y) within `radius`, or null (blizzard.j
    *  MeleeFindNearestMine). The mine anchors the starting-worker clump. */
@@ -9402,20 +9475,16 @@ export class MapViewerScene {
         if (!this.showRegions) this.hideRegionLabels();
         return this.showRegions;
       },
-      heroList: () =>
-        this.registry
-          .all()
-          .filter((d) => d.isHero)
-          .map((d) => ({ id: d.id, name: d.name, race: d.race }))
-          .sort((a, b) => a.race.localeCompare(b.race) || a.name.localeCompare(b.name)),
-      spawnTestHero: (typeId) => void this.spawnTestHero(typeId),
-      itemList: () =>
-        this.items
-          .all()
-          .map((d) => ({ id: d.id, name: d.name, classType: d.classType }))
-          .sort((a, b) => a.classType.localeCompare(b.classType) || a.name.localeCompare(b.name) || a.id.localeCompare(b.id)),
-      spawnTestItem: (typeId) => {
-        if (this.cheatsAllowed) this.rts?.simWorld.createItem(typeId, this.target[0], this.target[1]);
+      spawnCatalog: () => this.spawnCatalog(),
+      spawnOwners: () => this.spawnOwners(),
+      spawnCounts: () => {
+        const out = new Map<string, number>();
+        for (const u of this.rts?.simWorld.units.values() ?? []) if (u.hp > 0) out.set(u.typeId, (out.get(u.typeId) ?? 0) + 1);
+        return out;
+      },
+      spawnTest: (req) => void this.spawnTest(req),
+      armDevPlace: (onPlace, onCancel) => {
+        this.devPlace = onPlace && this.cheatsAllowed ? { onPlace, onCancel: onCancel ?? (() => {}) } : null;
       },
       cheatsAllowed: () => this.cheatsAllowed,
     };
@@ -16179,7 +16248,7 @@ export class MapViewerScene {
     const hover = this.rts.hoverInfo();
     let kind: "reticle" | "hand" | null = null;
     let colorKey: "green" | "yellow" | "red" = "green";
-    if (mode) {
+    if (mode || this.devPlace) {
       kind = "reticle";
       // The Attack order shows a RED reticle (WC3), the other armed orders green
       // (yellow while hovering a unit for a move-type order).
@@ -16496,7 +16565,11 @@ export class MapViewerScene {
         }
         // Right-click cancels build placement / an armed order, else moves
         // (Shift held → append to the unit's order queue instead of replacing).
-        if (this.placement) this.cancelPlacement();
+        if (this.devPlace) {
+          const { onCancel } = this.devPlace;
+          this.devPlace = null;
+          onCancel();
+        } else if (this.placement) this.cancelPlacement();
         else if (this.rts?.orderMode) {
           this.rts.orderMode = null;
           this.rts.armedCast = null; // disarm a pending spell target
@@ -16520,6 +16593,12 @@ export class MapViewerScene {
         // (issue #44). Neither of these can drag, so they never start one.
         if (this.placement) {
           this.placeBuilding(e.offsetX, e.offsetY, e.shiftKey);
+          return;
+        }
+        // The dev drawer's click-to-place (devPlace) — a debug spawn at the ground point.
+        if (this.devPlace && this.rts) {
+          const ground = this.rts.groundPoint(e.offsetX, e.offsetY);
+          if (ground) this.devPlace.onPlace(ground[0], ground[1]);
           return;
         }
         if (this.rts?.orderMode) {

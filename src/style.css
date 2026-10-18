@@ -817,64 +817,225 @@ body.hud-tooltip-skinned .hud-chatbar::after {
   border-radius: 3px;
 }
 
-/* Debug cheat panel — a small floating stack in the bottom-right corner. */
-.hud-cheats {
+/* The dev tools drawer (ui/devTools.ts) — ours, not the game's: WC3 has no debug UI. Docked down
+   the right edge between the resource bar and the console (hud.ts DEV_TOOLS_AREA), wearing the
+   tooltip frame the observer panels wear (.obs-panel) so it reads as part of the HUD. No rule
+   here sets a `cursor`: the game cursor is the only cursor (ui/cursor.ts). */
+.dev-tools {
   position: absolute;
-  right: 6px;
-  bottom: 6px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  pointer-events: auto;
+  right: 10px;
+  width: 360px;
+  pointer-events: none;
   z-index: 5;
-  /* Long enough now (heroes, items, the clock) to need to scroll on a short window. */
-  max-height: calc(100% - 12px);
-  overflow-y: auto;
+  font-family: var(--game-font);
+  color: #f4f0e0;
+  text-shadow: 0 1px 1px #000;
 }
 /* An author `display` outranks the UA sheet's `[hidden]` (see .unit-hpbar-garrison). */
-.hud-cheats[hidden],
-.hud-collider-legend[hidden] { display: none; }
-.hud-cheat-btn {
-  font-family: var(--game-font);
-  font-size: 11px;
+.dev-tools[hidden], .dev-tools [hidden] { display: none !important; }
+/* Zero specificity, so every .dev-* class below outranks the reset without. */
+:where(.dev-tools button) {
+  font: inherit;
+  color: inherit;
+  text-shadow: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+.dev-drawer {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 11px;
+  pointer-events: auto;
+  background: var(--hud-tooltip-fill, rgba(24, 34, 49, 0.9));
+  border-radius: calc(var(--tt-band, 10px) * 0.4);
+}
+.dev-drawer::after {
+  content: "";
+  position: absolute;
+  inset: calc(var(--tt-bg-inset, 3px) * -1);
+  border: var(--tt-band, 10px) solid transparent;
+  border-image: var(--hud-tooltip-border) 16 / var(--tt-band, 10px) round;
+  pointer-events: none;
+}
+.dev-drawer.dev-compact { bottom: auto; }
+body:not(.hud-tooltip-skinned) .dev-drawer { outline: 1px solid rgba(200, 160, 50, 0.7); }
+.dev-handle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  pointer-events: auto;
+  font-size: 12px;
   color: #ffe98a;
-  background: rgba(20, 16, 8, 0.82);
+  background: rgba(20, 16, 8, 0.85);
   border: 1px solid #6b5a2e;
   border-radius: 3px;
-  padding: 3px 8px;
-  cursor: pointer;
-  text-shadow: 0 1px 1px #000;
+  padding: 4px 10px;
+}
+.dev-tabs { display: flex; gap: 4px; align-items: center; }
+.dev-tab {
+  flex: 1;
+  padding: 5px 0;
+  font-size: 14px;
+  border-radius: 3px;
+  text-align: center;
+}
+.dev-tab.on { background: rgba(255, 204, 0, 0.14); color: #ffcc00; box-shadow: inset 0 -2px #ffcc00; }
+.dev-close { color: #a9a48f; font-size: 14px; padding: 0 4px; }
+.dev-page { display: flex; flex-direction: column; gap: 8px; min-height: 0; flex: 1; }
+.dev-seg { display: flex; border: 1px solid #6b5a2e; border-radius: 3px; overflow: hidden; flex: none; }
+.dev-seg-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 3px 0;
+  font-size: 12px;
+  background: rgba(0, 0, 0, 0.45);
+}
+.dev-seg-btn + .dev-seg-btn { border-left: 1px solid #6b5a2e; }
+.dev-seg-btn.on { background: rgba(255, 204, 0, 0.18); color: #ffcc00; }
+.dev-n { font-size: 10px; color: #8f8a74; }
+.dev-search {
+  flex: none;
+  font: inherit;
+  font-size: 13px;
+  color: #f4f0e0;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid #6b5a2e;
+  border-radius: 3px;
+  padding: 5px 8px;
+  outline: none;
+  caret-color: #f4f0e0;
+}
+.dev-search:focus { border-color: #c49a3a; }
+.dev-search::placeholder { color: #8f8a74; }
+.dev-chips { display: flex; flex-wrap: wrap; gap: 4px; flex: none; }
+.dev-chip {
+  font-size: 11px;
+  padding: 2px 8px;
+  border: 1px solid #5a4c28;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.4);
   white-space: nowrap;
 }
-.hud-cheat-select {
-  font-family: var(--game-font);
-  font-size: 11px;
+.dev-chip.on { border-color: #ffcc00; color: #ffcc00; background: rgba(255, 204, 0, 0.12); }
+.dev-chip-end { margin-left: auto; }
+.dev-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-auto-rows: max-content;
+  gap: 2px 4px;
+  align-content: start;
+  scrollbar-width: thin;
+  scrollbar-color: #6b5a2e transparent;
+}
+.dev-empty { grid-column: 1 / -1; color: #8f8a74; font-size: 12px; padding: 8px 2px; }
+.dev-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px;
+  border-radius: 3px;
+  text-align: left;
+  min-width: 0;
+}
+.dev-item:hover, .dev-item.pad-hover { background: rgba(255, 255, 255, 0.06); }
+.dev-item.on { background: rgba(255, 204, 0, 0.14); }
+.dev-item.on .dev-item-name { color: #ffcc00; }
+.dev-icon {
+  position: relative;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  background: #000;
+  box-shadow: 0 0 0 1px #3d3418;
+}
+.dev-item.on .dev-icon { box-shadow: 0 0 0 2px #ffcc00; }
+.dev-icon img { display: block; width: 100%; height: 100%; }
+.dev-badge {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  font-size: 9px;
+  line-height: 11px;
+  padding: 0 2px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.85);
+  border-top-left-radius: 3px;
+}
+.dev-item-text { display: flex; flex-direction: column; min-width: 0; }
+.dev-item-name { font-size: 12px; line-height: 1.15; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dev-item-sub { font-size: 10px; color: #8f8a74; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dev-foot {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 204, 0, 0.25);
+}
+.dev-row { display: flex; align-items: center; gap: 5px; }
+.dev-label {
+  flex: none;
+  width: 48px;
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #a9a48f;
+}
+.dev-swatch {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  border-radius: 3px;
+  border: 1px solid rgba(0, 0, 0, 0.8);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25);
+}
+.dev-swatch.on { box-shadow: 0 0 0 2px #ffcc00, inset 0 0 0 1px rgba(255, 255, 255, 0.25); }
+.dev-owner-label { font-size: 11px; color: #ffcc00; margin-left: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dev-steps { display: inline-flex; border: 1px solid #6b5a2e; border-radius: 3px; overflow: hidden; }
+.dev-steps button { font-size: 12px; padding: 2px 9px; background: rgba(0, 0, 0, 0.45); }
+.dev-steps button + button { border-left: 1px solid #6b5a2e; }
+.dev-steps button.on { background: rgba(255, 204, 0, 0.18); color: #ffcc00; }
+.dev-btn {
+  flex: 1;
+  font-size: 12px;
   color: #ffe98a;
   background: rgba(20, 16, 8, 0.82);
   border: 1px solid #6b5a2e;
   border-radius: 3px;
-  padding: 3px 6px;
-  cursor: pointer;
-  max-width: 140px;
+  padding: 5px 6px;
+  white-space: nowrap;
 }
-.hud-cheat-btn:hover { background: rgba(50, 40, 16, 0.92); border-color: #a58a3e; }
-.hud-cheat-btn:active { background: rgba(70, 56, 22, 0.95); }
-.hud-cheat-btn.active { background: #3a6a2a; border-color: #6fd05a; color: #d6ffcf; }
-.hud-collider-legend {
+.dev-btn:disabled { opacity: 0.45; }
+.dev-btn:not(:disabled):hover { background: rgba(50, 40, 16, 0.92); border-color: #a58a3e; }
+.dev-btn:not(:disabled):active { background: rgba(70, 56, 22, 0.95); }
+.dev-btn.active { background: #3a6a2a; border-color: #6fd05a; color: #d6ffcf; }
+.dev-btn-main { background: linear-gradient(#5a1d12, #2e0c06); border-color: #c49a3a; color: #ffcc00; }
+.dev-btn-main.on { box-shadow: 0 0 0 2px #ffcc00; }
+.dev-section { display: flex; flex-direction: column; gap: 5px; }
+.dev-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+.dev-legend {
   display: flex;
   flex-direction: column;
   gap: 3px;
   padding: 5px 7px;
-  background: rgba(12, 10, 6, 0.86);
-  border: 1px solid #6b5a2e;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid #5a4c28;
   border-radius: 3px;
-  font-family: var(--game-font);
-  font-size: 10px;
-  color: #e8dcc0;
-  text-shadow: 0 1px 1px #000;
+  font-size: 11px;
 }
-.hud-legend-row { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
-.hud-legend-swatch {
+.dev-legend-row { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.dev-legend-swatch {
   width: 12px;
   height: 12px;
   border-radius: 2px;

@@ -11,6 +11,7 @@ import {
 } from "../data/gameplayConstants";
 import type { MinimapPing } from "../jass/runtime";
 import { escapeHtml, wc3StripMarkup, wc3ToHtml } from "./wc3Text";
+import { DevToolsDrawer } from "./devTools";
 
 import { CHAT_MAX_LENGTH, sanitizeChat, type ChatTarget } from "../game/chat";
 import type { CheatKind, HeroBarEntry } from "../game/rts";
@@ -236,6 +237,40 @@ export interface HudSelection {
   cargo: Array<{ simId: number; icon: string; hpFrac: number; size: number }>;
   /** The hold's capacity — how many slots the panel draws (8 for a Zeppelin, 10 for a ship). */
   cargoSlots: number;
+}
+
+/** One row of the dev drawer's spawn catalogue (HudDriver.spawnCatalog). `group` is the race
+ *  for a unit and the item class for an item; `campaign` marks the types a melee game never
+ *  has (UnitUI `campaign`, an item's Campaign class). */
+export interface SpawnEntry {
+  id: string;
+  name: string;
+  kind: "hero" | "unit" | "building" | "item";
+  group: string;
+  icon: string;
+  campaign: boolean;
+  /** A campaign hero's own name ("Uther"), which is what tells its nine Paladins apart. */
+  properName?: string;
+}
+
+/** An owner the dev drawer can spawn for (HudDriver.spawnOwners). */
+export interface SpawnOwner {
+  player: number;
+  name: string;
+  color: string;
+  /** The lobby team, 0-based; null for the two neutral players. */
+  team: number | null;
+  you: boolean;
+}
+
+export interface SpawnRequest {
+  typeId: string;
+  kind: SpawnEntry["kind"];
+  owner: number;
+  count: number;
+  level: number;
+  learnAll: boolean;
+  at: [number, number] | null;
 }
 
 export interface HudDriver {
@@ -464,17 +499,22 @@ export interface HudDriver {
   /** Toggle the "Show Regions" overlay (the map's named gg_rct_* trigger regions,
    *  outlined with a name label inside each). Returns the resulting on/off state. */
   toggleRegions(): boolean;
-  /** Every hero unit type in the registry, for the "Spawn Hero" test dropdown:
-   *  the raw type id (e.g. "Hpal"), its display name, and its race. */
-  heroList(): Array<{ id: string; name: string; race: string }>;
-  /** Debug: spawn `typeId` at the camera centre, maxed to level 6 with every skill at
-   *  full rank and full mana — for casting a hero's whole kit on camera. */
-  spawnTestHero(typeId: string): void;
-  /** Every item type in the registry (the map's own .w3t ones included), for the "Spawn
-   *  Item" dropdown: rawcode, display name and its `class` (Permanent, Charged, …). */
-  itemList(): Array<{ id: string; name: string; classType: string }>;
-  /** Debug: drop a new item of `typeId` on the ground at the camera centre. */
-  spawnTestItem(typeId: string): void;
+  /** Everything the dev drawer's Spawn tab can make (ui/devTools.ts): every unit, hero and
+   *  building type in the registry and every item type, the map's own included. */
+  spawnCatalog(): SpawnEntry[];
+  /** Who a spawned unit can belong to: every seat in the match, then Neutral Hostile and
+   *  Neutral Passive — each with its colour and team. */
+  spawnOwners(): SpawnOwner[];
+  /** How many living units of each type are on the map right now, by type id. */
+  spawnCounts(): Map<string, number>;
+  /** Debug: make `count` of a unit/hero/building for `owner`, or drop `count` items, at the
+   *  camera centre or at the world point `at`. A hero is raised to `level`, and with
+   *  `learnAll` every skill goes to its top rank and the mana bar is filled. */
+  spawnTest(req: SpawnRequest): void;
+  /** Arm (or with null, disarm) click-to-place: the next left-clicks on the map hand their
+   *  ground point to `onPlace` under the armed reticle, until a right-click (which calls
+   *  `onCancel`) or another arm. */
+  armDevPlace(onPlace: ((x: number, y: number) => void) | null, onCancel?: () => void): void;
 }
 
 /**
@@ -881,6 +921,10 @@ const MSG_AREA = {
  * `HERO_BAR.left + HERO_BAR.slot` ≈ 0.044) — asked for, and the same trade as the overlap
  * with the message area: a hero's portrait may end up behind a line of chat.
  */
+/** Where the dev tools drawer (ui/devTools.ts) hangs: from just under the resource bar down to
+ *  just above the console band, so it never covers the command card. Ours, not the game's. */
+const DEV_TOOLS_AREA = { top: 0.032, bottom: CONSOLE_BAND_H + 0.006 } as const;
+
 const VOICE_AREA = {
   right: 0.012,
   /** Just above the console band's top edge, so the plates float over the world beside the
@@ -1646,6 +1690,7 @@ export class GameHud {
 
   dispose(): void {
     this.observerHud?.dispose();
+    this.devTools?.dispose();
     window.removeEventListener("keydown", this.onKey);
     window.removeEventListener("keyup", this.onKeyUp);
     window.removeEventListener("blur", this.endFollow);
@@ -2103,169 +2148,22 @@ export class GameHud {
 
   /** Light a toggle's button when it was flipped from somewhere else (a typed cheat). */
   markCheat(kind: CheatKind, on: boolean): void {
-    this.cheatButtons.get(kind)?.classList.toggle("active", on);
+    this.devTools?.markCheat(kind, on);
   }
 
   /** Show the panel exactly when it is asked for AND the match is single player. */
   private syncCheatPanel(): void {
-    if (!this.cheatPanel) return;
-    const hidden = !(this.devToolsOn && this.driver.cheatsAllowed());
-    if (this.cheatPanel.hidden !== hidden) this.cheatPanel.hidden = hidden;
+    this.devTools?.setShown(this.devToolsOn && this.driver.cheatsAllowed());
   }
 
-  /** A small floating panel of debug cheats in the bottom-right corner: top up
-   *  gold/lumber/food, Fast Build (builds + trains finish in ~1s), God mode, the clock,
-   *  and spawning heroes and items.
-   *
-   *  SINGLE PLAYER ONLY. The panel is hidden whenever `cheatsAllowed` is false, a click
-   *  on it is swallowed in that case as well, and the controller refuses each cheat in a
-   *  networked match on its own — three doors, so no one of them has to be the only one. */
+  /** The dev tools drawer (ui/devTools.ts): Spawn / Cheats / Overlays, docked down the
+   *  right edge between the resource bar and the console. */
   private buildCheatPanel(): HTMLDivElement {
-    const panel = document.createElement("div");
-    panel.className = "hud-cheats";
-    panel.hidden = true;
-    this.cheatPanel = panel;
-    // Capture phase on the panel runs before any button's own handler.
-    panel.addEventListener("click", (e) => {
-      if (this.driver.cheatsAllowed()) return;
-      e.stopImmediatePropagation();
-      e.preventDefault();
-    }, true);
-    const mk = (label: string, kind: CheatKind) => {
-      const b = document.createElement("button");
-      b.className = "hud-cheat-btn";
-      b.textContent = label;
-      b.onclick = () => {
-        const on = this.driver.cheat(kind);
-        if (kind === "fastbuild" || kind === "godmode") b.classList.toggle("active", on);
-      };
-      this.cheatButtons.set(kind, b);
-      return b;
-    };
-    panel.append(mk("+5000 Gold", "gold"), mk("+5000 Lumber", "lumber"), mk("+Food", "food"), mk("Fast Build", "fastbuild"));
-    // `whosyourdaddy`, `riseandshine` and `lightsout` — the original game's cheats.
-    panel.append(mk("God Mode", "godmode"), mk("Set Day", "day"), mk("Set Night", "night"));
-
-    // Selection cheats: refill the selected unit(s)' HP/MP or wipe their cooldowns.
-    const mkSel = (label: string, kind: "hp" | "mp" | "cooldown") => {
-      const b = document.createElement("button");
-      b.className = "hud-cheat-btn";
-      b.textContent = label;
-      b.onclick = () => this.driver.cheatSelected(kind);
-      return b;
-    };
-    panel.append(mkSel("Full HP", "hp"), mkSel("Full MP", "mp"), mkSel("Reset Cooldown", "cooldown"));
-
-    // Collider debug overlay toggle + a colour legend (hidden until turned on).
-    const legend = document.createElement("div");
-    legend.className = "hud-collider-legend";
-    legend.hidden = true;
-    const swatch = (color: string, label: string) => {
-      const row = document.createElement("div");
-      row.className = "hud-legend-row";
-      const box = document.createElement("span");
-      box.className = "hud-legend-swatch";
-      box.style.background = color;
-      const text = document.createElement("span");
-      text.textContent = label;
-      row.append(box, text);
-      return row;
-    };
-    legend.append(
-      swatch("rgb(64,255,115)", "Click / selection"),
-      swatch("rgb(255,72,51)", "Pathing obstruction"),
-      swatch("rgb(77,166,255)", "Fog-of-war (line-of-sight) blocker"),
-    );
-    const colliderBtn = document.createElement("button");
-    colliderBtn.className = "hud-cheat-btn";
-    colliderBtn.textContent = "Show Colliders";
-    colliderBtn.onclick = () => {
-      const on = this.driver.toggleColliders();
-      colliderBtn.classList.toggle("active", on);
-      legend.hidden = !on;
-    };
-    panel.append(colliderBtn, legend);
-
-    // Pathing debug overlay toggle: the pathing grid + moving units' routes.
-    const pathLegend = document.createElement("div");
-    pathLegend.className = "hud-collider-legend";
-    pathLegend.hidden = true;
-    pathLegend.append(
-      swatch("rgb(140,158,184)", "Pathing grid"),
-      swatch("rgb(255,64,51)", "Blocked cell"),
-      swatch("rgb(255,217,51)", "Unit path"),
-    );
-    const pathBtn = document.createElement("button");
-    pathBtn.className = "hud-cheat-btn";
-    pathBtn.textContent = "Show Pathing";
-    pathBtn.onclick = () => {
-      const on = this.driver.togglePathing();
-      pathBtn.classList.toggle("active", on);
-      pathLegend.hidden = !on;
-    };
-    panel.append(pathBtn, pathLegend);
-
-    // "Show Regions": outline the map's named trigger regions (gg_rct_*) with their
-    // name inside each — for testing enter/leave-region triggers (Phase 7).
-    const regionBtn = document.createElement("button");
-    regionBtn.className = "hud-cheat-btn";
-    regionBtn.textContent = "Show Regions";
-    regionBtn.onclick = () => regionBtn.classList.toggle("active", this.driver.toggleRegions());
-    panel.append(regionBtn);
-
-    // "Spawn Hero": a maxed level-6 hero at the camera centre, for casting a whole kit
-    // on camera. A race-grouped dropdown of every hero unit type + a Spawn button.
-    const heroSel = document.createElement("select");
-    heroSel.className = "hud-cheat-select";
-    const heroes = this.driver.heroList();
-    let lastRace = "";
-    let group: HTMLOptGroupElement | null = null;
-    for (const h of heroes) {
-      if (h.race !== lastRace) {
-        group = document.createElement("optgroup");
-        group.label = h.race || "neutral";
-        heroSel.append(group);
-        lastRace = h.race;
-      }
-      const opt = document.createElement("option");
-      opt.value = h.id;
-      opt.textContent = wc3StripMarkup(h.name); // an <option> can carry no markup
-      (group ?? heroSel).append(opt);
-    }
-    const spawnBtn = document.createElement("button");
-    spawnBtn.className = "hud-cheat-btn";
-    spawnBtn.textContent = "Spawn Hero";
-    spawnBtn.onclick = () => {
-      if (heroSel.value) this.driver.spawnTestHero(heroSel.value);
-    };
-    if (heroes.length) panel.append(heroSel, spawnBtn);
-
-    // "Spawn Item": any item type on the ground at the camera centre, grouped by its class.
-    const itemSel = document.createElement("select");
-    itemSel.className = "hud-cheat-select";
-    const items = this.driver.itemList();
-    let lastClass: string | null = null;
-    let itemGroup: HTMLOptGroupElement | null = null;
-    for (const it of items) {
-      if (it.classType !== lastClass) {
-        itemGroup = document.createElement("optgroup");
-        itemGroup.label = it.classType || "Other";
-        itemSel.append(itemGroup);
-        lastClass = it.classType;
-      }
-      const opt = document.createElement("option");
-      opt.value = it.id;
-      opt.textContent = `${wc3StripMarkup(it.name) || it.id} (${it.id})`;
-      (itemGroup ?? itemSel).append(opt);
-    }
-    const itemBtn = document.createElement("button");
-    itemBtn.className = "hud-cheat-btn";
-    itemBtn.textContent = "Spawn Item";
-    itemBtn.onclick = () => {
-      if (itemSel.value) this.driver.spawnTestItem(itemSel.value);
-    };
-    if (items.length) panel.append(itemSel, itemBtn);
-    return panel;
+    this.devTools = new DevToolsDrawer(this.driver);
+    const root = this.devTools.root;
+    root.style.top = uiPx(DEV_TOOLS_AREA.top);
+    root.style.bottom = uiPx(DEV_TOOLS_AREA.bottom);
+    return root;
   }
 
   /**
@@ -2939,8 +2837,7 @@ export class GameHud {
   /** The dev tools panel (buildCheatPanel), and whether the player has asked for it — on by
    *  default only on the dev server with `?dev` on the URL. Shown when both this and
    *  `cheatsAllowed` hold. */
-  private cheatPanel: HTMLDivElement | null = null;
-  private readonly cheatButtons = new Map<CheatKind, HTMLButtonElement>();
+  private devTools: DevToolsDrawer | null = null;
   private devToolsOn = import.meta.env.DEV && new URLSearchParams(location.search).has("dev");
   /** The match clock under the medallion, for a player (a watcher's is the observer HUD's). */
   private matchClock: HTMLDivElement | null = null;
