@@ -186,6 +186,38 @@ console.log("\n--- night elf: Archers and Huntresses is an opening ---");
   check("…which is never rolled on its own", elf.strategies.find((s) => s.id === "lategrove").weight, 0);
 }
 
+// NO TAVERN ON THE MAP, NO TAVERN HERO. The developer: "if a map doesn't have a Tavern building
+// at all then the Computer+ AI just gets an altar second/third hero instead even if it was
+// planning on going for a tavern hero". Every build of every race, every way the seat's stream
+// can fall, with nothing for sale: three heroes, all three off the race's own altar.
+console.log("\n--- no Tavern on the map: the second and third heroes are altar heroes ---");
+{
+  const { pickHeroOrder } = require(join(REPO, ".sim-build", "src", "ai", "plus", "index.js"));
+  const streams = [(lo) => lo, (lo, hi) => hi, (lo, hi) => Math.floor((lo + hi) / 2)];
+  let altarOnly = true, whole = true, distinct = true, tavernWhenSold = false;
+  for (const table of Object.values(PLUS_RACES)) {
+    for (const strategy of table.strategies) {
+      for (const rand of streams) {
+        const h = pickHeroOrder(table, strategy, () => false, rand);
+        const three = [h.first, h.second, h.third];
+        if (three.some((x) => !table.heroes.includes(x))) altarOnly = false;
+        if (three.some((x) => !x)) whole = false;
+        if (new Set(three).size !== 3) distinct = false;
+        const sold = pickHeroOrder(table, strategy, () => true, rand);
+        if ([sold.second, sold.third].some((x) => TAVERN_HEROES.has(x))) tavernWhenSold = true;
+      }
+    }
+  }
+  check("with no Tavern, every planned hero is one the race's altar trains", altarOnly, true);
+  check("…and there are still three of them", whole, true);
+  check("…three different ones", distinct, true);
+  check("with a Tavern on the map, the pairings do reach for Tavern heroes", tavernWhenSold, true);
+  const human = PLUS_RACES.human;
+  const pal = human.strategies.find((s) => (s.heroes ?? human.heroes)[0] === "Hpal");
+  check("a Paladin build's Alchemist (Tavern) becomes an altar hero with no Tavern",
+    human.heroes.includes(pickHeroOrder(human, pal, () => false, () => 1).third), true);
+}
+
 // The cap is the difficulty's, not the fallback's: an Easy computer never reaches past tier 1
 // and must still open, and an Insane one gets the same opening for the same reason.
 console.log("\n--- every difficulty opens the same way ---");

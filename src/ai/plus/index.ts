@@ -2717,40 +2717,7 @@ export class ComputerPlusAi {
    * pairing names the build it needs (the Blood Mage beside a Paladin takes Siphon Mana first).
    */
   private pickHeroes(ai: AiPlayer, table: PlusRaceTable, strategy: PlusStrategy): void {
-    const order = [...(strategy.heroes ?? table.heroes)];
-    const first = order[0] ?? "";
-    const rest = order.slice(1);
-    if (ai.randomInt(0, 1) === 1 && rest.length >= 2) [rest[0], rest[1]] = [rest[1], rest[0]];
-    // …the race's pinned second hero (`PlusRaceTable.secondHero` — the undead's Death Knight),
-    // moved to the front of the rest whenever he did not open. The combos below say the same for
-    // the undead; this keeps the rule for a data set whose combos name a hero it lacks.
-    const pinned = table.secondHero;
-    if (pinned && first !== pinned) {
-      const at = rest.indexOf(pinned);
-      if (at > 0) rest.unshift(...rest.splice(at, 1));
-    }
-    // A hero this seat can actually GET: its race's altar trains it (the edition's table keeps
-    // only those — `tableForEdition`), or a Tavern on this map sells it.
-    const gettable = (id: string): boolean =>
-      !!id && (table.heroes.includes(id) || (TAVERN_HEROES.has(id) && this.tavernSells(id)));
-    const combo: HeroCombo = { ...(table.combos?.[first] ?? table.combos?.["*"] ?? {}), ...(strategy.combo ?? {}) };
-    const taken = new Set<string>([first]);
-    const pickOne = (options: readonly string[]): string => {
-      const open = options.filter((h) => gettable(h) && !taken.has(h));
-      return open.length ? open[ai.randomInt(1, open.length) - 1] : "";
-    };
-    const fallback = (): string => [...rest, ...table.heroes].find((h) => gettable(h) && !taken.has(h)) ?? "";
-    const second = (combo.second?.length ? pickOne(combo.second) : "") || fallback();
-    taken.add(second);
-    let third = "";
-    if (combo.third?.length) {
-      const rolled = combo.third[ai.randomInt(1, combo.third.length) - 1];
-      // Within the rolled option, the first hero not already fielded; if the whole option is
-      // taken or unsold, any other option before the race's own order.
-      third = rolled.find((h) => gettable(h) && !taken.has(h))
-        ?? combo.third.flat().find((h) => gettable(h) && !taken.has(h)) ?? "";
-    }
-    third ||= fallback();
+    const { first, second, third, combo } = pickHeroOrder(table, strategy, (id) => this.tavernSells(id), (lo, hi) => ai.randomInt(lo, hi));
     ai.heroId = first;
     ai.heroId2 = second;
     ai.heroId3 = third;
@@ -8753,4 +8720,56 @@ export class ComputerPlusAi {
     const firstHeroGap = mine && theirs ? this.heroLevel(foe, theirs) - this.heroLevel(me, mine) : 0;
     return { heroDeathLead, firstHeroGap };
   }
+}
+
+/**
+ * The hero ORDER `pickHeroes` gives a seat — pure, so the rule that matters most on a strange map
+ * can be pinned without a world: a Tavern hero is planned only when a Tavern ON THIS MAP sells it
+ * (`tavernSells`), and otherwise the slot falls back on the race's ALTAR heroes. Asked by the
+ * developer in as many words: *"if a map doesn't have a Tavern building at all then the
+ * Computer+ AI just gets an altar second/third hero instead even if it was planning on going for
+ * a tavern hero"*. `rand` is the seat's own stream (`AiPlayer.randomInt`), drawn in the same
+ * order as before, so a seed still opens the same way.
+ */
+export function pickHeroOrder(
+  table: PlusRaceTable,
+  strategy: PlusStrategy,
+  tavernSells: (heroId: string) => boolean,
+  rand: (lo: number, hi: number) => number,
+): { first: string; second: string; third: string; combo: HeroCombo } {
+  const order = [...(strategy.heroes ?? table.heroes)];
+  const first = order[0] ?? "";
+  const rest = order.slice(1);
+  if (rand(0, 1) === 1 && rest.length >= 2) [rest[0], rest[1]] = [rest[1], rest[0]];
+  // …the race's pinned second hero (`PlusRaceTable.secondHero` — the undead's Death Knight),
+  // moved to the front of the rest whenever he did not open. The combos below say the same for
+  // the undead; this keeps the rule for a data set whose combos name a hero it lacks.
+  const pinned = table.secondHero;
+  if (pinned && first !== pinned) {
+    const at = rest.indexOf(pinned);
+    if (at > 0) rest.unshift(...rest.splice(at, 1));
+  }
+  // A hero this seat can actually GET: its race's altar trains it (the edition's table keeps
+  // only those — `tableForEdition`), or a Tavern on this map sells it.
+  const gettable = (id: string): boolean =>
+    !!id && (table.heroes.includes(id) || (TAVERN_HEROES.has(id) && tavernSells(id)));
+  const combo: HeroCombo = { ...(table.combos?.[first] ?? table.combos?.["*"] ?? {}), ...(strategy.combo ?? {}) };
+  const taken = new Set<string>([first]);
+  const pickOne = (options: readonly string[]): string => {
+    const open = options.filter((h) => gettable(h) && !taken.has(h));
+    return open.length ? open[rand(1, open.length) - 1] : "";
+  };
+  const fallback = (): string => [...rest, ...table.heroes].find((h) => gettable(h) && !taken.has(h)) ?? "";
+  const second = (combo.second?.length ? pickOne(combo.second) : "") || fallback();
+  taken.add(second);
+  let third = "";
+  if (combo.third?.length) {
+    const rolled = combo.third[rand(1, combo.third.length) - 1];
+    // Within the rolled option, the first hero not already fielded; if the whole option is
+    // taken or unsold, any other option before the race's own order.
+    third = rolled.find((h) => gettable(h) && !taken.has(h))
+      ?? combo.third.flat().find((h) => gettable(h) && !taken.has(h)) ?? "";
+  }
+  third ||= fallback();
+  return { first, second, third, combo };
 }
