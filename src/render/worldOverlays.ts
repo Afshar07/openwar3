@@ -197,13 +197,14 @@ const STATBAR_W_FRAC = 64 / 1424; // the smallest bar's fill, as a fraction of t
 const STATBAR_MAX_W = 5; // × that, so a Town Hall's bar can reach the width the game gives it
 
 // The two bars a unit WITH MANA wears, matched by eye to footage of the original (the 1.30
-// client draws them; no file describes them): health over a thinner mana bar, the pair in one
-// black frame. A hero's are a panel — its level in a dark square on the left, the two bars on
+// client draws them; no file describes them): health over a thinner mana bar, a small gap
+// between them. A hero's are a panel — its level in a dark square on the left, the two bars on
 // the right, all of it in a gold frame — with both bars a touch fuller than a unit's. Every
 // size is a share of the frame-constant bar height, so it scales with the viewport like the
 // bar itself; the colours are ours (the gold is the HUD's `--gold`), not the clip's, which
 // was a compressed video. See .unit-hpbar.is-hero in style.css.
 const MANABAR_SCALE = 0.65; // a unit's mana bar, × the health bar's height
+const MANABAR_GAP_SCALE = 1 / 5.5; // the gap above it, never under 2px (1px vanishes over a unit)
 const HERO_HP_SCALE = 1.1; // a hero's health bar, × an ordinary one
 const HERO_MANA_SCALE = 0.8; // a hero's mana bar, × an ordinary health bar
 const HERO_FRAME_SCALE = 1 / 5.5; // the gold frame and its dividers (2px at 1080p, 1px at 720p)
@@ -701,6 +702,7 @@ export class WorldOverlays {
         const rs = bar.root.style;
         rs.setProperty("--statbar-h", `${barH}px`);
         rs.setProperty("--manabar-h", `${Math.max(3, Math.round(barH * MANABAR_SCALE))}px`);
+        rs.setProperty("--manabar-gap", `${Math.max(2, Math.round(barH * MANABAR_GAP_SCALE))}px`);
         rs.setProperty("--herobar-h", `${Math.round(barH * HERO_HP_SCALE)}px`);
         rs.setProperty("--heromana-h", `${Math.round(barH * HERO_MANA_SCALE)}px`);
         rs.setProperty("--hero-frame", `${Math.max(1, Math.round(barH * HERO_FRAME_SCALE))}px`);

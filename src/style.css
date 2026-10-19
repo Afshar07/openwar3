@@ -334,11 +334,10 @@ html body.loading-screen * { cursor: none !important; }
 }
 .unit-hpbar.is-hero .unit-hpbar-bars { gap: var(--hero-frame, 2px); }
 .unit-hpbar.is-hero .unit-hpbar-track { height: var(--herobar-h, 8px); }
-/* A hero's mana bar keeps a frame of its own: the gold divider sits between the two. */
+/* On a hero the gold divider is the gap between the two bars, so no extra margin. */
 .unit-hpbar.is-hero .unit-hpbar-manatrack {
   height: var(--heromana-h, 6px);
   margin-top: 0;
-  border-top-width: 1px;
 }
 .unit-hpbar-level {
   display: flex;
@@ -378,13 +377,12 @@ html body.loading-screen * { cursor: none !important; }
 .unit-hpbar-fill[data-state="yellow"] { background-color: #c8c800; }
 .unit-hpbar-fill[data-state="red"] { background-color: #c80000; }
 .unit-hpbar-mana { background-color: #2a6cf0; }
-/* A unit's mana bar is thinner than its health and shares one black frame with it: pulled up
-   over the column's 1px gap with no top border of its own, so the health bar's bottom row of
-   frame is the one line between the two (as the original draws a caster's pair). */
+/* A unit's mana bar is thinner than its health, in a frame of its own a small gap below it
+   (as the original draws a caster's pair). The gap is the column's 1px plus this margin, so
+   it widens with the viewport like everything else (`--manabar-gap`, never under 2px). */
 .unit-hpbar-manatrack {
   height: var(--manabar-h, 5px);
-  margin-top: -1px;
-  border-top-width: 0;
+  margin-top: calc(var(--manabar-gap, 1px) - 1px);
 }
 /* "Healthbars: Team Colored" (issue #141) — a flat player colour that does NOT slide towards
    red as the bar drains. There is no rule for the colour itself: it is written INLINE by
