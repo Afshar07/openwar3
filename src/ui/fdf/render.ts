@@ -302,9 +302,19 @@ export async function mountFdfScreen(opts: FdfScreenOptions): Promise<FdfScreen>
       scrollAt, shortcuts, elements, controls, disposers,
     });
     opts.onBuild?.(screen);
+    // A rebuild in the middle of a panel fade (see `animate`) carries the fade's current alpha
+    // onto the elements it just made — fresh DOM is fully opaque, and painted so it would put
+    // the contents up before the chrome carrying them has landed.
+    for (const [lateOnes, t] of [[false, fadeEarly], [true, fadeLate]] as const) {
+      if (t.alpha === null) continue;
+      for (const el of panelEls(lateOnes)) el.style.opacity = t.alpha >= 1 ? "" : String(t.alpha);
+    }
   };
 
   const late = new Set(opts.latePanels ?? []);
+  /** The live alpha of an in-flight `animate`, per group; null when nothing is fading. */
+  const fadeEarly: { alpha: number | null } = { alpha: null };
+  const fadeLate: { alpha: number | null } = { alpha: null };
 
   /** The panel elements this screen slides — the named panels, else the root's children. */
   const panelEls = (lateOnes: boolean): HTMLElement[] => {
@@ -325,8 +335,8 @@ export async function mountFdfScreen(opts: FdfScreenOptions): Promise<FdfScreen>
   const animate = (dir: PanelDirection, durationMs: number): Promise<void> => {
     const lateWindow = dir === "in" ? durationMs + LATE_PANEL_DELAY_MS + FADE_MS : durationMs;
     return Promise.all([
-      fadePanels(panelEls(false), dir, durationMs),
-      fadePanels(panelEls(true), dir, lateWindow),
+      fadePanels(() => panelEls(false), dir, durationMs, fadeEarly),
+      fadePanels(() => panelEls(true), dir, lateWindow, fadeLate),
     ]).then(() => undefined);
   };
 

@@ -42,10 +42,18 @@ export type PanelDirection = "in" | "out";
  * window, not the end of the fade, so the caller's teardown still lines up with the chrome.
  */
 export function fadePanels(
-  panels: HTMLElement[],
+  panels: HTMLElement[] | (() => HTMLElement[]),
   dir: PanelDirection,
   durationMs: number,
+  track?: { alpha: number | null },
 ): Promise<void> {
+  // A GETTER, asked afresh on every step, for a screen that can REBUILD its DOM mid-fade: the
+  // Custom Game screen relayouts the moment the selected map's info has loaded, and that often
+  // lands while the chrome's Birth is still in the air. A fade holding the elements it started
+  // with kept fading the detached ones while the freshly built contents sat at full opacity on
+  // a panel that had not arrived. `track` hands the live alpha to whoever rebuilds, so a build
+  // can put it on its new elements in the same task, before they ever paint.
+  const els = typeof panels === "function" ? panels : () => panels;
   const window = Math.max(durationMs, FADE_MS);
   const fade = Math.min(FADE_MS, window);
   // Where in the window the fade sits: at the very start going out, at the very end coming in.
@@ -58,13 +66,17 @@ export function fadePanels(
   };
   const apply = (t: number): void => {
     const a = alphaAt(t);
-    for (const el of panels) el.style.opacity = a >= 1 ? "" : String(a);
+    if (track) track.alpha = a;
+    for (const el of els()) el.style.opacity = a >= 1 ? "" : String(a);
   };
 
   // Put the start state up NOW, in this same task: an arriving screen must never paint even
   // one frame at full opacity before its entrance begins.
   apply(0);
-  if (!panels.length) return Promise.resolve();
+  if (!els().length) {
+    if (track) track.alpha = null;
+    return Promise.resolve();
+  }
 
   // On the ANIMATION clock, not the wall clock (render/animClock.ts). These 180 ms belong to
   // the panel that carries them, and that panel is a model clip advanced a step at a time by
@@ -78,6 +90,7 @@ export function fadePanels(
       const t = animNow() - t0;
       if (t < window) return apply(t);
       apply(window); // land exactly on the end state
+      if (track) track.alpha = null;
       off();
       resolve();
     });
