@@ -8852,6 +8852,7 @@ export class MapViewerScene {
       abilities: this.abilities,
       tech: this.tech,
       upgrades: this.upgrades,
+      items: this.items,
       canAct: () => !!this.hud?.acceptsInput() && !this.hardPaused && this.userControl,
       card: () => this.commandCard(),
       press: (id) => this.runCommand(id),

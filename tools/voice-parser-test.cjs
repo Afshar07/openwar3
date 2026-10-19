@@ -36,6 +36,11 @@ const lex = new Lexicon([
   { kind: "building", id: "ntav", phrase: "Tavern" },
   { kind: "building", id: "etrp", phrase: "tower" },
   { kind: "building", id: "eden", phrase: "shop" },
+  { kind: "building", id: "halt", phrase: "Altar of Kings" },
+  { kind: "building", id: "halt", phrase: "altar" },
+  { kind: "unit", id: "ogru", phrase: "Grunt" },
+  { kind: "item", id: "hslv", phrase: "Healing Salve" },
+  { kind: "item", id: "stwp", phrase: "town portal" },
 ]);
 const p = (t) => parse(t, { lexicon: lex });
 const one = (t) => { const r = p(t); return r.length === 1 ? r[0] : null; };
@@ -125,6 +130,20 @@ i = one("build a tower");
 check("build a tower (race term)", i?.kind === "build" && i.entry.id === "etrp", JSON.stringify(i));
 i = one("build a shop");
 check("build a shop (race term)", i?.kind === "build" && i.entry.id === "eden", JSON.stringify(i));
+
+console.log("finish & items");
+i = one("finish the altar");
+check("finish the altar", i?.kind === "finish" && i.entry?.id === "halt" && !i.all, JSON.stringify(i));
+i = one("finish building the altar of kings");
+check("finish building the altar of kings", i?.kind === "finish" && i.entry?.id === "halt", JSON.stringify(i));
+i = one("complete all buildings");
+check("complete all buildings", i?.kind === "finish" && !i.entry && i.all, JSON.stringify(i));
+i = one("select a peasant");
+check("select a peasant = idle one (a is not a count)", i?.kind === "select" && i.subject?.worker && !i.subject.counted && i.subject.count === 1, JSON.stringify(i));
+i = one("use healing salve on grunt");
+check("use healing salve on grunt", i?.kind === "useitem" && i.entry?.id === "hslv" && i.target?.kind === "unit" && i.target.entry.id === "ogru", JSON.stringify(i));
+i = one("use town portal");
+check("use town portal", i?.kind === "useitem" && i.entry?.id === "stwp" && !i.target, JSON.stringify(i));
 
 console.log("camera");
 i = one("move the camera to the tavern");

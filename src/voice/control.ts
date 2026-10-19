@@ -28,6 +28,9 @@ export interface VoiceHost {
   /** Every name the player could mean right now: the card, the race's tech tree, what is on
    *  the map. */
   lexicon(): LexEntry[];
+  /** Every unit, ability and item NAME in the game — heard even when it is not on this screen,
+   *  so the recogniser is not forced to hear it as something that is. Built once per match. */
+  vocabulary(): readonly string[];
   /** Carry the intents out. */
   perform(intents: VoiceIntent[], heard: string): void;
   /** Tell the player what is going on (listening, heard nothing, …). null clears it. */
@@ -147,7 +150,7 @@ async function begin(): Promise<void> {
     current = null;
     return;
   }
-  const rec = new model.KaldiRecognizer(ctx!.sampleRate, JSON.stringify(await grammarFor(lexicon)));
+  const rec = new model.KaldiRecognizer(ctx!.sampleRate, JSON.stringify(await grammarFor(lexicon, host.vocabulary())));
   if (current !== u) { rec.remove(); return; }
   rec.on("result", (m) => {
     if (m.event !== "result") return;

@@ -4,6 +4,7 @@ import type { UnitRegistry } from "../data/units";
 import type { AbilityRegistry } from "../data/abilities";
 import type { TechRegistry } from "../data/techtree";
 import type { UpgradeRegistry } from "../data/upgrades";
+import type { ItemRegistry } from "../data/items";
 import type { SimUnit } from "../sim/world";
 import { FogState } from "../sim/vision";
 import { describe, type LexEntry, type Pick, type Region, type Subject, type VoiceIntent, type VoiceTarget } from "../voice/parser";
@@ -34,6 +35,7 @@ export interface VoiceDriver {
   abilities: AbilityRegistry;
   tech: TechRegistry;
   upgrades: UpgradeRegistry;
+  items: ItemRegistry;
   canAct(): boolean;
   /** The card as the HUD shows it, and the page it is on. */
   card(): CommandButton[];
@@ -89,6 +91,7 @@ function sayable(name: string): string {
 const NAME_VERBS = /^(train|build|research|upgrade to|upgrade|learn|summon|create|hire|purchase|revive|awaken|morph into)\s+/i;
 
 export function makeVoiceHost(d: VoiceDriver): VoiceHost {
+  let vocab: string[] | null = null;
   const rts = (): RtsController | null => d.rts();
   const me = (): number => d.localPlayer();
 
@@ -171,7 +174,7 @@ export function makeVoiceHost(d: VoiceDriver): VoiceHost {
    *  for this verb (an attack means theirs, a camera jump means ours). `from` is where "nearest"
    *  is measured: the selection for an order, the screen for the camera. */
   type Spot = { cursor: true } | { unit: SimUnit } | { point: [number, number] } | { fail: string };
-  const resolve = (t: VoiceTarget, prefer: "enemy" | "mine", from: [number, number] = anchor()): Spot => {
+  const resolve = (t: VoiceTarget, prefer: "enemy" | "mine", from: [number, number] = anchor(), friendly = false): Spot => {
     const r = rts();
     if (!r) return { fail: "No match." };
     const sideOk = (u: SimUnit, side: string): boolean => side === "any" || sideOf(u) === side;
@@ -200,6 +203,14 @@ export function makeVoiceHost(d: VoiceDriver): VoiceHost {
       }
       case "unit": {
         const side = t.side;
+        // A GIFT aimed at a kind of unit ("healing salve on grunt", "holy light the footman")
+        // goes on the one of ours or an ally's that needs it most — the lowest share of life.
+        if (friendly && side === "any") {
+          const ours = [...r.simView.units.values()].filter((x) =>
+            x.hp > 0 && x.typeId === t.entry.id && (x.owner === me() || (sideOf(x) === "ally" && visible(x))));
+          ours.sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp || Math.hypot(a.x - from[0], a.y - from[1]) - Math.hypot(b.x - from[0], b.y - from[1]));
+          if (ours[0]) return { unit: ours[0] };
+        }
         // A BUILDING is found wherever the player has seen it (it stays on the map in memory —
         // "the tavern", "the fountain"); a unit only where it can be seen now.
         const seen = (x: SimUnit): boolean => (x.building ? known(x) : visible(x));
@@ -269,17 +280,52 @@ export function makeVoiceHost(d: VoiceDriver): VoiceHost {
     return !!p && r.minimapClick(p[0], p[1], false, false) === "ordered";
   };
 
+  /**
+   * What is armed and waiting for a target, if it is a SPELL or an ITEM use: the ability row it
+   * fires (an item's behaviour is an ability — docs/items.md), at what rank, aimed at a unit or
+   * at the ground, with what radius, and who is using it. Null for anything else armed (a move,
+   * an attack) — those are left for the player's click when no target is said.
+   */
+  const armedAim = (): { def: NonNullable<ReturnType<typeof d.abilities.get>>; level: number; target: "unit" | "point"; area: number; user: SimUnit } | null => {
+    const r = rts();
+    if (!r) return null;
+    const sel = r.selectedUnitIds().map((id) => r.simView.units.get(id)).filter((u): u is SimUnit => !!u);
+    if (r.orderMode === "cast" && r.armedCast) {
+      const armed = r.armedCast;
+      const user = sel.find((u) => u.abilities.some((a) => a.code === armed.code && a.level > 0));
+      const ab = user?.abilities.find((a) => a.code === armed.code);
+      const def = d.abilities.get(armed.abilityId ?? ab?.id ?? armed.code) ?? d.abilities.get(armed.code);
+      if (!user || !def) return null;
+      const level = Math.max(1, ab?.level ?? 1);
+      return { def, level, target: armed.target, area: armed.area || def.levelData[level - 1]?.area || 250, user };
+    }
+    if (r.orderMode === "item" && r.armedItem && r.armedItem.mode !== "move") {
+      const it = r.armedItem;
+      const def = it.abilityId ? d.abilities.get(it.abilityId) : undefined;
+      const user = sel.find((u) => u.inventory?.[it.slot]);
+      if (!user || !def) return null;
+      return { def, level: 1, target: it.mode === "useunit" ? "unit" : "point", area: it.area || def.levelData[0]?.area || 250, user };
+    }
+    return null;
+  };
+
+  /** Whether an ability row is a GIFT (may only touch friends) rather than a weapon. */
+  const isGift = (def: NonNullable<ReturnType<typeof d.abilities.get>>): boolean => {
+    const flags = new Set(def.targetFlags);
+    return !(flags.has("enemy") || flags.has("enemies")) && (flags.has("friend") || flags.has("allies") || flags.has("player") || flags.has("self"));
+  };
+
   /** The order is armed (a button pressed that wants a target): finish it at the spot, the way
    *  the click after the press would. An unsaid target leaves it armed for the player's own
-   *  click — except a SPELL, which aims itself (`assistCast`). */
+   *  click — except a SPELL or an ITEM, which aims itself (`assist`). */
   const aim = (t: VoiceTarget | undefined, prefer: "enemy" | "mine"): boolean => {
     const r = rts();
     if (!r) return false;
-    const casting = r.orderMode === "cast" && !!r.armedCast;
-    if (casting && (!t || t.kind === "screen")) {
+    const armed = armedAim();
+    if (armed && (!t || t.kind === "screen")) {
       // "frost nova" / "frost nova here": the best target near the caster, or near the middle
       // of the screen when the player pointed there.
-      if (assistCast(t ? d.screenCentre() : null)) return true;
+      if (assist(armed, t ? d.screenCentre() : null)) return true;
       if (!t) {
         d.status(null);
         d.error("No target for that in sight — click one.");
@@ -287,7 +333,8 @@ export function makeVoiceHost(d: VoiceDriver): VoiceHost {
       }
     }
     if (!t) return true;
-    const spot = resolve(t, prefer);
+    const gift = !!armed && isGift(armed.def);
+    const spot = resolve(t, gift ? "mine" : prefer, anchor(), gift);
     if ("fail" in spot) {
       d.press("cancel");
       d.error(spot.fail);
@@ -297,35 +344,28 @@ export function makeVoiceHost(d: VoiceDriver): VoiceHost {
   };
 
   /**
-   * Aim the armed spell for the player. Who it is FOR comes off the row's own Targets Allowed: a
-   * row that may hit an enemy is a weapon and goes on the enemy — a hero first, then whoever is
-   * nearest; a row that may only touch friends is a gift and goes on the friend who needs it
-   * most (lowest share of life). An AREA spell aimed at the ground goes where the most enemies
-   * stand inside its own radius. Every candidate is offered to the card's own aim in turn, so a
-   * target the spell cannot take (out of range is the cast's own walk; air, magic-immune,
-   * mechanical are its refusals) simply passes to the next.
+   * Aim the armed spell or item for the player. Who it is FOR comes off the row's own Targets
+   * Allowed: a row that may hit an enemy is a weapon and goes on the enemy — a hero first, then
+   * whoever is nearest; a row that may only touch friends is a gift and goes on the friend who
+   * needs it most (lowest share of life). An AREA aimed at the ground goes where the most of its
+   * targets stand inside its own radius. Every candidate is offered to the card's own aim in
+   * turn, so a target it cannot take (air, magic-immune, full mana) simply passes to the next.
    */
-  const assistCast = (near: [number, number] | null): boolean => {
+  const assist = (armed: NonNullable<ReturnType<typeof armedAim>>, near: [number, number] | null): boolean => {
     const r = rts();
-    const armed = r?.armedCast;
-    if (!r || !armed) return false;
-    const caster = r.selectedUnitIds().map((id) => r.simView.units.get(id)).find((u) => u?.abilities.some((a) => a.code === armed.code && a.level > 0));
-    const ab = caster?.abilities.find((a) => a.code === armed.code);
-    const def = d.abilities.get(armed.abilityId ?? ab?.id ?? armed.code) ?? d.abilities.get(armed.code);
-    if (!caster || !def) return false;
-    const flags = new Set(def.targetFlags);
-    const hostile = flags.has("enemy") || flags.has("enemies") || (!flags.has("friend") && !flags.has("allies") && !flags.has("player") && !flags.has("self"));
-    const lvl = def.levelData[Math.max(0, (ab?.level ?? 1) - 1)];
+    if (!r) return false;
+    const { def, level, user } = armed;
+    const hostile = !isGift(def);
+    const lvl = def.levelData[level - 1];
     const reach = Math.max(lvl?.castRange ?? 0, 600) + 400;
-    const from = near ?? [caster.x, caster.y];
+    const from = near ?? [user.x, user.y];
     const pool = [...r.simView.units.values()].filter((u) =>
-      u.hp > 0 && !u.isIllusion && visible(u) && Math.hypot(u.x - caster.x, u.y - caster.y) <= reach + (near ? 1200 : 0) &&
+      u.hp > 0 && !u.isIllusion && visible(u) && Math.hypot(u.x - user.x, u.y - user.y) <= reach + (near ? 1200 : 0) &&
       (hostile ? sideOf(u) === "enemy" : sideOf(u) === "mine" || sideOf(u) === "ally"));
     if (!pool.length) return false;
     const dist = (u: SimUnit): number => Math.hypot(u.x - from[0], u.y - from[1]);
     if (armed.target === "point") {
-      const area = armed.area || lvl?.area || 250;
-      const crowd = (u: SimUnit): number => pool.filter((o) => Math.hypot(o.x - u.x, o.y - u.y) <= area).length;
+      const crowd = (u: SimUnit): number => pool.filter((o) => Math.hypot(o.x - u.x, o.y - u.y) <= armed.area).length;
       pool.sort((a, b) => crowd(b) - crowd(a) || dist(a) - dist(b));
       for (const u of pool.slice(0, 6)) {
         const at = d.toScreen(u.x, u.y);
@@ -337,7 +377,7 @@ export function makeVoiceHost(d: VoiceDriver): VoiceHost {
     else {
       const hurt = pool.filter((u) => u.hp < u.maxHp);
       pool.length = 0;
-      pool.push(...(hurt.length ? hurt : [caster]));
+      pool.push(...(hurt.length ? hurt : [user]));
       pool.sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp || dist(a) - dist(b));
     }
     for (const u of pool.slice(0, 8)) if (r.tryTargetArmedAt(u.id)) return true;
@@ -369,7 +409,11 @@ export function makeVoiceHost(d: VoiceDriver): VoiceHost {
     // Walking a load home is still working that resource (`resKind` outlives the trip).
     (u.order === "harvest" || u.order === "return") && !!u.resKind && (!res || u.resKind === res);
   const isWorker = (u: SimUnit): boolean => u.isPeon || gathering(u);
-  const idleWorker = (u: SimUnit): boolean => u.isPeon && u.order === "idle" && !u.building;
+  /** A worker that is BUILDING — standing over a structure going up, or walking to found one.
+   *  It finishes what it is building: no spoken order takes it off the job (`shield`). */
+  const busyBuilding = (u: SimUnit): boolean => u.constructing !== 0 || !!u.buildPending;
+  /** The idle-worker button's own test (rts.ts isIdleWorker): no order, no construction job. */
+  const idleWorker = (u: SimUnit): boolean => u.isPeon && u.order === "idle" && !u.building && !busyBuilding(u);
 
   /**
    * The units a SUBJECT names, best first: idle ones first (a worker said with no number means an
@@ -378,7 +422,7 @@ export function makeVoiceHost(d: VoiceDriver): VoiceHost {
    */
   const pickSubject = (sub: Subject): SimUnit[] => {
     const matches = mine().filter((u) =>
-      !u.building && (sub.worker ? isWorker(u) : u.typeId === sub.entry?.id) &&
+      !u.building && !busyBuilding(u) && (sub.worker ? isWorker(u) : u.typeId === sub.entry?.id) &&
       (!sub.from || gathering(u, sub.from)) &&
       (!sub.idle || idleWorker(u)));
     const centre = d.screenCentre() ?? anchor();
@@ -472,6 +516,32 @@ export function makeVoiceHost(d: VoiceDriver): VoiceHost {
     }
   };
 
+  /**
+   * Workers FINISH WHAT THEY ARE BUILDING. An order said to the selection — a move, an attack, a
+   * stop, a spell — is given to everyone selected EXCEPT a worker on a construction job, who is
+   * left out of the selection for the order and put back after it, so the player keeps the
+   * selection they had. (A click still re-tasks a builder, as in the game; this is the spoken
+   * path, where nobody looked at who was in the group.) Orders that name their own units or do
+   * not touch the selection pass straight through.
+   */
+  const shield = (i: VoiceIntent, fn: () => void): void => {
+    const r = rts();
+    const guarded = (i.kind === "order" && !i.subject && !i.source) || i.kind === "stop" || i.kind === "hold" || i.kind === "press";
+    if (!r || !guarded) return fn();
+    const sel = r.selectedUnitIds();
+    const busy = sel.filter((id) => { const u = r.simView.units.get(id); return !!u && busyBuilding(u); });
+    if (!busy.length) return fn();
+    if (busy.length === sel.length) {
+      d.error(busy.length > 1 ? "They are building — they will finish first." : "Busy building — it will finish first.");
+      return;
+    }
+    for (const id of busy) r.scriptSelect(id, false);
+    const rest = r.selectedUnitIds().join(",");
+    fn();
+    // Put the builders back only if the order left the selection as it found it.
+    if (r.selectedUnitIds().join(",") === rest) for (const id of busy) r.scriptSelect(id, true);
+  };
+
   const run = (i: VoiceIntent): void => {
     const r = rts();
     if (!r) return;
@@ -506,7 +576,7 @@ export function makeVoiceHost(d: VoiceDriver): VoiceHost {
           units = pickSubject(i.subject);
           if (!units.length) { d.error(`No ${subjectName(i.subject)}.`); return; }
         } else {
-          const sel = r.selectedUnitIds().map((id) => r.simView.units.get(id)).filter((u): u is SimUnit => !!u && isWorker(u));
+          const sel = r.selectedUnitIds().map((id) => r.simView.units.get(id)).filter((u): u is SimUnit => !!u && isWorker(u) && !busyBuilding(u));
           units = sel.length ? sel : pickSubject({ worker: true, count: 1, counted: false, idle: true });
           if (!units.length) { d.error("Select a worker first."); return; }
         }
@@ -544,12 +614,12 @@ export function makeVoiceHost(d: VoiceDriver): VoiceHost {
           // nothing that can build is selected), then press.
           const canBuild = (): boolean => r.selectedUnitIds().some((id) => {
             const u = r.simView.units.get(id);
-            return !!u && d.tech.get(u.typeId).builds.includes(i.entry.id);
+            return !!u && !busyBuilding(u) && d.tech.get(u.typeId).builds.includes(i.entry.id);
           });
           if (!canBuild()) {
             // An IDLE builder first — taking a miner off the gold is the cost of asking — then the
             // one nearest the middle of the screen.
-            const builders = mine().filter((u) => !u.building && d.tech.get(u.typeId).builds.includes(i.entry.id));
+            const builders = mine().filter((u) => !u.building && !busyBuilding(u) && d.tech.get(u.typeId).builds.includes(i.entry.id));
             const centre = d.screenCentre() ?? anchor();
             builders.sort((a, b) => Number(idleWorker(b)) - Number(idleWorker(a)) || Math.hypot(a.x - centre[0], a.y - centre[1]) - Math.hypot(b.x - centre[0], b.y - centre[1]));
             const worker = builders[0];
@@ -636,11 +706,48 @@ export function makeVoiceHost(d: VoiceDriver): VoiceHost {
         return;
       }
       case "useitem": {
-        const inv = d.inventory();
-        const slot = i.slot ?? inv.findIndex((s) => !!s && !!i.entry && sayable(s.name).toLowerCase() === i.entry.phrase.toLowerCase());
-        if (slot < 0 || !inv[slot]) { d.error("No such item."); return; }
-        d.useInventory(slot);
-        if (i.target && r.aimingTarget()) aim(i.target, "mine");
+        // "Use healing salve on grunt": the HERO carrying it — the selected one first, then any
+        // of ours — is selected, the pocket pressed, and the item aimed like a spell (at the
+        // grunt of ours with the least life, or by itself with nothing said).
+        const holds = (u: SimUnit): number => {
+          if (i.slot !== undefined) return u.inventory?.[i.slot] ? i.slot : -1;
+          return (u.inventory ?? []).findIndex((it) => !!it && !!i.entry &&
+            (it.itemId === i.entry.id || d.items.get(it.itemId)?.name?.toLowerCase() === i.entry.phrase.toLowerCase()));
+        };
+        const sel = r.selectedUnitIds().map((id) => r.simView.units.get(id)).filter((u): u is SimUnit => !!u);
+        let hero = sel.find((u) => holds(u) >= 0);
+        if (!hero) {
+          const centre = d.screenCentre() ?? anchor();
+          hero = mine().filter((u) => !u.building && holds(u) >= 0)
+            .sort((a, b) => Math.hypot(a.x - centre[0], a.y - centre[1]) - Math.hypot(b.x - centre[0], b.y - centre[1]))[0];
+          if (!hero) { d.error(`Nobody of yours carries ${i.entry?.phrase ?? "that item"}.`); return; }
+          r.selectSingle(hero.id);
+        }
+        d.useInventory(holds(hero));
+        if (r.aimingTarget()) aim(i.target, "mine");
+        return;
+      }
+      case "finish": {
+        // A building of ours whose construction HALTED — its builder walked off, as a human
+        // structure stops dead the moment it does — gets a worker back on it, with the
+        // right-click's own order (`buildresume`). An idle worker first, then one off the trees
+        // (lumber is the cheaper income to lose), then any other that is not building already.
+        const halted = mine().filter((u) => !!u.building && u.building.constructionLeft > 0 &&
+          u.building.builderIds.length === 0 && !u.building.selfBuilds && (!i.entry || u.typeId === i.entry.id));
+        if (!halted.length) { d.error(i.entry ? `No unfinished ${i.entry.phrase} is waiting for a builder.` : "Nothing is waiting for a builder."); return; }
+        const centre = d.screenCentre() ?? anchor();
+        halted.sort((a, b) => Math.hypot(a.x - centre[0], a.y - centre[1]) - Math.hypot(b.x - centre[0], b.y - centre[1]));
+        const taken = new Set<number>();
+        for (const b of i.all ? halted : halted.slice(0, 1)) {
+          const workers = mine().filter((u) => u.isPeon && !u.building && !busyBuilding(u) && !taken.has(u.id) &&
+            d.tech.get(u.typeId).builds.includes(b.typeId));
+          const rank = (u: SimUnit): number => (idleWorker(u) ? 0 : gathering(u, "lumber") ? 1 : 2);
+          workers.sort((p, q) => rank(p) - rank(q) || Math.hypot(p.x - b.x, p.y - b.y) - Math.hypot(q.x - b.x, q.y - b.y));
+          const w = workers[0];
+          if (!w) { d.error(`No worker free to finish the ${d.units.get(b.typeId)?.name ?? "building"}.`); return; }
+          taken.add(w.id);
+          r.execute(me(), { c: "order", unitId: w.id, order: { kind: "buildresume", buildingId: b.id }, queued: false });
+        }
         return;
       }
       case "select": {
@@ -677,11 +784,12 @@ export function makeVoiceHost(d: VoiceDriver): VoiceHost {
   return {
     acceptsInput: () => d.canAct(),
     lexicon: () => lexicon(d, mine()),
+    vocabulary: () => (vocab ??= gameVocabulary(d)),
     perform: (intents, heard) => {
       // The echo: what was heard, then what it was read as — in the message log, where the game
       // prints what a player said.
       d.message(`|cff99ccff“${heard}”|r  ${intents.map(describe).join(" · ")}`);
-      for (const i of intents) run(i);
+      for (const i of intents) shield(i, () => run(i));
     },
     status: (t) => d.status(t),
     error: (t) => d.error(t),
@@ -761,10 +869,23 @@ function lexicon(d: VoiceDriver, own: SimUnit[]): LexEntry[] {
       }
     }
   }
-  // The inventory, by name.
-  d.inventory().forEach((s) => {
-    if (s?.usable && s.name) out.push({ kind: "item", id: s.name, phrase: sayable(s.name) });
-  });
+  // What every unit of ours CARRIES, by the item's name — "use healing salve" finds the hero
+  // holding it whoever is selected.
+  for (const u of own) {
+    for (const it of u.inventory ?? []) {
+      const name = it ? d.items.get(it.itemId)?.name : undefined;
+      if (!it || !name) continue;
+      const full = sayable(name);
+      out.push({ kind: "item", id: it.itemId, phrase: full });
+      // The way an item is SAID: "Potion of Healing" is a "healing potion", "Scroll of Town
+      // Portal" a "town portal" (or a "tp"), "Healing Salve" a "salve".
+      const of = /^(\w+) of (.+)$/i.exec(full);
+      if (of) out.push({ kind: "item", id: it.itemId, phrase: `${of[2]} ${of[1]}` }, { kind: "item", id: it.itemId, phrase: of[2] });
+      const last = full.split(/\s+/).pop() ?? "";
+      if (last.length >= 4 && last !== full) out.push({ kind: "item", id: it.itemId, phrase: last });
+      if (/town portal/i.test(full)) out.push({ kind: "item", id: it.itemId, phrase: "tp" });
+    }
+  }
   return out;
 }
 
@@ -806,6 +927,28 @@ function raceTerms(d: VoiceDriver, builds: string[]): LexEntry[] {
   add(builds.filter((id) => d.tech.get(id).trains.some((t) => def(t)?.isHero)), ["altar"]);
   const soldier = (t: string): boolean => !!def(t) && !def(t)!.isHero && !def(t)!.classification.includes("peon") && attacks(t);
   const reqs = (id: string): number => d.tech.get(id).requiresTiers[0]?.length ?? 0;
-  add(builds.filter((id) => d.tech.get(id).trains.some(soldier)).sort((a, b) => reqs(a) - reqs(b)), ["barracks"]);
+  add(builds.filter((id) => d.tech.get(id).trains.some(soldier)).sort((a, b) => reqs(a) - reqs(b)), ["barracks", "rax"]);
   return out;
+}
+
+/**
+ * Every name a player might say in Warcraft III, whoever owns it: the melee units, buildings,
+ * heroes and creeps (campaign-only and special rows left out — they are not what anybody calls
+ * out in a match), every ability one of them carries, and every item. Grammar only — saying a
+ * name the match cannot act on is still heard RIGHT, and answered as such.
+ */
+function gameVocabulary(d: VoiceDriver): string[] {
+  const out = new Set<string>();
+  const abilities = new Set<string>();
+  for (const u of d.units.all()) {
+    if (u.campaign || u.special || !u.name) continue;
+    out.add(u.name);
+    for (const a of [...u.abilities, ...u.heroAbilities]) abilities.add(a);
+  }
+  for (const a of abilities) {
+    const name = d.abilities.get(a)?.name;
+    if (name) out.add(name);
+  }
+  for (const it of d.items.all()) if (it.name) out.add(it.name);
+  return [...out].map(sayable).filter(Boolean);
 }

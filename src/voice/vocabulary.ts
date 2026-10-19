@@ -74,22 +74,77 @@ function spell(word: string, dict: Set<string> | null): string[] {
   return [word];
 }
 
-/** The grammar for one utterance: a JSON-able list of words, `[unk]` last so anything else
- *  the player says is heard as "not a command" rather than forced onto the nearest name. */
-export async function grammarFor(lexicon: Lexicon): Promise<string[]> {
-  const dict = dictionary ?? (await loadDictionary());
-  const out = new Set<string>();
-  for (const w of grammarWords()) for (const s of spell(w, dict)) out.add(s);
+/** The words Warcraft III players say that no table holds — the game's own jargon. Heard so
+ *  that a sentence using them comes back as the words said rather than as the nearest name. */
+const JARGON = [
+  "creep", "creeps", "creeping", "camp", "expansion", "expand", "expo", "natural", "tier", "upkeep", "scout",
+  "scouting", "retreat", "focus", "surround", "kite", "micro", "macro", "tp", "portal", "potion", "potions", "salve",
+  "clarity", "mana", "health", "heal", "rax", "ally", "allies", "inventory", "slot", "hero", "heroes", "level",
+  "skill", "ability", "abilities", "spell", "spells", "ultimate", "food", "gold", "lumber", "wood", "mine", "tower",
+  "shop", "altar", "farm", "barracks", "army", "workers", "units", "building", "buildings", "base",
+];
+
+/**
+ * Whole COMMANDS as grammar entries, beside the loose words. Vosk builds its grammar as one loop
+ * over the listed entries with a cost per entry, so "finish the altar" listed as ONE entry is a
+ * cheaper path than three loose words — a sentence a player actually says is preferred over the
+ * same words in any order, which is most of what the small model needs to tell "altar" from
+ * "alter" and "finish" from "fish". Built per utterance from the lexicon, so the phrases name
+ * what is on the card and the map right now.
+ */
+function templates(lexicon: Lexicon): string[] {
+  const out: string[] = [
+    "select army", "select idle worker", "select a peasant", "select one worker from wood", "select one worker from gold",
+    "put all workers on gold", "put all peasants on gold", "send two workers to wood", "attack move here", "hold position",
+    "move the camera to another gold mine", "camera to another creep camp", "select all", "stop", "cancel",
+  ];
+  for (const n of ["one", "two", "three", "four", "five"]) out.push(`group ${n}`, `make group ${n}`);
   for (const { entry } of lexicon.entries) {
-    for (const w of words(entry.phrase)) {
-      for (const s of spell(w, dict)) out.add(s);
-      // Both numbers of every name: "train footmen" and "train a footman" are both said.
-      if (!w.endsWith("s")) for (const s of spell(`${w}s`, dict)) if (!dict || dict.has(s)) out.add(s);
-      if (w.endsWith("man")) for (const s of spell(`${w.slice(0, -3)}men`, dict)) out.add(s);
+    const p = words(entry.phrase).join(" ");
+    if (!p) continue;
+    switch (entry.kind) {
+      case "building": out.push(`build a ${p}`, `finish the ${p}`, `camera to the ${p}`, `rally point of the ${p}`); break;
+      case "unit": case "hero": out.push(`train a ${p}`, `select ${p}`, `attack the ${p}`); break;
+      case "ability": out.push(`use ${p}`, `${p} the hero`, `learn ${p}`); break;
+      case "item": out.push(`use ${p}`, `use ${p} on`); break;
+      case "upgrade": out.push(`research ${p}`); break;
+      case "button": out.push(p); break;
     }
   }
+  return out;
+}
+
+/** The grammar for one utterance: a JSON-able list — the parser's words, every name in the
+ *  lexicon, the game-wide `vocabulary` (every unit, ability and item name in Warcraft III, so a
+ *  name that is not on this screen is still HEARD right), the jargon, and the command phrases —
+ *  `[unk]` last, so anything else the player says is heard as "not a command" rather than forced
+ *  onto the nearest name. */
+export async function grammarFor(lexicon: Lexicon, vocabulary: readonly string[] = []): Promise<string[]> {
+  const dict = dictionary ?? (await loadDictionary());
+  const known = (w: string): boolean => !dict || dict.has(w);
+  const out = new Set<string>();
+  const addWords = (text: string): void => {
+    for (const w of words(text)) for (const sp of spell(w, dict)) if (known(sp)) out.add(sp);
+  };
+  for (const w of grammarWords()) addWords(w);
+  for (const w of JARGON) addWords(w);
+  for (const name of vocabulary) addWords(name);
+  for (const { entry } of lexicon.entries) {
+    for (const w of words(entry.phrase)) {
+      for (const sp of spell(w, dict)) if (known(sp)) out.add(sp);
+      // Both numbers of every name: "train footmen" and "train a footman" are both said.
+      if (!w.endsWith("s")) for (const sp of spell(`${w}s`, dict)) if (dict?.has(sp)) out.add(sp);
+      if (w.endsWith("man")) for (const sp of spell(`${w.slice(0, -3)}men`, dict)) if (known(sp)) out.add(sp);
+    }
+  }
+  // The phrases, each word spelled as the dictionary has it; a phrase with a word the model
+  // cannot say is dropped whole (Vosk would quietly cut the word out and leave a different one).
+  for (const t of templates(lexicon)) {
+    const spelled = words(t).flatMap((w) => spell(w, dict));
+    if (spelled.length > 1 && spelled.every(known)) out.add(spelled.join(" "));
+  }
   for (let i = 0; i <= 12; i++) out.delete(String(i));
-  const list = dict ? [...out].filter((w) => dict.has(w)) : [...out];
+  const list = [...out];
   list.push("[unk]");
   return list;
 }

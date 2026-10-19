@@ -89,6 +89,23 @@ onto commands is the same cost again. Instead:
 - **Camera to things**: any building the player has SEEN ("the tavern", "the goblin merchant",
   "the fountain" — first and last words of a neutral building's name work too) and the minimap's
   creep camps. "Another" is a tour: each one asked for is one the camera has not yet been taken to.
+- **Builders finish what they build.** A spoken order to the selection (move, attack, stop, a
+  spell) leaves out any worker on a construction job and puts it back in the selection after
+  (`shield`); a subject ("all peasants") never picks one; "select a peasant" — "a" is not a count —
+  is an IDLE worker by the idle-worker button's own test.
+- **"Finish the altar"** puts a worker back on a building of ours whose construction HALTED (no
+  builder, not self-building) with the right-click's `buildresume` order: an idle worker first,
+  then one off the trees, then any other not already building. "Complete all buildings" does
+  every one.
+- **Items are spells.** "Use healing salve on grunt" selects the hero CARRYING it (the selected
+  one first), presses the pocket, and aims it: an item's behaviour is its ability row, so a gift
+  goes on the grunt of ours with the least life, a weapon on the enemy. Said as players say them:
+  "healing potion" for Potion of Healing, "town portal" / "tp", "salve".
+- **The grammar knows the whole game.** Every melee unit, building, hero, creep, ability and item
+  name (≈1000), the jargon (creep, expo, rax, tp, upkeep…), and the commands themselves as whole
+  PHRASES ("finish the altar", "build a farm", "use healing salve"). Vosk scores one listed phrase
+  below the same words loose, so a real command is preferred over a near-sounding word salad —
+  the fix for "altar" heard as "alter" and "finish" as "fish".
 - Everything is fog-honest: "the enemy hero" is the nearest one this player can SEE.
 
 `window.openwar3.voiceSay("train three footmen")` runs a sentence through the same path with no

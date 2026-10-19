@@ -89,6 +89,9 @@ export type VoiceIntent =
   | { kind: "harvest"; res?: "gold" | "lumber"; target?: VoiceTarget; subject?: Subject }
   | { kind: "train"; entry: LexEntry; count: number }
   | { kind: "build"; entry: LexEntry; target?: VoiceTarget }
+  /** "Finish the altar": put a worker back on a building of ours whose construction halted
+   *  (its builder walked off). No `entry` = the nearest such building; `all` = every one. */
+  | { kind: "finish"; entry?: LexEntry; all: boolean }
   | { kind: "research"; entry: LexEntry }
   | { kind: "learn"; entry: LexEntry }
   | { kind: "press"; entry: LexEntry; target?: VoiceTarget }
@@ -167,6 +170,7 @@ const VERBS1: Record<string, string> = {
   train: "train", make: "train", recruit: "train", hire: "train", produce: "train", summon: "train", create: "train",
   build: "build", construct: "build", place: "build",
   research: "research", upgrade: "research", improve: "research",
+  finish: "finish", complete: "finish", resume: "finish", continue: "finish",
   learn: "learn", skill: "learn",
   cast: "press", use: "press", press: "press", click: "press", activate: "press", do: "press",
   autocast: "autocast",
@@ -285,7 +289,8 @@ export function grammarWords(): string[] {
   for (const w of Object.keys(REGION_WORDS)) out.add(w);
   for (const w of ["side", "map", "corner", "camera", "move", "take", "put", "look", "one"]) out.add(w);
   for (const set of [WORKER_WORDS, ALL_WORDS, FROM_WORDS, GOLD_WORDS, LUMBER_WORDS]) for (const w of set) out.add(w);
-  for (const w of ["idle", "rally", "point", "creep", "creeps", "camp", "camps", "neutral", "tower", "shop", "farm",
+  for (const w of ["finish", "complete", "resume", "continue", "construction", "building", "buildings", "item", "items",
+    "idle", "rally", "point", "creep", "creeps", "camp", "camps", "neutral", "tower", "shop", "farm",
     "supply", "house", "hall", "altar", "barracks", "tavern", "fountain", "merchant", "laboratory", "marketplace"]) out.add(w);
   for (const w of ["hero", "heroes", "base", "home", "town", "hall", "gold", "lumber", "wood", "trees", "forest", "position",
     "point", "ground", "item", "slot", "off", "worker", "workers", "units", "all", "every", "unit", "group", "add"]) out.add(w);
@@ -485,6 +490,16 @@ function parseClause(ws: string[], ctx: ParseContext, inherited: string | null):
       if (u) return done({ kind: "train", entry: u.entry, count }, "train");
       return null;
     }
+    case "finish": {
+      // "finish the altar", "finish building the farm", "complete all buildings", "resume construction".
+      let all = false;
+      while (i < ws.length && (FILLER.has(ws[i]) || MINE_WORDS.has(ws[i]) || ALL_WORDS.has(ws[i]) || ws[i] === "building" || ws[i] === "constructing" || ws[i] === "construction" || ws[i] === "a")) {
+        if (ALL_WORDS.has(ws[i])) all = true;
+        i++;
+      }
+      const b = lex.match(ws, i, ["building"]);
+      return done({ kind: "finish", entry: b?.entry, all });
+    }
     case "research": {
       const m = lex.match(ws, i, ["upgrade", "button"]);
       return m ? done({ kind: "research", entry: m.entry }) : null;
@@ -558,7 +573,10 @@ export function readSubject(
   let idle = false;
   const skip = (): void => { while (ws[i] === "the" || ws[i] === "my" || ws[i] === "our" || ws[i] === "of") i++; };
   skip();
-  if (ALL_WORDS.has(ws[i] ?? "")) { count = "all"; i++; }
+  // "A"/"an" is the singular, not a count: "select a peasant" means the same as "select
+  // peasant" — an idle one — and only a NUMBER ("one peasant") means any one.
+  if (ws[i] === "a" || ws[i] === "an") i++;
+  else if (ALL_WORDS.has(ws[i] ?? "")) { count = "all"; i++; }
   else if (ws[i] !== undefined && !NOT_COUNTS.has(ws[i]) && NUMBERS[ws[i]] !== undefined) { count = NUMBERS[ws[i]]; i++; }
   skip();
   if (ws[i] === "idle" || ws[i] === "lazy" || ws[i] === "free") { idle = true; i++; }
@@ -655,6 +673,7 @@ export function describe(i: VoiceIntent): string {
     case "harvest": return `${i.subject ? `${who(i.subject)}: ` : ""}Gather${i.res ? ` ${i.res}` : ""}${t(i.target)}`;
     case "train": return `Train ${i.count > 1 ? `${i.count} × ` : ""}${i.entry.phrase}`;
     case "build": return `Build ${i.entry.phrase}${t(i.target)}`;
+    case "finish": return `Finish ${i.entry?.phrase ?? (i.all ? "all buildings" : "building")}`;
     case "research": return `Research ${i.entry.phrase}`;
     case "learn": return `Learn ${i.entry.phrase}`;
     case "press": return `${i.entry.phrase}${t(i.target)}`;

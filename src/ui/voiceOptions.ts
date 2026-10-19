@@ -20,7 +20,7 @@ const TIP_CHECKBOX =
   "|cffffcc00Voice Control|r|n" +
   "Hold the |cffffcc00Period (.)|r key and speak a command; let go to send it.|n" +
   "\"train three footmen\", \"attack move here\", \"group one\", \"build a farm here\",|n" +
-  "\"use frost nova\", \"camera to another gold mine\" — or any command button's name.|n" +
+  "\"use healing salve on grunt\", \"finish the altar\" — or any command button's name.|n" +
   "\"Here\" is the middle of the screen (say \"cursor\" for the mouse). A spell finds|n" +
   "the unit that has it and aims itself. Heard on this computer only.";
 const TIP_DOWNLOAD = `${TIP_CHECKBOX}|n|nNeeds a one-time |cffffcc0041 MB|r speech model download first.`;
