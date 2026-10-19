@@ -671,7 +671,7 @@ Measured before it existed (live Insane matches on Echo Isles, sampled every 3 s
 army spent **14–19 %** of its time massing at home with nothing to do — no camp its party could
 price, and too small for a wave (`attackFood` 16). `PlusProfile.roam` (Insane only) moves that
 wait OUT ONTO THE MAP: while massing, with a hero fit to creep (`creepAt`, `CREEP_HEALTH`,
-`creepFood`), the muster point is a circuit (`roamCircuit`) of the free gold mines on our half (no
+`creepFood`), the muster point is a circuit (`roamCircuit`) of the free gold mines AHEAD of our base (no
 building of anyone's within 900, no living camp within 900) and the camps we have already cleared
 there, nearest first, `ROAM_DWELL` (35 s) at each; with none of those, a point `ROAM_SHARE` of
 the way toward the enemy, at most `ROAM_OUT`. Everything else is unchanged and simply happens from
@@ -679,6 +679,12 @@ there: a creep run sets off from the party's feet, a wave sets off when it is re
 met is `contactPass`'s, and a threat at home is `defendPass`'s, above every mode. `b.afield` is
 true while roaming, so the at-home errands (shopping, the Ghoul relief) wait for the army to come
 home. All of the numbers are ours.
+
+"Ahead" is measured along the line from our hall to theirs: a spot qualifies between 15 % and half
+of the way (`ROAM_AHEAD_MIN`). The first version took "our half" (nearer our hall than theirs),
+which includes everything BEHIND our base too — reported as an orc's Blademaster and Grunt
+"standing at the back of its base for a while"; a hero and one Grunt is exactly Insane's eight
+`creepFood`, so the roam was the first thing that party did.
 
 ### A wave is what SETS OFF, not what exists
 
@@ -1617,7 +1623,7 @@ difficulty — Easy simply never reaches a second row and Normal never a third:
 | orc | Blademaster | Shadow Hunter | Alchemist, or the Tauren Chieftain |
 | orc | Far Seer | Tauren Chieftain / Shadow Hunter, even odds | Alchemist, or whichever of those two is missing |
 | undead | Death Knight | Lich | Dark Ranger (Black Arrow) / Crypt Lord (Impale) |
-| undead | Crypt Lord, Dreadlord | Death Knight | Dark Ranger |
+| undead | Crypt Lord (**Carrion Beetles first**), Dreadlord | Death Knight | Dark Ranger |
 | night elf | Demon Hunter | Keeper of the Grove / Naga Sea Witch | Alchemist / Priestess of the Moon |
 | night elf | Keeper of the Grove | Demon Hunter / Pit Lord | Alchemist / Fire Lord (Lava Spawn) |
 
@@ -1769,6 +1775,13 @@ list **and returns at the first unit row it cannot afford**:
 > extra heroes → tier → towers → **the rest of the army**
 
 Seven of those positions were moved after a live match said so, and each is worth stating:
+
+- **The first hero is priced at what it COSTS — nothing.** The melee opening's first hero is free
+  (the authority's `hasFreeHero` token: 0 gold, 0 lumber, food only), but `AiPlayer.rowCost`
+  priced it at the full 425/100, and a row the loop cannot afford halts it. So an Insane computer
+  with its altar standing sat saving for a hero it would never be charged for: reported as about
+  a minute before it started training one. `rowCost` now asks the host (`AiHost.hasFreeHero`), and
+  live the hero is queued the same second the altar finishes.
 
 - **The gold crew is first and the lumberjacks are right behind it.** `workers` used to be one row
   asking for the profile's full number (14 on Insane), and because it is a `SetBuildNext` row it
@@ -3830,6 +3843,16 @@ the lead **plus** `VANGUARD_SPAWN_GRACE`, and set-off brings the deadline **in**
 front of itself and stand the whole army still for the rest of the match. One attempt per run, marked done
 whether or not anything was pressed, so a hero with no wand is not re-asked every pass and one with
 a wand does not dribble a fresh double into the walk every few seconds.
+
+
+**Mirror Image is the same vanguard** (`mirrorVanguard`). Reported: the Blademaster "uses mirror
+images and attacks with the real blademaster + grunts instead of attacking with the illusion".
+The caster's own rung presses it only once the hero is engaged, by which time the camp has picked
+him. So `vanguardPass` presses it itself a few seconds out from ANY camp (the wand only at orange
+and red, because its charges are the match's; Mirror Image costs mana and comes back), the images
+walk in for `VANGUARD_LEAD` and the army holds. The hero casting it is the one unit the hold does
+not stop, since a stop order cancels the cast. Live, a level-5 camp swung 16 times at the image and
+0 times at the real army over the first 12 seconds.
 
 #### An illusion is a PICTURE of the army, not part of it
 

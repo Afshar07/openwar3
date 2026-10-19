@@ -188,6 +188,8 @@ console.log("\n--- hero pairings, and the Insane-only builds ---");
   check("every Shadow Hunter build opens on Hex or Healing Wave",
     orc.skills.Oshd.every((b) => b[0] === "AOhx" || b[0] === "AOhw"), true);
   check("Death Knight → Lich", undead.combos.Udea.second.join(), "Ulic");
+  check("a Crypt Lord who opens starts on Carrion Beetles", undead.combos.Ucrl.skills.Ucrl[0], "AUcb");
+  check("…and as a third hero keeps Impale first", undead.skills.Ucrl[0][0], "AUim");
   check("Crypt Lord → Death Knight, then the Dark Ranger", undead.combos.Ucrl.second.join() + "/" + undead.combos.Ucrl.third.flat().join(), "Udea/Nbrn");
   check("Demon Hunter → Keeper or Naga Sea Witch", nightelf.combos.Edem.second.join(), "Ekee,Nngs");
   check("Keeper → Demon Hunter or Pit Lord", nightelf.combos.Ekee.second.join(), "Edem,Nplh");

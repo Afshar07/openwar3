@@ -33,7 +33,7 @@ import {
 import { liveProfile, plusProfile, type PlusProfile } from "./profile";
 import { aimCtx, HERO_KILL_HP, heroKillable, isSiege, isTower, killValue, razeCost, razeValue } from "./targeting";
 import { PLUS_RACES, TAVERN_HEROES, insaneVariant, rollStrategy, tableForEdition, type HeroCombo, type PlusRaceTable, type PlusStrategy } from "./races";
-import { MELEE_INSANE } from "../ids";
+import { MELEE_INSANE, MIRROR_IMAGE } from "../ids";
 import { isRoc } from "../../data/edition";
 import { CAMP_GREEN_MAX, armyPower, maxCampLevel, type CreepForce, type Fighter } from "./power";
 
@@ -187,6 +187,8 @@ const ROAM_CAMP_CLEAR = 900;
 const ROAM_SHARE = 0.3;
 const ROAM_OUT = 2400;
 const ROAM_REREAD = 5;
+/** …and how far along the line to the enemy a roam spot must be — see `roamCircuit`. OURS. */
+const ROAM_AHEAD_MIN = 0.15;
 /** …and how close to that spot counts as "there". */
 const RALLY_SLACK = 320;
 
@@ -4799,10 +4801,23 @@ export class ComputerPlusAi {
     const home = b.ai.home();
     const foe = b.ai.enemyBase();
     const spots: Array<{ x: number; y: number }> = [];
+    // IN FRONT of the base, never behind or beside it: "our half" alone (nearer our hall than
+    // theirs) took in every mine and cleared camp BEHIND our own base too, and reported was an
+    // orc's Blademaster and Grunt "standing at the back of its base for a while for no reason".
+    // A spot qualifies when its projection on the line from our hall to theirs lies between
+    // `ROAM_AHEAD_MIN` and half of that line — between the two bases, on our side of the middle.
+    if (!foe) return spots;
+    const fx = foe.x - home.x;
+    const fy = foe.y - home.y;
+    const len2 = fx * fx + fy * fy || 1;
+    const ahead = (p: { x: number; y: number }): boolean => {
+      const t = ((p.x - home.x) * fx + (p.y - home.y) * fy) / len2;
+      return t >= ROAM_AHEAD_MIN && t <= 0.5;
+    };
     for (const m of world.mines.values()) {
       const dHome = Math.hypot(m.x - home.x, m.y - home.y);
       if (dHome <= TOWN_RADIUS) continue; // our own town's mine — that is home
-      if (foe && Math.hypot(m.x - foe.x, m.y - foe.y) < dHome) continue; // their half
+      if (!ahead(m)) continue;
       let taken = false;
       for (const u of world.units.values()) {
         if (u.hp <= 0 || !u.building || u.owner < 0 || u.owner >= MELEE.MAX_PLAYERS) continue;
@@ -4818,13 +4833,12 @@ export class ComputerPlusAi {
     // …and the camps already CLEARED on our half: the ground a ladder player's army stands on
     // between fights is where it has just fought, and a dead camp is a spot nothing will wake.
     for (const camp of this.host.creepCamps()) {
-      const dHome = Math.hypot(camp.x - home.x, camp.y - home.y);
-      if (dHome <= TOWN_RADIUS || (foe && Math.hypot(camp.x - foe.x, camp.y - foe.y) < dHome)) continue;
+      if (Math.hypot(camp.x - home.x, camp.y - home.y) <= TOWN_RADIUS || !ahead(camp)) continue;
       if (camp.members.some((id) => (world.units.get(id)?.hp ?? 0) > 0)) continue;
       spots.push({ x: camp.x, y: camp.y });
     }
     spots.sort((p, q) => Math.hypot(p.x - home.x, p.y - home.y) - Math.hypot(q.x - home.x, q.y - home.y));
-    if (!spots.length && foe) {
+    if (!spots.length) {
       const d = Math.hypot(foe.x - home.x, foe.y - home.y) || 1;
       const f = Math.min(ROAM_OUT, d * ROAM_SHARE) / d;
       spots.push({ x: home.x + (foe.x - home.x) * f, y: home.y + (foe.y - home.y) * f });
@@ -5351,11 +5365,14 @@ export class ComputerPlusAi {
    * is in one, and stopping it is how a Grunt turns its back on something.
    */
   private vanguardPass(b: Brain, target: { x: number; y: number }): void {
-    if (!b.creeping || b.vanguardDone || b.creepLevel <= CAMP_GREEN_MAX) return;
+    if (!b.creeping || b.vanguardDone) return;
     const hero = this.squadHero(b);
     if (!hero || Math.hypot(hero.x - target.x, hero.y - target.y) > VANGUARD_RANGE) return;
     b.vanguardDone = true;
-    if (b.items.makeIllusions(hero) <= 0) return;
+    // The WAND for an orange or red camp (its charges are the match's), else MIRROR IMAGE at any
+    // camp (`mirrorVanguard` — its price is mana, and it comes back).
+    const caster = (b.creepLevel > CAMP_GREEN_MAX && b.items.makeIllusions(hero) > 0) ? null : this.mirrorVanguard(b);
+    if (caster === undefined) return;
     // Armed, but the clock is not started here — `commit` restarts it when the copies actually
     // set off, which is a pass later (see `VANGUARD_LEAD`). This value is only what keeps the
     // hold up until then. The re-issue clock is zeroed so that pass is the very next army pass
@@ -5363,9 +5380,38 @@ export class ComputerPlusAi {
     b.vanguardUntil = b.clock + VANGUARD_LEAD + VANGUARD_SPAWN_GRACE;
     b.reissueIn = 0;
     for (const u of this.squadUnits(b)) {
-      if (isCopy(u) || u.inCombat) continue;
+      // …and never the hero CASTING the images: a stop order is the one thing that throws the
+      // cast away before it lands.
+      if (isCopy(u) || u.inCombat || u === caster) continue;
       this.issue(b, { c: "order", unitId: u.id, order: { kind: "stop" }, queued: false });
     }
+  }
+
+  /**
+   * MIRROR IMAGE AS A VANGUARD — the Wand of Illusion's job done with the Blademaster's own button.
+   *
+   * Reported: the Computer+ Blademaster "uses mirror images and attacks with the real blademaster
+   * + grunts instead of attacking with the illusion it created so that the illusion tanks the creep
+   * camp". `[AOmi]` makes 1/2/3 images (`DataA`) that are copies like a wand's — they deal no
+   * damage and take double (`DataB`/`DataC`, docs/illusions.md) — so what they are worth against a
+   * camp is the same opening exchange, and the caster's own rung (plus/casting.ts, `engaged`)
+   * only ever pressed it once the camp had already picked the real hero. So the hero presses it a
+   * few seconds out, the images walk in for `VANGUARD_LEAD`, and the body waits — the hold
+   * `vanguardPass` already has. At ANY camp, unlike the wand: Mirror Image is paid in mana and
+   * `Cool1` 3 brings it back, where a wand's three charges are the match's.
+   *
+   * Returns the hero that pressed it, or undefined when nobody could (no rank, cooldown, mana —
+   * `castUseError`, the click's own door).
+   */
+  private mirrorVanguard(b: Brain): SimUnit | undefined {
+    const world = this.host.world;
+    for (const u of this.squadUnits(b)) {
+      if (!u.isHero || isCopy(u) || u.hp <= 0 || u.inCombat) continue;
+      const ab = u.abilities.find((a) => a.code === MIRROR_IMAGE && a.level > 0);
+      if (!ab || world.castUseError(u.id, ab.code) !== null) continue;
+      if (this.issue(b, { c: "cast", unitId: u.id, code: ab.code, targetId: 0, x: u.x, y: u.y, queued: false })) return u;
+    }
+    return undefined;
   }
 
   /**

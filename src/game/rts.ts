@@ -1116,6 +1116,7 @@ export class RtsController {
       // tick 0 (VisionSet.seat), so this is the same grid its units acquire through.
       visible: (player, x, y) => this.viewpoints.viewpointFor(player).vision.stateAt(x, y) === FogState.Visible,
       foodCeiling: (player) => this.authority.foodCapCeilingOf(player),
+      hasFreeHero: (player) => this.authority.hasFreeHero(player),
       // The two things only Computer+ asks for (src/ai/plus/). Both leave through the SAME
       // doors a person's would: a line of chat is routed and relayed exactly as a typed one,
       // and "I have lost, I am leaving" is the ordinary player-left event the map's own melee

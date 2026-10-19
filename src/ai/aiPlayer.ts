@@ -77,6 +77,9 @@ export interface AiHost {
   /** `GetPlayerState(p, PLAYER_STATE_FOOD_CAP_CEILING)` — the most food this player's buildings
    *  can make (100 in melee). `FoodCap()` never reads past it (Authority.foodFor). */
   foodCeiling(player: number): number;
+  /** Has this player still got the melee opening's FREE hero to spend (Authority.hasFreeHero)?
+   *  Optional so a test host need not answer; absent means "no". */
+  hasFreeHero?(player: number): boolean;
 }
 
 /**
@@ -1120,6 +1123,13 @@ export class AiPlayer {
     //    altar stands empty and the ladder never notices.
     //
     // Priced honestly, the loop saves for a revival exactly as it saves for anything else.
+    // …AND THE FIRST HERO OF A MELEE GAME COSTS NOTHING AT ALL. The authority charges it 0/0
+    // (`hasFreeHero` — the opening's hero token, authority.ts `train`) and food is its only
+    // price, but this row priced it at the full 425 gold and 100 lumber. A row the loop cannot
+    // afford HALTS it, so an Insane computer whose altar was standing sat saving for a hero it
+    // would never be charged for — reported as "takes about a minute to start training its first
+    // hero even though it has food available" — with every row beneath it starved for as long.
+    if (def.isHero && this.host.hasFreeHero?.(this.player)) return { gold: 0, lumber: 0 };
     const fallen = def.isHero ? this.fallenFor(id) : null;
     if (fallen) {
       const c = heroReviveCost("altar", def.goldCost, def.lumberCost, def.buildTime || 1, fallen.level);

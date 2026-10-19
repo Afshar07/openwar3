@@ -932,7 +932,18 @@ const UNDEAD: PlusRaceTable = {
   // Knight being second whenever he did not open is also `secondHero`'s rule.
   combos: {
     [DEATH_KNIGHT]: { second: [LICH], third: [[DARK_RANGER], [CRYPT_LORD]] },
-    [CRYPT_LORD]: { second: [DEATH_KNIGHT], third: [[DARK_RANGER]] },
+    // …and a Crypt Lord who OPENS starts on CARRION BEETLES, not Impale (the developer's): the
+    // beetles are bodies that tank and grow a creeping party from the first camp on, which is
+    // what the fast expansion's thin early army needs (`fastexpand`). As a third hero he keeps
+    // the Impale build in `skills` above.
+    [CRYPT_LORD]: {
+      second: [DEATH_KNIGHT],
+      third: [[DARK_RANGER]],
+      skills: {
+        [CRYPT_LORD]: [CARRION_SCARAB, IMPALE, CARRION_SCARAB, IMPALE, CARRION_SCARAB, LOCUST_SWARM,
+          IMPALE, THORNY_SHIELD, THORNY_SHIELD, THORNY_SHIELD],
+      },
+    },
     [DREAD_LORD]: { second: [DEATH_KNIGHT], third: [[DARK_RANGER]] },
     "*": { second: [DEATH_KNIGHT], third: [[DARK_RANGER]] },
   },
