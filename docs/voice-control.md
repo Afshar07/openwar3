@@ -54,7 +54,8 @@ files (`onnx-community/whisper-*.en`), run by transformers.js in a worker:
    first used). The only download is the model.
 2. **Threads need cross-origin ISOLATION.** Whisper's encoder always processes a 30-second
    window, so a short command costs nearly what a long one does: on ONE thread base.en took
-   ~4.7 s to answer a two-second command, on eight ~1.4 s (small.en ~3.5 s). The dev server
+   ~4.7 s to answer a two-second command, on eight ~0.8–1.4 s (small.en ~3.5 s), depending on the
+   CPU. The dev server
    (`vite.config.ts`) and the desktop app's server (`electron/server.mjs`) send
    `Cross-Origin-Opener-Policy: same-origin` + `Cross-Origin-Embedder-Policy: credentialless`;
    a host that does not falls back to one thread, slowly but correctly.
@@ -62,10 +63,13 @@ files (`onnx-community/whisper-*.en`), run by transformers.js in a worker:
    Cache; "installed" is its two ONNX files being there (`whisperFiles`), so a browser clearing
    site data is a model to fetch again, never a broken one. The old Vosk model in IndexedDB
    (`/vosk`) is deleted at boot (`forgetOldVoskModel`).
-4. **CPU everywhere, for now.** The int8 files are the fast ones on CPU, and every machine has a
-   CPU. WebGPU would answer in a fraction of the time on a machine with a GPU, but it wants
-   different files (fp16/fp32 encoder, 4-bit decoder) — a second download per device, left for
-   when it can be measured on real hardware.
+4. **CPU everywhere — WebGPU was measured and LOSES.** On the developer's RTX 3050 (Chrome,
+   WebGPU adapter "nvidia/ampere"), base.en's int8 files answered a 2 s command in **~2.6 s on
+   WebGPU against ~0.8 s on the CPU** (eight threads), and an 11 s clip in 9.3 s against 1.2 s:
+   int8 matrix work is not native to the WebGPU backend, so it runs as converted or fallen-back
+   ops. WebGPU only pays with fp16/fp32 encoders and 4-bit decoders — DIFFERENT files, a second
+   download per device — and the developer ruled that out. Do not switch the device to "webgpu"
+   for the int8 models.
 
 ## What a phrase means (the developer's rules)
 
