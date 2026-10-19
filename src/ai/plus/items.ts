@@ -1,4 +1,5 @@
 import type { AbilityDef } from "../../data/abilities";
+import { MELEE } from "../../data/gameplayConstants";
 import type { ItemDef } from "../../data/items";
 import type { PlayableRace } from "../../data/races";
 import { ITEM_REGEN_GROUP, type SimUnit } from "../../sim/world";
@@ -730,6 +731,27 @@ const SHOP_REACH = 5000;
  * fight ends; across the map is not.
  */
 const PORTAL_DETOUR = 2000;
+/**
+ * …and how far while the party is OUT on a wave or a creep run (`ItemCtx.wave`). OURS. Shorter,
+ * because the army walks on without its captain, and only for the scroll — the potions wait for
+ * a muster. Measured on observed Insane matches after the reserve and the home muster landed
+ * (plan.ts `portalSaving`, `ComputerPlusAi.roaming`): what was left of the time a scroll was
+ * buyable and missing was mostly mid-wave, once with a Goblin Merchant 820 off the hero's line and
+ * 550 gold in hand for a minute — "when it gets the chance (e.g. near goblin merchant …)" is the
+ * developer's own wording. A screen's width: a duck to the counter, not a trip.
+ */
+const PORTAL_DETOUR_WAVE = 1200;
+
+/**
+ * How near a shop something hostile may stand before walking a hero to it is walking into a
+ * fight — `guarded`. A Goblin Merchant on a melee map stands in a creep camp until somebody
+ * clears it (Lost Temple's two are each behind a level-18 camp), and "buy one at a cleared
+ * Goblin Merchant" is the developer's own wording: an uncleared one is not a shop yet. 800 is
+ * past every creep's acquisition (UnitWeapons.slk `acquire`: 500 on 510 rows, never more than 700
+ * on anything a camp is built from — the scout's `CREEP_PASS` reads the same column) plus a step.
+ * A hero ALREADY in a guarded shop's range still buys there; only the walk is refused.
+ */
+const SHOP_GUARD = 800;
 
 /** The Potion of Healing a defence buys (`defenceChance`) — `[phea]`, on all four race shops. */
 const DEFENCE_POTION = "phea";
@@ -913,6 +935,9 @@ export interface ItemCtx {
   /** Is our base UNDER ATTACK — the army manager's own `defending`? See `defenceChance`.
    *  Absent means no. */
   defending?: boolean;
+  /** Is the party OUT on a wave or a creep run (`attacking`)? Then a `mayDetour` is the scroll's
+   *  alone and on the short leash, `PORTAL_DETOUR_WAVE`. Absent means no. */
+  wave?: boolean;
   /** The highest hall tier standing (1/2/3) — `defenceChance` asks for the second. */
   tier?: number;
 }
@@ -2065,7 +2090,7 @@ export class PlusItems {
     // salves are what hold the first creep camps together. Once a scroll has been carried, a
     // missing one outranks everything.
     if (!this.hadPortal && (RACE_FIRST[this.race] ?? []).some((w) => this.carried(own, w.id) < w.want)) return false;
-    return this.itemChance(now, own, ctx, PORTAL.id);
+    return this.itemChance(now, own, ctx, PORTAL.id, ctx.wave ? PORTAL_DETOUR_WAVE : PORTAL_DETOUR);
   }
 
   /**
@@ -2109,9 +2134,12 @@ export class PlusItems {
   private fightChance(now: number, own: SimUnit[], ctx: ItemCtx): boolean {
     if (!this.profile.keepPortal || this.profile.shopping <= 0) return false;
     if (this.carried(own, PORTAL.id) <= 0) return false;
+    // The wave's detour is the SCROLL's (`PORTAL_DETOUR_WAVE`): a potion is bought in passing on a
+    // wave, never walked to.
+    const fightCtx = ctx.wave ? { ...ctx, mayDetour: false } : ctx;
     for (const w of FIGHT) {
       if (this.carried(own, w.id) >= w.want) continue;
-      if (this.itemChance(now, own, ctx, w.id)) return true;
+      if (this.itemChance(now, own, fightCtx, w.id)) return true;
     }
     return false;
   }
@@ -2157,7 +2185,7 @@ export class PlusItems {
     let best = leash;
     for (const shop of shops) {
       const d = Math.hypot(shop.x - hero.x, shop.y - hero.y);
-      if (d <= best) {
+      if (d <= best && !this.guarded(shop)) {
         best = d;
         near = shop;
       }
@@ -2221,6 +2249,7 @@ export class PlusItems {
       for (const shop of this.view.world.units.values()) {
         if (shop.hp <= 0 || !shop.building || shop.building.constructionLeft > 0 || this.view.hostile(shop)) continue;
         if (!this.view.world.canUseShop(shop.id, this.view.player) || !this.stocks(shop, w.id)) continue;
+        if (this.guarded(shop)) continue;
         const home = Math.hypot(shop.x - ctx.home.x, shop.y - ctx.home.y) <= SHOP_REACH;
         if (home || heroes.some((h) => Math.hypot(shop.x - h.x, shop.y - h.y) <= PORTAL_DETOUR)) return def.gold;
       }
@@ -2241,6 +2270,7 @@ export class PlusItems {
     for (const shop of this.view.world.units.values()) {
       if (shop.hp <= 0 || !shop.building || shop.building.constructionLeft > 0 || this.view.hostile(shop)) continue;
       if (!this.view.world.canUseShop(shop.id, this.view.player) || !this.stocks(shop, PORTAL.id)) continue;
+      if (this.guarded(shop)) continue;
       const home = Math.hypot(shop.x - ctx.home.x, shop.y - ctx.home.y) <= SHOP_REACH;
       if (home || heroes.some((h) => Math.hypot(shop.x - h.x, shop.y - h.y) <= PORTAL_DETOUR)) return def.gold;
     }
@@ -2507,6 +2537,8 @@ export class PlusItems {
       // that will refuse him — a non-hostile NEUTRAL player's shop is nobody's ally.
       if (!this.view.world.canUseShop(u.id, this.view.player)) continue;
       if (Math.hypot(u.x - ctx.home.x, u.y - ctx.home.y) > SHOP_REACH) continue;
+      // …and not one with its camp still round it — see `SHOP_GUARD`.
+      if (this.guarded(u)) continue;
       out.push(u);
     }
     // OUR OWN SHOP FIRST, then everything else nearest-first.
@@ -2525,6 +2557,18 @@ export class PlusItems {
         Math.hypot(a.x - ctx.home.x, a.y - ctx.home.y) - Math.hypot(b.x - ctx.home.x, b.y - ctx.home.y),
     );
     return out;
+  }
+
+  /** Is a CREEP camp nobody has cleared standing within `SHOP_GUARD` of this shop? Then a hero
+   *  sent to it is a hero sent into a fight. Creeps only: a camp is the map's and every Computer+
+   *  pass reads them (`creepCamps`), while a PLAYER's army out of sight is fog this must not see
+   *  through. */
+  private guarded(shop: SimUnit): boolean {
+    for (const u of this.view.world.units.values()) {
+      if (u.hp <= 0 || u.building || (u.owner >= 0 && u.owner < MELEE.MAX_PLAYERS) || !this.view.hostile(u)) continue;
+      if (Math.hypot(u.x - shop.x, u.y - shop.y) <= SHOP_GUARD) return true;
+    }
+    return false;
   }
 
   /** Would this shop sell us this item right now — on its shelf, in stock, its tech met? */

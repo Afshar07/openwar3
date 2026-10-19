@@ -187,6 +187,9 @@ const ROAM_CAMP_CLEAR = 900;
 const ROAM_SHARE = 0.3;
 const ROAM_OUT = 2400;
 const ROAM_REREAD = 5;
+/** …and, when the fallback point toward the enemy is in a camp's notice, how far it is pulled
+ *  back toward home per try — see `roamCircuit`. OURS. */
+const ROAM_PULL_IN = 200;
 /** Defend (`stancePass`): the ability code, and how close something armed must be for the
  *  shields to come up — just past the longest tower reach a Footman walks into (UnitWeapons
  *  `rangeN1`: `[owtw]` and `[hatw]` 800, `[hgtw]` 700), so they are up before the first shot. */
@@ -2953,13 +2956,29 @@ export class ComputerPlusAi {
       // map while the rest of the party stands on a cleared camp waiting for it.
       mayShop: b.mode === "massing" && !b.afield,
       // …and the wider door for a missing Town Portal (`PlusItems.portalChance`): any muster,
-      // the field's included, since that is where the Goblin Merchants are.
-      mayDetour: b.mode === "massing",
+      // the field's included, since that is where the Goblin Merchants are — and a RETREAT whose
+      // hero is back inside its own town. A beaten army sits out `retreating` at home until it has
+      // its health back (`REGROUP_HP_FRACTION`), and measured on an observed Insane match that
+      // was a minute and more of a hero standing 700 from its own race shop with 500 gold and no
+      // scroll, because neither door opened in that mode. Not on the road home: a retreat is
+      // usually being chased.
+      mayDetour: b.mode === "massing" || (b.mode === "retreating" && this.heroHome(b)) || b.mode === "attacking",
+      // …and on a WAVE that door is the scroll's alone, on a short leash (`PORTAL_DETOUR_WAVE`):
+      // a Goblin Merchant a few hundred off the line of march, not a trip.
+      wave: b.mode === "attacking",
       // The one purchase a DEFENCE makes (`PlusItems.defenceChance`): a Potion of Healing, from
       // our own shop, once the second tier stands.
       defending: b.mode === "defending",
       tier: this.tier(b),
     };
+  }
+
+  /** Is the squad's hero back inside its own main town (`TOWN_RADIUS` of the hall)? */
+  private heroHome(b: Brain): boolean {
+    const hero = this.squadHero(b);
+    if (!hero) return false;
+    const home = b.ai.home();
+    return Math.hypot(hero.x - home.x, hero.y - home.y) <= TOWN_RADIUS;
   }
 
   /** The world as the plan reads it, assembled once per pass. */
@@ -2979,7 +2998,8 @@ export class ComputerPlusAi {
       // The Ghouls actually kept in the trees — the rest are the wave's (`recruit`), and the
       // plan's whole-army ceiling prices them as soldiers (plus/plan.ts `soldiers`).
       lumberCrew: this.lumberCrew(b),
-      portalReserve: b.items.portalSaving(this.itemCtx(b)) + b.items.fightSaving(this.itemCtx(b)),
+      portalReserve: b.items.portalSaving(this.itemCtx(b)),
+      fightReserve: b.items.fightSaving(this.itemCtx(b)),
       wonAt: b.wonAt,
       foodOf: (id) => this.host.registry.get(id)?.foodUsed ?? 0,
       defOf: (id) => this.host.registry.get(id),
@@ -4772,7 +4792,20 @@ export class ComputerPlusAi {
     if (!profile.roam || b.mode !== "massing" || b.clock < profile.creepAt) return false;
     const hero = this.squadHero(b);
     if (!hero || hero.hp / Math.max(1, hero.maxHp) < CREEP_HEALTH) return false;
-    return this.squadFood(b) >= profile.creepFood;
+    if (this.squadFood(b) < profile.creepFood) return false;
+    // …AND NOT WITHOUT A TOWN PORTAL IT COULD BUY. Reported: Insane "is still not making a big
+    // effort to always try to buy a scroll of town portal when it doesn't have one". Measured on
+    // an observed Lost Temple match once the bank was holding the price (plan.ts `portalSaving`):
+    // three of the four players stood 4000–6000 from any shop with 400–1200 gold for one to three
+    // minutes, because a ROAM is a muster out on the map, the replacement detour only reaches
+    // `PORTAL_DETOUR` (2000) off the hero, and the shopping trip only starts from a muster AT
+    // HOME (`mayShop`). So while a scroll is missing, the purse covers it and some shop we would
+    // walk to sells one (`portalSaving` — stock on the shelf, unguarded, in reach), the party
+    // musters at home instead, where the race shop is a few steps away and both doors open. A
+    // dozen seconds of mustering in the base for the one item that saves an army.
+    const portal = b.items.portalSaving(this.itemCtx(b));
+    if (portal > 0 && b.ai.gold() >= portal) return false;
+    return true;
   }
 
   /**
@@ -4825,6 +4858,24 @@ export class ComputerPlusAi {
       const t = ((p.x - home.x) * fx + (p.y - home.y) * fy) / len2;
       return t >= ROAM_AHEAD_MIN && t <= 0.5;
     };
+    // …AND NOWHERE A CREEP WILL NOTICE, NOR PAST ONE. Reported: on Lost Temple an Insane computer
+    // "triggered the aggro of a red camp at the start of the game because it decided to walk next
+    // to it for no reason". It was this circuit. With no free mine ahead, the fallback below is a
+    // bare projection toward the enemy, and nothing asked what stood there: from the top base
+    // against the left one (or the bottom against the right) that point is ~150 from the centre
+    // of the level-21 ogre camp guarding the Goblin Laboratory, so the first roam of the match
+    // walked a hero and two Ghouls into it at 2:40 under a plain MOVE order (reproduced live).
+    // The mine test was only ever asked of camp CENTRES and of the spot itself, never of the
+    // walk there. So every spot is asked both, of every living creep (`liveCreeps`, the scout's
+    // haystack): no creep within `ROAM_CAMP_CLEAR` of it, and none within `CREEP_PASS` — the
+    // farthest a melee camp's creep acquires — of the straight line out from home. The line is
+    // the pathfinder's to bend, but a spot whose straight line crosses a camp is one the walk
+    // there almost always grazes.
+    const creeps = this.liveCreeps();
+    const quiet = (p: { x: number; y: number }): boolean => {
+      for (const c of creeps) if (Math.hypot(c.x - p.x, c.y - p.y) < ROAM_CAMP_CLEAR) return false;
+      return clearance(home, p, creeps) >= CREEP_PASS;
+    };
     for (const m of world.mines.values()) {
       const dHome = Math.hypot(m.x - home.x, m.y - home.y);
       if (dHome <= TOWN_RADIUS) continue; // our own town's mine — that is home
@@ -4839,20 +4890,26 @@ export class ComputerPlusAi {
         if (Math.hypot(camp.x - m.x, camp.y - m.y) > ROAM_CAMP_CLEAR) continue;
         if (camp.members.some((id) => (world.units.get(id)?.hp ?? 0) > 0)) { taken = true; break; }
       }
-      if (!taken) spots.push({ x: m.x, y: m.y });
+      if (!taken && quiet(m)) spots.push({ x: m.x, y: m.y });
     }
     // …and the camps already CLEARED on our half: the ground a ladder player's army stands on
     // between fights is where it has just fought, and a dead camp is a spot nothing will wake.
     for (const camp of this.host.creepCamps()) {
       if (Math.hypot(camp.x - home.x, camp.y - home.y) <= TOWN_RADIUS || !ahead(camp)) continue;
       if (camp.members.some((id) => (world.units.get(id)?.hp ?? 0) > 0)) continue;
-      spots.push({ x: camp.x, y: camp.y });
+      if (quiet(camp)) spots.push({ x: camp.x, y: camp.y });
     }
     spots.sort((p, q) => Math.hypot(p.x - home.x, p.y - home.y) - Math.hypot(q.x - home.x, q.y - home.y));
     if (!spots.length) {
+      // The point toward the enemy — pulled back toward home a step at a time until it is quiet,
+      // and NOTHING if it never is: an empty circuit is `homeRally`, which is where a party with
+      // no safe ground ahead of it should be waiting anyway.
       const d = Math.hypot(foe.x - home.x, foe.y - home.y) || 1;
-      const f = Math.min(ROAM_OUT, d * ROAM_SHARE) / d;
-      spots.push({ x: home.x + (foe.x - home.x) * f, y: home.y + (foe.y - home.y) * f });
+      for (let out = Math.min(ROAM_OUT, d * ROAM_SHARE); out > RALLY_OUT; out -= ROAM_PULL_IN) {
+        const f = out / d;
+        const p = { x: home.x + (foe.x - home.x) * f, y: home.y + (foe.y - home.y) * f };
+        if (quiet(p)) { spots.push(p); break; }
+      }
     }
     return spots;
   }
@@ -5594,6 +5651,9 @@ export class ComputerPlusAi {
     for (const u of this.squadUnits(b)) {
       if (Math.hypot(u.x - home.x, u.y - home.y) <= TOWN_RADIUS / 2) continue;
       allHome = false;
+      // A hero walking to our shop for a missing Town Portal (`ItemCtx.mayDetour`, which a
+      // retreat opens once the hero is home) is left to walk — `massing`'s own skip.
+      if (u.id === b.items.errand) continue;
       // …and "it already has a move order" is not the same question as "it is already walking
       // home". The aim MOVES — `marchAim` re-draws the leg round the camps as the party comes
       // apart from them — and a retreat is entered from a fight, where a unit may be carrying a

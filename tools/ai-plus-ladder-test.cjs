@@ -77,7 +77,7 @@ function recorder(table, strategy, profile, opts = {}) {
     setBuildUpgr: (level, item) => build.push({ kind: "upgrade", qty: level, item }),
     setBuildUpgrSaved: (level, item) => build.push({ kind: "upgrade", qty: level, item, save: true }),
     setBuildExpa: (qty, item) => build.push({ kind: "expand", qty, item }),
-    reserveGold: (gold) => { if (gold > 0) build.push({ kind: "reserve", qty: gold, item: "" }) },
+    reserveGold: (gold, wood = 0) => { if (gold > 0 || wood > 0) build.push({ kind: "reserve", qty: gold, wood, item: "" }) },
     secondaryTown: (town, qty, item) => { if (qty > 0) build.push({ kind: "unit", qty, item, town }) },
     basicExpansion: (go, hall) => { if (go) ai.setBuildExpa(ai.townCount(hall) + 1, hall) },
     // Faithful to `AiPlayer.meleeTownHall`, because WHERE this row lands is now under test: a
@@ -456,8 +456,11 @@ for (const [race, table] of Object.entries(PLUS_RACES)) {
 // --- a missing Town Portal is saved for below the opening ---------------------------------
 //
 // `PlusItems.portalSaving` hands the plan the scroll's price; the plan spends it as a RESERVE row
-// (`AiPlayer.reserveGold`) — a row that builds nothing and never halts — directly under the core
-// army, so the crews, the hall, the hero, the Barracks and the first soldiers are never what waits.
+// (`AiPlayer.reserveGold`) — a row that builds nothing and never halts — directly under the
+// Barracks, so the crews, the hall, the altar, the hero and the Barracks are never what waits, and
+// ABOVE the core army and the rest of the workers: under them, an observed Insane match spent 2–5
+// minutes with no scroll and the bank under 350, because their one-more-every-pass rows spent it
+// first ("not making a big effort to always try to buy a scroll of town portal").
 console.log("\n--- a missing Town Portal is saved for ---");
 for (const [race, table] of Object.entries(PLUS_RACES)) {
   const standing = { [table.halls[0]]: 1, [table.altar]: 1, [table.barracks]: 1 };
@@ -468,6 +471,8 @@ for (const [race, table] of Object.entries(PLUS_RACES)) {
   const crewAt = r.build.findIndex((x) => x.item === table.worker);
   check(`${race}: …below the crews and the barracks`,
     crewAt < at && r.build.findIndex((x) => x.item === table.barracks) < at, true);
+  const soldierAt = r.build.findIndex((x) => x.kind === "unit" && x.item !== table.worker && table.units[x.item]);
+  check(`${race}: …and above the core army`, soldierAt < 0 || soldierAt > at, true);
   const none = recorder(table, table.strategies[0], PLUS_NORMAL, { standing, clock: 300, armyFood: 6 });
   buildPlan(none.ctx);
   check(`${race}: …and nothing held with nothing to save for`, none.build.some((x) => x.kind === "reserve"), false);
@@ -875,6 +880,9 @@ function runEconomy() {
       // …and when the first TOWER stood (plan.ts `firstTower`): the race's tower or what it
       // becomes.
       towerAt: Infinity,
+      // …and when the SECOND HERO was asked for (queued counts — an altar's queue is the
+      // decision, plan.ts `tierTwoHero`).
+      hero2At: Infinity,
     };
     const towerIds = [table.tower, ...(table.towerUpgrades ?? []).map((u) => u.id)];
     const alive = (id) => S.units[id] ?? 0;
@@ -910,6 +918,7 @@ function runEconomy() {
       setBuildUpgr: (lvl, item) => list.push({ type: "r", qty: lvl, item }),
       setBuildUpgrSaved: (lvl, item) => list.push({ type: "r", qty: lvl, item }),
       setBuildExpa: (q, item) => { if (known(item)) list.push({ type: "e", qty: q, item }) },
+      reserveGold: (gold, wood = 0) => { if (gold > 0 || wood > 0) list.push({ type: "g", qty: gold, wood, item: "" }) },
       secondaryTown: (t, q, item) => { if (q > 0 && known(item)) list.push({ type: "u", qty: q, item }) },
       basicExpansion: (go, hall) => { if (go && townCount(hall) === townCountDone(hall)) ai.setBuildExpa(townCount(hall) + 1, hall) },
       meleeTownHall: () => {},
@@ -978,7 +987,9 @@ function runEconomy() {
     /** `AiPlayer.holdForUpgrades` — a building this pass means to upgrade takes no worker. */
     function holdForUpgrades() {
       const held = new Set();
+      let saved = 0, savedWood = 0;
       for (const row of list) {
+        if (row.type === "g") { saved += row.qty; savedWood += row.wood; continue }
         if (row.type !== "u") continue;
         const d = def(row.item);
         if (!d?.isBuilding || townCount(row.item) >= row.qty) continue;
@@ -987,7 +998,7 @@ function runEconomy() {
         const src = of(from).filter((b) => b.ready);
         if (!src.length) continue;
         const c = rowCost(row.item);
-        if (S.gold < c.gold || S.lumber < c.lumber) continue;
+        if (S.gold - saved < c.gold || S.lumber - savedWood < c.lumber) continue;
         for (const b of src) held.add(b);
       }
       return held;
@@ -1035,6 +1046,8 @@ function runEconomy() {
       let released = false;
       S.halted = null;
       for (const row of list) {
+        // `AiPlayer.reserveGold`: a price held back from every row below, never a halt.
+        if (row.type === "g") { tg -= row.qty; tw -= row.wood; continue }
         if (row.type === "r") {
           const have = S.research[row.item] ?? 0;
           if (have >= row.qty) continue;
@@ -1137,6 +1150,7 @@ function runEconomy() {
       if (S.tier2At === Infinity && doneRaw(table.halls[1]) > 0) S.tier2At = S.t;
       if (S.spikeAt === Infinity && spike && doneRaw(spike) > 0) S.spikeAt = S.t;
       if (S.towerAt === Infinity && towerIds.some((id) => doneRaw(id) > 0)) S.towerAt = S.t;
+      if (S.hero2At === Infinity && ai.heroId2 && countRaw(ai.heroId2) > 0) S.hero2At = S.t;
       S.t += DT;
     }
     return {
@@ -1151,7 +1165,7 @@ function runEconomy() {
       // The race's artillery, asked for or standing (plus/plan.ts `siegeLine`).
       siege: table.siegeUnit ? ai.count(table.siegeUnit) : 0,
       tierHaltShare: S.tierHaltsEarly / Math.max(1, S.passesEarly),
-      tier2At: Math.round(S.tier2At), spike, spikeAt: Math.round(S.spikeAt),
+      tier2At: Math.round(S.tier2At), hero2At: Math.round(S.hero2At), spike, spikeAt: Math.round(S.spikeAt),
       expandAt: Math.round(S.expandAt),
       towerAt: Math.round(S.towerAt),
       back,
@@ -1215,12 +1229,19 @@ function runEconomy() {
           + ` ${table.barracks}x${r.producers} workers=${String(r.workers).padStart(2)}`
           + ` gold=${String(r.gold).padStart(4)} lumber=${String(r.lumber).padStart(4)}`
           + ` tier2@${String(r.tier2At).padStart(3)}s`
+          + ` hero2@${String(r.hero2At).padStart(3)}s`
           + (r.spike ? ` ${r.spike}@${String(r.spikeAt).padStart(3)}s` : "")
           + ` siege=${r.siege}`
           + ` expand@${String(r.expandAt).padStart(3)}s`
           + ` tower@${String(r.towerAt).padStart(3)}s`
           + ` openingStuckOnTier=${Math.round(r.tierHaltShare * 100)}%`);
         check(`${EDITION} ${name} ${race}/${s.id} asks for nothing this edition lacks`, r.foreign.join(","), "");
+        // THE SECOND HERO WITH THE KEEP (plan.ts `tierTwoHero`): "Computer+ AI (Insane) being
+        // training their second hero VERY late after getting tier 2". Saved for while the hall goes
+        // up, so it is asked for the pass the Keep lands. Measured 0–16s after the fix; it was
+        // 60–150s, and three Insane builds never asked for it inside the ten minutes.
+        if (profile === PLUS_INSANE && r.tier >= 2) check(`${race}/${s.id} (Insane) asks for its second hero within 30s of tier 2`,
+          r.hero2At - r.tier2At <= 30, true);
         if (s.replaces) {
           // …and pinned on ITS terms: the tier-up is held to the build's own clock and no sooner
           // (plan.ts `tier2`), it still arrives inside the ten minutes, and the gold the hall was

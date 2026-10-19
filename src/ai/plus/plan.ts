@@ -73,11 +73,12 @@ export interface PlusCtx {
   readonly workerChops: boolean;
   /**
    * Gold to hold back from the ladder below the opening for a missing Scroll of Town Portal —
-   * `PlusItems.portalSaving` — and, once that is carried, a missing FIGHT item (Scroll of
-   * Healing, Potion of Lesser Invulnerability — `PlusItems.fightSaving`). 0 or absent when there
-   * is nothing to save for. See `portalSaving`.
+   * `PlusItems.portalSaving`. 0 or absent when there is nothing to save for. See `portalSaving`.
    */
   readonly portalReserve?: number;
+  /** …and, once the scroll is carried, for a missing FIGHT item (Scroll of Healing, Potion of
+   *  Lesser Invulnerability — `PlusItems.fightSaving`), held lower down. See `fightSaving`. */
+  readonly fightReserve?: number;
   /** When this player last WON a fight against a player's army and chose to spend it on an
    *  expansion, on `clock`'s scale (-1 or absent = never) — `ComputerPlusAi.expandOnWin`. What
    *  `expand` reads as "now is the time". */
@@ -398,6 +399,8 @@ export function buildPlan(c: PlusCtx): void {
   altar(c);
   firstHero(c);
   barracks(c);
+  // SAVING FOR A MISSING TOWN PORTAL — see `portalSaving` for why HERE.
+  portalSaving(c);
   // …and NOW the REST of the economy — the profile's full worker count, whatever it is. This is
   // the hero-delay fix and it is why only a BOUNDED opening crew sits above the hero: `workers`
   // used to sit where `mineCrew` does and ask for the profile's whole number (14 on Insane), and
@@ -412,8 +415,13 @@ export function buildPlan(c: PlusCtx): void {
   // a row that is never reached at all.
   shop(c);
   army(c, coreArmy(c)); // enough not to die to the first raid, cheap enough not to block tech
-  // SAVING FOR A MISSING TOWN PORTAL — see `portalSaving` for why HERE.
-  portalSaving(c);
+  // THE SECOND HERO COMES WITH THE KEEP — see `tierTwoHero`, and note WHERE it is: directly under
+  // the core army, above the fight-item reserve, the support buildings, the unit-ability
+  // research, the Castle, the tech and the upgrades, because at tier 2 that is the order a ladder
+  // player spends in. Below the core army, so it can never be the reason there is nothing on the field.
+  tierTwoHero(c);
+  // …and for a missing FIGHT item once the scroll is carried — see `fightSaving`.
+  fightSaving(c);
   // …and JUST AFTER A WON FIGHT, the expansion comes up to here from the bottom of the ladder —
   // see `wonExpansion`. Inert the rest of the time: the ordinary row is `expand` below.
   expand(c, true);
@@ -430,11 +438,6 @@ export function buildPlan(c: PlusCtx): void {
   supportBuildings(c);
   // …and the UNIT-ABILITY UNLOCKS (Web, Berserker, Defend…), saved for — see `abilityUpgrades`.
   abilityUpgrades(c);
-  // THE SECOND HERO COMES WITH THE KEEP — see `tierTwoHero`, and note WHERE it is: above the
-  // Castle, above the tech buildings and above the upgrades, because at tier 2 that is the order
-  // a ladder player spends in. Below the core army, so it can never be the reason there is
-  // nothing on the field.
-  tierTwoHero(c);
   tierUpDue(c); // …and from three minutes, the Keep — see TIER2_CLOCK
   // …and the undead's SIEGE, up here rather than below the upgrades — see
   // `PlusRaceTable.siegeEarly`. The same row; only its place in the ladder moves. Above the
@@ -471,15 +474,30 @@ export function buildPlan(c: PlusCtx): void {
  * the next one ahead of the next building, and this row is that: a `reserveGold` row, which
  * builds nothing and never halts, so the rows under it simply see 350 gold less.
  *
- * WHERE it sits is the whole design. Below the crews, the hall, the supply, the hero, the
- * Barracks, the shop and the CORE army — the rows that keep the economy paying and an army on the
- * field (the `CORE_ARMY_FOOD` floor is the thing "must keep an army while it saves" is stated in)
- * — and above the tech, the tier-up, the expansion and the bulk of the army, which is what a
- * player delays by one scroll. Above the crews it would stop the income that pays for it; below
- * the bulk army it would never be reached, since `army` asks for one more soldier every pass.
+ * WHERE it sits is the whole design. Below the crews, the hall, the supply, the altar, the first
+ * hero and the Barracks — the rows that keep the economy paying and the game going — and above
+ * EVERYTHING ELSE, the rest of the workers, the shop row and the core army included. It used to
+ * sit under the core army, and reported was that an Insane computer "is still not making a big
+ * effort to always try to buy a scroll of town portal when it doesn't have one". Measured on two
+ * observed twelve-minute Insane matches (Lost Temple, Echo Isles): the players spent 2–5 minutes
+ * of the match after 2:30 with no scroll, and in nearly all of it the bank was under the 350 the
+ * scroll costs — the core army's `SetBuildNext` rows and the workers' ask one more body every
+ * pass, so with the reserve beneath them the gold was spent before the reserve was ever read. The
+ * reserve is one scroll's price, held only while a scroll is MISSING and a shop that sells one is
+ * in reach, so above them it delays a soldier or a worker by a few seconds of mining — which is
+ * the trade a ladder player makes for the one item that decides how a lost fight ends.
  */
 function portalSaving(c: PlusCtx): void {
   if (c.portalReserve && c.portalReserve > 0) c.ai.reserveGold(c.portalReserve);
+}
+
+/**
+ * …and the same for a missing FIGHT item (`PlusItems.fightSaving`), which is NOT moved up with
+ * the scroll: a Scroll of Healing is a better fight, not a saved army, and it waits behind the
+ * core army where the scroll's reserve used to.
+ */
+function fightSaving(c: PlusCtx): void {
+  if (c.fightReserve && c.fightReserve > 0) c.ai.reserveGold(c.fightReserve);
 }
 
 /**
@@ -771,23 +789,36 @@ function extraHeroes(c: PlusCtx): void {
  * ladder past a row that has stopped getting nearer its price, so a base too poor to buy it
  * cannot be locked out of everything underneath it.
  *
- * WHERE it sits is the whole of whether it happens, and the first attempt at this put it just
- * above the expansion — which measured as no change at all (tools/ai-plus-ladder-test.cjs: ten
- * of twenty builds reached ten minutes at tier 2 with one hero, halted on the second hero's own
- * row for a third of their passes). A row does not have to be UNREACHED to be unaffordable: the
- * loop spends a RUNNING budget, so the tech buildings, the upgrades and the Castle above it took
- * the gold before the hero row was read, every pass, for ever. It goes above all three. Below
- * `army(coreArmy)`, which is the one thing that must never be saved through — a base with no
- * army does not need a second hero, it needs an army.
+ * WHERE it sits is the whole of whether it happens. Above the expansion measured as no change
+ * at all, and above the Castle, the tech and the upgrades still left it a minute or two behind
+ * the Keep — and three INSANE builds never asked for it inside ten minutes
+ * (tools/ai-plus-ladder-test.cjs, `hero2@`). A row does not have to be UNREACHED to be
+ * unaffordable: the loop spends a RUNNING budget, so every row above it took the gold — and,
+ * for the undead, the hundred LUMBER — before the hero row was read. The Arcane Sanctum
+ * (`supportBuildings`) and the unit-ability research (`abilityUpgrades`) were those rows. So it
+ * goes directly under `army(coreArmy)`, which is the one thing that must never be saved
+ * through — a base with no army does not need a second hero, it needs an army.
+ *
+ * …and it is SAVED FOR WHILE THE HALL GOES UP. A hero cannot be bought before the tier-2 hall
+ * stands (`Requires1=TWN2`), so with only the row the price began to be saved the moment the Keep
+ * finished, and the hero walked out a gold-mine's worth of seconds behind it. While the upgrade
+ * is in the hall's queue this holds the hero's gold and lumber back from everything below
+ * (`reserveGold`, which never halts), so the row finds its price waiting the pass the Keep
+ * lands — which is when a ladder player clicks the altar.
  *
  * Only the SECOND. The third is a luxury at any tier and stays where it is.
  */
 function tierTwoHero(c: PlusCtx): void {
   const { ai, profile, table, tier } = c;
-  if (tier < 2 || profile.heroes < 2) return;
+  if (profile.heroes < 2) return;
   if (ai.countDone(table.altar) < 1 || ai.count(ai.heroId) < 1) return;
   if (ai.count(ai.heroId2) >= 1) return;
-  ai.setBuildUnit(1, ai.heroId2);
+  if (tier >= 2) return void ai.setBuildUnit(1, ai.heroId2);
+  // The Keep is in the hall's queue (a tier-2 hall counted, none of it finished — `tier` is
+  // read off finished halls).
+  if (!table.halls[1] || ai.count(table.halls[1]) < 1) return;
+  const hero = c.defOf(ai.heroId2);
+  if (hero) ai.reserveGold(hero.goldCost, hero.lumberCost);
 }
 
 /**

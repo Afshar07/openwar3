@@ -100,6 +100,8 @@ interface BuildRow {
   /** A research row that SAVES for itself (`setBuildUpgrSaved`) rather than waiting for spare
    *  change. Ours — common.ai's research rows never reserve. */
   save?: boolean;
+  /** …and the LUMBER a `BUILD_RESERVE` row holds back beside its gold (`reserveGold`). */
+  wood?: number;
 }
 
 /** One row of the assault group — `harass_qty`/`harass_max`/`harass_units`. */
@@ -693,7 +695,7 @@ export class AiPlayer {
   }
 
   /**
-   * Hold `gold` back from every row BELOW this point in the ladder (`BUILD_RESERVE`). Not a
+   * Hold `gold` (and `wood`) back from every row BELOW this point in the ladder (`BUILD_RESERVE`). Not a
    * Blizzard setter — the race scripts never save for anything the build array does not
    * produce — but it is the build array's own mechanism: a row's price is reserved off
    * `total_gold` whether or not it started, and this is a row with a price and nothing to start.
@@ -702,8 +704,8 @@ export class AiPlayer {
    * gold it holds, and that is the saving; but their shortfall SHRINKS with every coin mined,
    * so `releaseStall` reads it as a player saving up rather than as a dead end.
    */
-  reserveGold(gold: number): void {
-    if (gold > 0) this.buildList.push({ type: BUILD_RESERVE, qty: gold, item: "", town: -1 });
+  reserveGold(gold: number, wood = 0): void {
+    if (gold > 0 || wood > 0) this.buildList.push({ type: BUILD_RESERVE, qty: gold, item: "", town: -1, wood });
   }
 
   /** `SetBuildExpa(qty, id)`. */
@@ -772,6 +774,7 @@ export class AiPlayer {
         // May run the budget below zero, which is the point: the next row that costs gold
         // then halts until the bank has covered the reserve AND it — see `reserveGold`.
         this.totalGold -= row.qty;
+        this.totalWood -= row.wood ?? 0;
         continue;
       }
       const ok = row.type === BUILD_UNIT
@@ -862,13 +865,14 @@ export class AiPlayer {
     // Gold a RESERVE row above this one is holding back (`reserveGold`): a tier row under it
     // cannot be paid for out of that, so its hall must not be held idle for it.
     let saved = 0;
+    let savedWood = 0;
     for (const row of this.buildList) {
-      if (row.type === BUILD_RESERVE) saved += row.qty;
+      if (row.type === BUILD_RESERVE) { saved += row.qty; savedWood += row.wood ?? 0; }
       // A SAVING research row that can be paid for holds ONE building that researches it, so the
       // research can start (`setBuildUpgrSaved`). One, not all: the rest keep producing.
       if (row.type === BUILD_UPGRADE && row.save && this.researchDue(row.qty, row.item)) {
         const cost = this.host.upgrades.cost(row.item, this.upgradeLevelOrQueued(row.item) + 1);
-        if (this.gold() - saved < cost.gold || this.wood() < cost.lumber) continue;
+        if (this.gold() - saved < cost.gold || this.wood() - savedWood < cost.lumber) continue;
         for (const b of this.host.world.units.values()) {
           if (b.owner !== this.player || b.hp <= 0 || !b.building || b.building.constructionLeft > 0) continue;
           if (!this.host.tech.researches(b.typeId).includes(row.item)) continue;
@@ -885,7 +889,7 @@ export class AiPlayer {
       const sources = [...this.upgradeSources(row.item, row.town)];
       if (sources.length === 0) continue;
       const cost = this.rowCost(def, row.item, row.town);
-      if (this.gold() - saved < cost.gold || this.wood() < cost.lumber) continue;
+      if (this.gold() - saved < cost.gold || this.wood() - savedWood < cost.lumber) continue;
       for (const b of sources) held.add(b.id);
     }
     return held;

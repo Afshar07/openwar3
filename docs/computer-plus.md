@@ -686,6 +686,14 @@ which includes everything BEHIND our base too — reported as an orc's Blademast
 "standing at the back of its base for a while"; a hero and one Grunt is exactly Insane's eight
 `creepFood`, so the roam was the first thing that party did.
 
+And no spot may be in a creep's NOTICE, or past one: nothing living within `ROAM_CAMP_CLEAR`
+(900) of it and nothing within `CREEP_PASS` (750) of the straight line out from home, measured
+against every live creep (`liveCreeps`) rather than camp centres. The fallback point is pulled
+back toward home `ROAM_PULL_IN` at a time until it qualifies, and is dropped (the party musters
+at home) if it never does. Reported on Lost Temple as "triggered the aggro of a red camp at the
+start of the game": from the top base against the left one, the bare projection landed ~150 from
+the level-21 ogre camp guarding the Goblin Laboratory, and the first roam walked the hero into it.
+
 ### A wave is what SETS OFF, not what exists
 
 The other half of *"the undead leaves its army at home and the hero goes out to creep by
@@ -1465,6 +1473,19 @@ the hero row was read, every pass, for ever. It goes above all three, and below 
 the one thing that must never be saved through, because a base with no army does not need a second
 hero, it needs an army. With it there, every build fields both heroes inside ten minutes and
 every other ladder check is unchanged.
+
+**…and then it moved again, to directly under the core army, and it SAVES while the Keep goes
+up.** Reported: *"Computer+ AI (Insane) being training their second hero VERY late after getting
+tier 2"*. The ladder fixture, given a `hero2@` column, agreed: across the 24 Insane builds the
+second hero was asked for 60–150 s after the Keep, and three builds (`human/knights`,
+`undead/fastexpand`, `nightelf/lategrove`) never asked inside ten minutes. Two causes. The rows
+still above it — the Town Portal reserve, the support buildings (the human's Arcane Sanctum) and
+the unit-ability research — took the gold, and for the undead the hundred LUMBER, before it was
+read; and a hero is not legal before the tier-2 hall stands (`Requires1=TWN2`), so the saving only
+began once the Keep was finished. `tierTwoHero` now sits directly under `army(coreArmy)`, and while
+the upgrade is in the hall's queue it emits a reserve row for the hero's gold AND lumber
+(`AiPlayer.reserveGold(gold, wood)` — the reserve row grew a lumber half for this). After: every
+Insane build asks for it 0–16 s after the Keep, pinned at 30 s.
 
 The halt is bounded in both directions besides: it is **one** purchase (nothing re-asks once the
 hero is queued — `ai.count` counts a job in a queue), and `releaseStall` lets the ladder past a row
@@ -3590,6 +3611,32 @@ neither was `keepPortal`:
   in a shop's range and fetched on the field detour (`fightChance`), and its price held back from
   the ladder on the same reserve row (`PlusItems.fightSaving`). Measured after: the orc bought
   both at 16:50 on the same match.
+* **…and Insane still made no real effort.** Reported once more: Insane *"is still not making a
+  big effort to always try to buy a scroll of town portal when it doesn't have one (e.g. from its
+  own shop, an ally's shop or from a cleared from creeps Goblin Merchant)"*. Measured on three
+  observed twelve-minute Insane matches with a probe that counts only the seconds a scroll was
+  BUYABLE and missing (`[stwp] stockStart` is 440, so before 7:20 no shelf has one and the 2:00
+  scroll is the free one melee hands the first hero), and four holes closed in turn:
+  1. **The reserve sat under the core army**, whose `SetBuildNext` rows (and the workers') ask one
+     more body every pass, so the bank was under 350 whenever the belt looked. It now sits
+     directly under the Barracks (`portalSaving`), above the rest of the workers, the shop row
+     and the core army; the FIGHT items' reserve stays where the scroll's was (`fightSaving`,
+     split off as `PlusCtx.fightReserve`).
+  2. **A ROAMING army never came near a shop** — 4000–6000 off one with 400–1200 gold, because the
+     roam is a muster out on the map and the detour reaches 2000. `ComputerPlusAi.roaming` is false
+     while a scroll is missing, the purse covers it and `portalSaving` finds a shop in reach: the
+     party musters at home, a few steps from the race shop, and roams again once it has one.
+  3. **A beaten army sat out `retreating` at home** for a minute with its hero 700 from its own
+     shop, and neither door opened in that mode. `mayDetour` now opens once the hero is back
+     inside its own town (`heroHome`); never on the road home, which is usually chased.
+  4. **A wave walked past a Goblin Merchant** 820 off its line with 550 gold in hand. On a wave
+     (`ItemCtx.wave`) the detour opens for the SCROLL alone, on `PORTAL_DETOUR_WAVE` (1200) — the
+     potions are still only bought in passing there.
+  A shop with a creep camp still standing round it (`SHOP_GUARD`, 800 — past every camp creep's
+  `acquire`) is no longer walked to by any of these doors nor by the ordinary shopping trip, and
+  is not saved for: *a cleared* Goblin Merchant is the developer's own wording, and on Lost Temple
+  both Merchants sit behind level-18 camps. Creeps only — a player's army out of sight is fog. A
+  hero already in a guarded shop's range still buys there.
 
 Neither of those changes the opening: `pick` does not *save*, it skips a row it cannot afford and
 buys the next one down, so at two minutes there is no 350 gold above the reserve and the salve is
