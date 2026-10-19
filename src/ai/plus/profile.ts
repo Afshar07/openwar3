@@ -320,6 +320,15 @@ export interface PlusProfile {
   readonly creepGreenUntil: number;
   /** In an enemy base, does it turn on the WORKERS rather than whatever swung first? */
   readonly harass: boolean;
+  /**
+   * Does the army mass OUT ON THE MAP rather than in its base — walking a circuit of the free gold
+   * mines on its own half while it waits for a camp it can take or a wave it can send (index.ts
+   * `roamSpot`)? The developer's "always be on the move instead of sitting around in its base",
+   * measured before it existed at 14–19 % of an Insane army's time after 2:00 spent massing at
+   * home with nothing to do (no camp it could price, too small for a wave). Insane only: map
+   * presence is a ladder player's habit, and the reinforcements walk out to it alone. OURS.
+   */
+  readonly roam: boolean;
   /** Does it send an early scout? (Only matters for finding expansions — a melee player is
    *  handed every start location, see AiPlayer.knows.) */
   readonly scout: boolean;
@@ -435,7 +444,7 @@ export const PLUS_EASY: PlusProfile = {
   // gives an order and then watches it happen. `pullOutHp` 0 is that in one number.
   focusFire: false, pullOutHp: 0, stutterStep: false, creeps: true, creepAt: 240, creepFood: 8,
   creepCamps: 2, creepCampMax: CAMP_GREEN_MAX, creepRange: 3000, creepRest: 0, creepGreenUntil: 0,
-  harass: false, scout: false, sweepEvery: Infinity, expansionFirst: 0.5,
+  harass: false, roam: false, scout: false, sweepEvery: Infinity, expansionFirst: 0.5,
   shopping: 0, itemReserve: Infinity, keepPortal: false,
   concedeAfter: 24,
 };
@@ -517,7 +526,7 @@ export const PLUS_NORMAL: PlusProfile = {
   // the one piece of micro a player picks up long before they learn to focus a target.
   focusFire: false, pullOutHp: 0.25, stutterStep: false, creeps: true, creepAt: 300, creepFood: 10,
   creepCamps: Infinity, creepCampMax: Infinity, creepRange: Infinity, creepRest: 60, creepGreenUntil: 420,
-  harass: false, scout: true, sweepEvery: 120, expansionFirst: 0.75,
+  harass: false, roam: false, scout: true, sweepEvery: 120, expansionFirst: 0.75,
   // A third of a belt, and it keeps 500 gold back for the build order. It DOES keep a Town
   // Portal and replace it: a scroll is the difference between losing a fight and losing an army,
   // and a player at this level has learnt that much.
@@ -561,7 +570,7 @@ export const PLUS_INSANE: PlusProfile = {
   // which is "as soon as the hero walks out of the altar".
   focusFire: true, pullOutHp: 0.25, stutterStep: true, creeps: true, creepAt: 90, creepFood: 8,
   creepCamps: Infinity, creepCampMax: Infinity, creepRange: Infinity, creepRest: 0, creepGreenUntil: 0,
-  harass: true, scout: true, sweepEvery: 75, expansionFirst: 0.85,
+  harass: true, roam: true, scout: true, sweepEvery: 75, expansionFirst: 0.85,
   // A full belt and a Town Portal on the hero. Both are what separates a player who has been
   // here before from one who has not.
   shopping: 6, itemReserve: 200, keepPortal: true,

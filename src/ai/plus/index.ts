@@ -32,7 +32,8 @@ import {
 } from "./teamchat";
 import { liveProfile, plusProfile, type PlusProfile } from "./profile";
 import { aimCtx, HERO_KILL_HP, heroKillable, isSiege, isTower, killValue, razeCost, razeValue } from "./targeting";
-import { PLUS_RACES, rollStrategy, tableForEdition, type PlusRaceTable, type PlusStrategy } from "./races";
+import { PLUS_RACES, TAVERN_HEROES, insaneVariant, rollStrategy, tableForEdition, type HeroCombo, type PlusRaceTable, type PlusStrategy } from "./races";
+import { MELEE_INSANE } from "../ids";
 import { isRoc } from "../../data/edition";
 import { CAMP_GREEN_MAX, armyPower, maxCampLevel, type CreepForce, type Fighter } from "./power";
 
@@ -176,6 +177,16 @@ const REISSUE_SLACK = 128;
  * well inside the base's own radius. (The classic captain musters at home for the same reason.)
  */
 const RALLY_OUT = 300;
+/** The ROAM (`PlusProfile.roam`, `roamSpot`): how long the army dwells at each free mine before it
+ *  walks on; how far off the rock it stands; how close a building or a living creep camp may be
+ *  before the mine is not a place to stand; and, with no free mine on our half, how far toward the
+ *  enemy it waits instead (a share of the distance, at most `ROAM_OUT`). All OURS. */
+const ROAM_DWELL = 35;
+const ROAM_STANDOFF = 350;
+const ROAM_CAMP_CLEAR = 900;
+const ROAM_SHARE = 0.3;
+const ROAM_OUT = 2400;
+const ROAM_REREAD = 5;
 /** …and how close to that spot counts as "there". */
 const RALLY_SLACK = 320;
 
@@ -2068,6 +2079,12 @@ interface Brain {
   /** When the wave first found itself short at the muster point (-1 = it is gathered). The
    *  deadline on `gathered`, without which one stuck soldier holds the army at home for ever. */
   gatherSince: number;
+  /** The ROAM circuit — which free mine the army is massing at, and since when (`roamSpot`). */
+  roamIdx: number;
+  roamSince: number;
+  /** …and the circuit itself, re-read every `ROAM_REREAD` seconds rather than every ask: it is a
+   *  scan of every mine against every building, and `rally` is asked several times a pass. */
+  roamSpots: { at: number; spots: Array<{ x: number; y: number }> } | null;
   /** WHAT this retreat is running from, which is what decides whether the hero spends its
    *  Scroll of Town Portal on it. Null while nothing is retreating. */
   retreatFrom: "creeps" | "player" | "stuck" | "heal" | null;
@@ -2409,7 +2426,13 @@ export class ComputerPlusAi {
     // WHICH BUILD this computer is playing, rolled once off its own stream and held for the
     // match. Two Computer+ players on one map open differently; the same seat on the same seed
     // opens the same way twice.
-    const strategy = rollStrategy(table, profile.techTier, (lo, hi) => ai.randomInt(lo, hi));
+    // …and on INSANE, the build it turns into for its opening hero (`PlusStrategy.replaces`: the
+    // orc's Head Hunter rush behind a Far Seer, the undead's fast expansion behind a Crypt Lord or
+    // a Dreadlord). Rolled off the same stream, so the same seed opens the same way.
+    const rolled = rollStrategy(table, profile.techTier, (lo, hi) => ai.randomInt(lo, hi));
+    const strategy = profile.difficulty === MELEE_INSANE
+      ? insaneVariant(table, rolled, () => ai.randomInt(0, 999) / 1000)
+      : rolled;
     this.pickHeroes(ai, table, strategy);
     const squad = new Set<number>();
     // The harvest plan has to know who is spoken for, or an undead computer marches its attack
@@ -2483,6 +2506,9 @@ export class ComputerPlusAi {
       scoutSince: 0,
       mode: "massing",
       gatherSince: -1,
+      roamIdx: 0,
+      roamSince: -1,
+      roamSpots: null,
       retreatFrom: null,
       retreatSince: 0,
       push: { gap: -1, since: 0 },
@@ -2654,35 +2680,65 @@ export class ComputerPlusAi {
   }
 
   /**
-   * Heroes, in the table's own preference order rather than by the dice.
+   * Heroes: the opening one off the build, the SECOND and THIRD off the developer's pairings.
    *
    * `PickMeleeHero` draws three of the four at random, which is common.ai's own behaviour and
    * is why the classic AI opens with a Blood Mage as often as an Archmage. A human opens with
    * the hero their BUILD wants, so Computer+ takes the strategy's own order where it states one
    * (a Tauren build opens Tauren Chieftain, a Bear build opens Keeper of the Grove) and the
-   * race's otherwise — with the SECOND and THIRD swapped at random, because two computers
-   * playing the same build should still not be identical.
+   * race's otherwise.
    *
-   * …and each hero's SKILL BUILD, which is the other half of "not identical" and used to be
-   * missing: every Computer+ Blademaster spent its ten levels the same way, every match. Half
-   * of the twelve melee heroes have more than one real answer on the card (see
-   * `PlusRaceTable.skills`), so the table carries a list and one is rolled here.
+   * What follows the opener is the race's `combos` row for it (plus/races.ts `HeroCombo` — a
+   * Paladin is followed by the Blood Mage, a Blademaster by the Shadow Hunter, a Death Knight by
+   * the Lich), or the BUILD's own when it states one (the Head Hunter rush hires its second from
+   * the Tavern). A row that says nothing about a slot falls back on the old rule: the build's
+   * order with the second and third swapped at random, so two computers playing the same build
+   * are still not identical. A Tavern hero the map has no Tavern to sell (`tavernSells`) is
+   * passed over like one already fielded.
+   *
+   * …and each hero's SKILL BUILD, which is the other half of "not identical": half of the
+   * twelve melee heroes have more than one real answer on the card (see
+   * `PlusRaceTable.skills`), so the table carries a list and one is rolled here — unless the
+   * pairing names the build it needs (the Blood Mage beside a Paladin takes Siphon Mana first).
    */
   private pickHeroes(ai: AiPlayer, table: PlusRaceTable, strategy: PlusStrategy): void {
-    const [first, ...rest] = strategy.heroes ?? table.heroes;
+    const order = [...(strategy.heroes ?? table.heroes)];
+    const first = order[0] ?? "";
+    const rest = order.slice(1);
     if (ai.randomInt(0, 1) === 1 && rest.length >= 2) [rest[0], rest[1]] = [rest[1], rest[0]];
-    // …EXCEPT the race's pinned second hero (`PlusRaceTable.secondHero` — the undead's Death
-    // Knight), who is moved to the front of the rest whenever he did not open. After the coin
-    // flip rather than instead of it, so the roll still decides the THIRD hero. Only if he is in
-    // the list at all: `tableForEdition` drops the heroes a data set lacks.
+    // …the race's pinned second hero (`PlusRaceTable.secondHero` — the undead's Death Knight),
+    // moved to the front of the rest whenever he did not open. The combos below say the same for
+    // the undead; this keeps the rule for a data set whose combos name a hero it lacks.
     const pinned = table.secondHero;
     if (pinned && first !== pinned) {
       const at = rest.indexOf(pinned);
       if (at > 0) rest.unshift(...rest.splice(at, 1));
     }
-    ai.heroId = first ?? "";
-    ai.heroId2 = rest[0] ?? "";
-    ai.heroId3 = rest[1] ?? "";
+    // A hero this seat can actually GET: its race's altar trains it (the edition's table keeps
+    // only those — `tableForEdition`), or a Tavern on this map sells it.
+    const gettable = (id: string): boolean =>
+      !!id && (table.heroes.includes(id) || (TAVERN_HEROES.has(id) && this.tavernSells(id)));
+    const combo: HeroCombo = { ...(table.combos?.[first] ?? table.combos?.["*"] ?? {}), ...(strategy.combo ?? {}) };
+    const taken = new Set<string>([first]);
+    const pickOne = (options: readonly string[]): string => {
+      const open = options.filter((h) => gettable(h) && !taken.has(h));
+      return open.length ? open[ai.randomInt(1, open.length) - 1] : "";
+    };
+    const fallback = (): string => [...rest, ...table.heroes].find((h) => gettable(h) && !taken.has(h)) ?? "";
+    const second = (combo.second?.length ? pickOne(combo.second) : "") || fallback();
+    taken.add(second);
+    let third = "";
+    if (combo.third?.length) {
+      const rolled = combo.third[ai.randomInt(1, combo.third.length) - 1];
+      // Within the rolled option, the first hero not already fielded; if the whole option is
+      // taken or unsold, any other option before the race's own order.
+      third = rolled.find((h) => gettable(h) && !taken.has(h))
+        ?? combo.third.flat().find((h) => gettable(h) && !taken.has(h)) ?? "";
+    }
+    third ||= fallback();
+    ai.heroId = first;
+    ai.heroId2 = second;
+    ai.heroId3 = third;
     // …and each hero's SKILL BUILD, rolled from the list its row carries (PlusRaceTable.skills).
     // Rolled ONCE per seat rather than per slot: `setSkillArray` only writes under the hero this
     // player actually drew, so the three calls are the same decision offered to three slots, and
@@ -2690,9 +2746,19 @@ export class ComputerPlusAi {
     // of. Off the AI's own stream, so a replay of the same seed picks the same build.
     for (const [hero, builds] of Object.entries(table.skills)) {
       if (!builds.length) continue;
-      const build = builds[builds.length === 1 ? 0 : ai.randomInt(1, builds.length) - 1];
+      const build = combo.skills?.[hero] ?? builds[builds.length === 1 ? 0 : ai.randomInt(1, builds.length) - 1];
       for (const slot of [1, 2, 3]) ai.setSkillArray(slot, hero, build);
     }
+  }
+
+  /** Does a Tavern on this map — a neutral building whose `Sellunits` lists the hero — sell
+   *  `heroId` to anybody? Asked at seat time, when the map's own units are already placed. */
+  private tavernSells(heroId: string): boolean {
+    for (const u of this.host.world.units.values()) {
+      if (u.hp <= 0 || !u.building || !u.neutralPassive) continue;
+      if (this.host.tech.get(u.typeId).sellunits.includes(heroId)) return true;
+    }
+    return false;
   }
 
   /**
@@ -4559,7 +4625,9 @@ export class ComputerPlusAi {
     // A computer that creeps only a LITTLE (`PlusProfile.creepCamps` — Easy's two green camps)
     // is not held to the camps: two camps are not ten minutes of them, and its waves keep the
     // difficulty's own clock.
-    if (profile.creeps && profile.creepCamps === Infinity && b.clock < EARLY_GAME) {
+    // …unless the build is a RUSH (`PlusStrategy.rush`, the orc's Head Hunter rush), whose whole
+    // point is to arrive before the camps would have paid for themselves.
+    if (profile.creeps && profile.creepCamps === Infinity && b.clock < EARLY_GAME && !b.strategy.rush) {
       const captain = this.squadHero(b);
       if (!captain || captain.level < EARLY_HERO_LEVEL) return false;
     }
@@ -4674,8 +4742,104 @@ export class ComputerPlusAi {
    */
   private muster(b: Brain, camp: { x: number; y: number } | null): { x: number; y: number } {
     const at = camp ? this.afieldAt(b) : null;
-    b.afield = !!at;
+    // A party ROAMING is out on the map too — the errands that only make sense at home (a hero
+    // sent shopping, the Ghoul relief) must not fire from the middle of it.
+    b.afield = !!at || this.roaming(b);
     return at ?? this.rally(b);
+  }
+
+  /**
+   * Is the army massing OUT ON THE MAP right now (`PlusProfile.roam`)? Only while it is massing
+   * with nothing better to do, and only with a hero fit to lead it: the same captain gates a creep
+   * run asks (`creepNext` — the creep clock, `CREEP_HEALTH`, `creepFood`), because the roam goes
+   * where the camps are. A threat at home is `defendPass`'s, above every mode.
+   */
+  private roaming(b: Brain): boolean {
+    const { profile } = b;
+    if (!profile.roam || b.mode !== "massing" || b.clock < profile.creepAt) return false;
+    const hero = this.squadHero(b);
+    if (!hero || hero.hp / Math.max(1, hero.maxHp) < CREEP_HEALTH) return false;
+    return this.squadFood(b) >= profile.creepFood;
+  }
+
+  /**
+   * WHERE A ROAMING ARMY MASSES: the free gold mines on our own half of the map, in turn.
+   *
+   * A mine is where the map is contested — an expansion is taken there, and a ladder player's army
+   * stands between its base and the enemy's, on the ground it means to hold. "Our half" is a mine
+   * nearer our hall than the enemy's; "free" is one with nobody's building beside it (ours is a
+   * town, theirs is a target for the wave, not a place to stand) and no living creep camp within
+   * `ROAM_CAMP_CLEAR` (a muster point inside a camp's acquisition is a fight with creeps the party
+   * was not priced for). The army dwells `ROAM_DWELL` at each and moves on, and with no such mine
+   * on the map it stands part of the way toward the enemy instead.
+   */
+  private roamSpot(b: Brain): { x: number; y: number } {
+    const home = b.ai.home();
+    if (!b.roamSpots || b.clock - b.roamSpots.at >= ROAM_REREAD) b.roamSpots = { at: b.clock, spots: this.roamCircuit(b) };
+    const spots = b.roamSpots.spots;
+    if (!spots.length) return this.homeRally(b);
+    if (b.roamSince < 0) b.roamSince = b.clock;
+    if (b.clock - b.roamSince >= ROAM_DWELL) {
+      b.roamIdx++;
+      b.roamSince = b.clock;
+    }
+    const at = spots[b.roamIdx % spots.length];
+    // …a few hundred units off the rock, toward home: the mine itself is unwalkable, and an army
+    // mustering ON it lines up against it and never reads as gathered (the trap `homeRally`
+    // snaps around too).
+    const dx = home.x - at.x;
+    const dy = home.y - at.y;
+    const len = Math.hypot(dx, dy) || 1;
+    return this.walkableNear({ x: at.x + (dx / len) * ROAM_STANDOFF, y: at.y + (dy / len) * ROAM_STANDOFF }) ?? this.homeRally(b);
+  }
+
+  /** The ROAM circuit, nearest first — see `roamSpot`. */
+  private roamCircuit(b: Brain): Array<{ x: number; y: number }> {
+    const world = this.host.world;
+    const home = b.ai.home();
+    const foe = b.ai.enemyBase();
+    const spots: Array<{ x: number; y: number }> = [];
+    for (const m of world.mines.values()) {
+      const dHome = Math.hypot(m.x - home.x, m.y - home.y);
+      if (dHome <= TOWN_RADIUS) continue; // our own town's mine — that is home
+      if (foe && Math.hypot(m.x - foe.x, m.y - foe.y) < dHome) continue; // their half
+      let taken = false;
+      for (const u of world.units.values()) {
+        if (u.hp <= 0 || !u.building || u.owner < 0 || u.owner >= MELEE.MAX_PLAYERS) continue;
+        if (Math.hypot(u.x - m.x, u.y - m.y) <= ROAM_CAMP_CLEAR) { taken = true; break; }
+      }
+      if (taken) continue;
+      for (const camp of this.host.creepCamps()) {
+        if (Math.hypot(camp.x - m.x, camp.y - m.y) > ROAM_CAMP_CLEAR) continue;
+        if (camp.members.some((id) => (world.units.get(id)?.hp ?? 0) > 0)) { taken = true; break; }
+      }
+      if (!taken) spots.push({ x: m.x, y: m.y });
+    }
+    // …and the camps already CLEARED on our half: the ground a ladder player's army stands on
+    // between fights is where it has just fought, and a dead camp is a spot nothing will wake.
+    for (const camp of this.host.creepCamps()) {
+      const dHome = Math.hypot(camp.x - home.x, camp.y - home.y);
+      if (dHome <= TOWN_RADIUS || (foe && Math.hypot(camp.x - foe.x, camp.y - foe.y) < dHome)) continue;
+      if (camp.members.some((id) => (world.units.get(id)?.hp ?? 0) > 0)) continue;
+      spots.push({ x: camp.x, y: camp.y });
+    }
+    spots.sort((p, q) => Math.hypot(p.x - home.x, p.y - home.y) - Math.hypot(q.x - home.x, q.y - home.y));
+    if (!spots.length && foe) {
+      const d = Math.hypot(foe.x - home.x, foe.y - home.y) || 1;
+      const f = Math.min(ROAM_OUT, d * ROAM_SHARE) / d;
+      spots.push({ x: home.x + (foe.x - home.x) * f, y: home.y + (foe.y - home.y) * f });
+    }
+    return spots;
+  }
+
+  private walkableNear(spot: { x: number; y: number }): { x: number; y: number } | null {
+    const grid = this.host.world.grid;
+    const [cx, cy] = grid.worldToCell(spot.x, spot.y);
+    if (grid.walkable(cx, cy)) return spot;
+    const free = grid.nearestWalkable(cx, cy, SNAP_SEARCH);
+    if (!free) return null;
+    const [wx, wy] = grid.cellToWorld(free[0], free[1]);
+    return { x: wx, y: wy };
   }
 
   /**
@@ -6629,6 +6793,13 @@ export class ComputerPlusAi {
 
   /** Where the army waits: in front of the base, on the line to the enemy. */
   private rally(b: Brain): { x: number; y: number } {
+    if (this.roaming(b)) return this.roamSpot(b);
+    b.roamSince = -1;
+    return this.homeRally(b);
+  }
+
+  /** The HOME muster point — a short way out of the hall toward the enemy. */
+  private homeRally(b: Brain): { x: number; y: number } {
     const home = b.ai.home();
     const foe = b.ai.enemyBase();
     if (!foe) return home;
@@ -6710,6 +6881,10 @@ export class ComputerPlusAi {
    * there is no reason to stand it in the base for the other thirty-five.
    */
   private recovering(u: SimUnit): boolean {
+    // A Ghoul standing over a corpse EATING it (Cannibalize, plus/casting.ts `CANNIBALIZE_HP`):
+    // a rally or commit order mid-channel walks it off its meal and throws the heal away. Asked
+    // before the `RECOVER_TO` bar because the meal starts at a higher one.
+    if (u.order === "cast" && u.pendingCast?.code === "Acan") return true;
     if (u.hp / Math.max(1, u.maxHp) >= RECOVER_TO) return false;
     if (u.drinkWellId > 0) return true;
     return u.buffs.some((f) => f.group.startsWith(ITEM_REGEN_GROUP));

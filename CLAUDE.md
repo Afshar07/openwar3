@@ -723,6 +723,17 @@ data, or asset behaviour, **consult our sources** and cite what you used.
   grows with the tier for that reason. A second production building is bought with the BANK; the
   old `armyFood >= 40` gate was above two of the three difficulties' own army ceilings and could
   never fire. `tools/ai-plus-ladder-test.cjs` runs ten headless minutes of the ladder per build.
+  HEROES after the opener are the developer's PAIRINGS (`PlusRaceTable.combos`: Paladin → Blood
+  Mage with Siphon Mana first, Blademaster → Shadow Hunter, Death Knight → Lich…, at every
+  difficulty), several of them TAVERN heroes, hired by walking a worker to the Tavern's door
+  (`AiPlayer.hireAtTavern`) and only once the hero is LEGAL (`heroLegal` — every melee hero's
+  `Requires1` is the tier-2 hall, which also made the old tier-1 second-hero row a dead 425-gold
+  reservation). Two Insane-only builds REPLACE a rolled build by its opener (`replaces`): the orc
+  Head Hunter rush behind a Far Seer and the undead fast expand behind a Crypt Lord or Dreadlord,
+  each holding its tier-up to its own `tier2Clock`. Insane also ROAMS (`PlusProfile.roam`): it
+  masses out on its half of the map, never idle at home. The caster's `NEVER` holds the HARVEST
+  codes — a Ghoul is not `isPeon`, so `roleOf` derived its `Ahrl` as a spell and threw it at the
+  creep it was swinging at, cancelling the swing every pass (the "Ghouls don't hit creeps" bug).
   **AMAI is GPL** — it was studied for the shape of the strategy table and nothing else; never
   lift its code or its numbers.
 - **A bare `\r` is a JASS line terminator.** JASS is LINE-ORIENTED — a statement ends at the end

@@ -174,6 +174,10 @@ const MINE_SEATS = 5;
 /** Seconds a crewed mine may hold the same gold before its crew is sent back in — see
  *  `AiPlayer.kickStalledMines`. Ours: longer than any honest gap between two loads. */
 const MINE_STALL = 40;
+/** How long a Tavern errand (`hireAtTavern`) holds its worker off the economy after the last pass
+ *  that asked for the hire — long enough to cross a melee map, short enough that an abandoned
+ *  errand is a minute's lost mining at most. OURS. */
+const TAVERN_ERRAND = 60;
 
 /** A guard tower goes at the FRONT of a town — between its hall and the enemy — rather than
  *  wherever the spiral first fits. This is how far from the hall it aims. */
@@ -269,6 +273,17 @@ export class AiPlayer {
    * mustered it.
    */
   captainHeld: ReadonlySet<number> = new Set();
+  /** The worker walking to a Tavern to stand at its door while a hero is hired, or 0 — see
+   *  `hireAtTavern`. Spoken for like `captainHeld`, or the harvest plan walks it straight back. */
+  tavernRunner = 0;
+  /** …and the game clock at which the errand lapses unless a hire pass renews it: a row that
+   *  stops asking (the plan moved on, the hero came some other way) must hand the worker back. */
+  private tavernRunnerUntil = 0;
+  /** Is this unit the army's, the scout, or on the Tavern errand — anything but the economy's? */
+  private spokenFor(id: number): boolean {
+    if (this.captainHeld.has(id)) return true;
+    return id === this.tavernRunner && this.host.world.elapsed < this.tavernRunnerUntil;
+  }
 
   private readonly rng: () => number;
   private buildList: BuildRow[] = [];
@@ -439,6 +454,19 @@ export class AiPlayer {
   /** `HallsCompleted(id)` — nothing of this type is still going up. */
   hallsCompleted(id: string): boolean {
     return this.townCount(id) === this.townCountDone(id);
+  }
+
+  /**
+   * Could this player buy `heroId` as its NEXT hero right now — its requirement TIER, indexed by
+   * how many heroes it already has (`Requires1=TWN2,…`: a second hero waits on the tier-2 hall,
+   * a third on the tier-3 one), the same index the authority's `train` uses. Living and fallen
+   * heroes both count, as they do there.
+   */
+  heroLegal(heroId: string): boolean {
+    const world = this.host.world;
+    let heroes = world.fallenHeroesOf(this.player).length;
+    for (const u of world.units.values()) if (u.owner === this.player && u.hp > 0 && u.isHero && !u.isIllusion) heroes++;
+    return world.canMake(this.player, heroId, heroes);
   }
 
   /** Does this player meet a tech id's own `Requires` — the sim's answer (`SimWorld.techMeets`),
@@ -945,7 +973,64 @@ export class AiPlayer {
       if (this.upgradeHold.has(b.id)) continue;
       if (this.host.execute(this.player, { c: "train", buildingId: b.id, unitId: id })) made++;
     }
+    // A hero none of our buildings trains is a TAVERN hero (Computer+'s hero pairings name them —
+    // plus/races.ts `HeroCombo`), hired off a neutral shelf rather than out of an altar.
+    if (made === 0 && qty > 0 && this.host.registry.get(id)?.isHero) return this.hireAtTavern(id);
     return made > 0;
+  }
+
+  /**
+   * Hire a hero off a Tavern's shelf — and send somebody to stand at its door first.
+   *
+   * A Tavern belongs to Neutral Passive and sells to anybody, but only to a buyer with a unit at
+   * the counter: its interact ability is `Ane2` "Select Unit" with a 450 reach (world.ts
+   * `shopInteract`), which is the range `hasUnitAtShop` reads. A player walks a worker over; so
+   * does this. The worker is `tavernRunner` until the hire lands, which keeps the harvest plan
+   * off it, and then it is idle and the economy takes it back (`workIdleWorkers`).
+   *
+   * Not before the hero is LEGAL: a second hero waits on the tier-2 hall at a Tavern exactly as
+   * at an altar (`SimWorld.soldUnitNeedsTech`), and a worker parked at the door for three minutes
+   * waiting on a Keep is a worker not mining. Returns false while the errand is still walking,
+   * which leaves the row's gold reserved — the build loop has already priced it.
+   */
+  private hireAtTavern(id: string): boolean {
+    const world = this.host.world;
+    const home = this.home();
+    let tavern: SimUnit | null = null;
+    let best = Infinity;
+    for (const u of world.units.values()) {
+      if (u.hp <= 0 || !u.building || u.building.constructionLeft > 0) continue;
+      if (!this.host.tech.get(u.typeId).sellunits.includes(id)) continue;
+      if (!world.canUseShop(u.id, this.player)) continue;
+      const d = Math.hypot(u.x - home.x, u.y - home.y);
+      if (d < best) { best = d; tavern = u; }
+    }
+    if (!tavern) return false;
+    if (!this.heroLegal(id)) return false;
+    if (world.hasUnitAtShop(tavern.id, this.player)) {
+      if (!this.host.execute(this.player, { c: "train", buildingId: tavern.id, unitId: id })) return false;
+      this.tavernRunner = 0;
+      return true;
+    }
+    let runner = this.tavernRunner ? world.units.get(this.tavernRunner) : undefined;
+    if (!runner || runner.hp <= 0 || runner.owner !== this.player) {
+      runner = undefined;
+      let near = Infinity;
+      for (const u of world.units.values()) {
+        if (u.owner !== this.player || u.hp <= 0 || !u.worker || u.repair) continue;
+        if (isOffField(u) || u.buildPending || u.insideBuild || u.constructing) continue;
+        if (this.captainHeld.has(u.id)) continue;
+        const d = Math.hypot(u.x - tavern.x, u.y - tavern.y);
+        if (d < near) { near = d; runner = u; }
+      }
+      if (!runner) return false;
+      this.tavernRunner = runner.id;
+    }
+    this.tavernRunnerUntil = world.elapsed + TAVERN_ERRAND;
+    if (runner.order !== "move") {
+      this.order({ c: "order", unitId: runner.id, order: { kind: "move", x: tavern.x, y: tavern.y }, queued: false });
+    }
+    return false;
   }
 
   /** Bring this hero type back, if we have one of it dead and an altar to do it at. */
@@ -1305,7 +1390,7 @@ export class AiPlayer {
       if (u.buildPending || u.insideBuild || u.constructing) continue;
       if (!this.host.tech.builds(u.typeId).includes(defId)) continue;
       const d = Math.hypot(u.x - x, u.y - y);
-      if (this.captainHeld.has(u.id)) {
+      if (this.spokenFor(u.id)) {
         if (d < spokenD) { spokenD = d; spoken = u; }
       } else if (isOffField(u)) {
         if (d < sunkD) { sunkD = d; sunk = u; }
@@ -1519,7 +1604,7 @@ export class AiPlayer {
     for (const u of world.units.values()) {
       if (u.owner !== this.player || u.hp <= 0 || !u.worker) continue;
       if (u.buildPending || u.insideBuild || u.constructing || u.order === "repair") continue;
-      if (this.captainHeld.has(u.id)) continue; // in the wave — see captainHeld
+      if (this.spokenFor(u.id)) continue; // in the wave — see captainHeld
       free.push(u);
     }
     free.sort((a, b) => a.id - b.id); // stable, so a re-plan doesn't shuffle the crews
@@ -1611,7 +1696,7 @@ export class AiPlayer {
         continue;
       }
       if (isOffField(u) || u.buildPending || u.insideBuild || u.constructing) continue;
-      if (this.captainHeld.has(u.id)) continue; // the scout, or standing in the wave
+      if (this.spokenFor(u.id)) continue; // the scout, or standing in the wave
       // ONE order means idle and it is the sim's own word for it. Everything else — a walk, a
       // haul home, a repair, a chop, a garrison — is a worker with something to do, and a plan
       // that re-tasked those would be `applyHarvest` written twice.
@@ -1702,7 +1787,7 @@ export class AiPlayer {
       seen.since = now;
       for (const u of crew) {
         if (isOffField(u) || u.buildPending || u.insideBuild || u.constructing || u.repair) continue;
-        if (this.captainHeld.has(u.id)) continue;
+        if (this.spokenFor(u.id)) continue;
         this.sendToGold(u, mineId);
       }
     }
@@ -1911,7 +1996,7 @@ export class AiPlayer {
     for (const u of world.units.values()) {
       if (u.owner !== this.player || u.hp <= 0 || !u.worker || u.repair) continue;
       if (isOffField(u) || u.buildPending || u.insideBuild || u.constructing) continue;
-      if (this.captainHeld.has(u.id)) continue;
+      if (this.spokenFor(u.id)) continue;
       free.push(u);
     }
     if (!free.length) return;

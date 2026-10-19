@@ -30,6 +30,10 @@ import {
   UPG_SORCERY, UPG_STR_MOON, UPG_STR_WILD, UPG_UNHOLY_ARMOR, UPG_UNHOLY_STR, UPG_WOOD,
   UNDEAD_ALTAR, UNDEAD_MINE, VAMP_AURA, VENGEANCE, VOODOO, WAR_STOMP, WARDEN, WATCH_TOWER, WATER_ELEMENTAL,
   WIND_WALK, WISP,
+  ALCHEMIST, NAGA_WITCH, PIT_LORD, FIRE_LORD, BEASTMASTER, DARK_RANGER,
+  HEALING_SPRAY, ACID_BOMB, CHEMICAL_RAGE, TRANSMUTE, FORKED_LIGHTNING, FROST_ARROWS, MANA_SHIELD,
+  TORNADO, RAIN_OF_FIRE, HOWL_OF_TERROR, CLEAVING_ATTACK, DOOM, INCINERATE, SOUL_BURN, LAVA_SPAWN,
+  VOLCANO, SUMMON_BEAR, SUMMON_QUILBEAST, SUMMON_HAWK, STAMPEDE, SILENCE, BLACK_ARROW, LIFE_DRAIN, CHARM,
   WITCH_DOCTOR, WORKSHOP, WYVERN, ZIGGURAT_1, ZIGGURAT_2,
 } from "../ids";
 
@@ -182,7 +186,78 @@ export interface PlusStrategy {
    * and its heroes — what changes is what comes out of the buildings.
    */
   readonly thenAt3?: string;
+  /**
+   * An INSANE-ONLY build that is never rolled on its own: it REPLACES the build that was rolled
+   * when that build opens on one of `first`, with probability `chance` (`insaneVariant`). Its
+   * own `heroes` are ignored — the rolled build's opening hero is kept, which is the point: the
+   * developer's rules are stated per opening hero ("if starting with Far Seer…", "starting with
+   * Crypt Lord or Dreadlord should change the strategy").
+   */
+  readonly replaces?: { readonly first: readonly string[]; readonly chance: number };
+  /** The SECOND/THIRD hero this build wants, over the race's `combos` — see `HeroCombo`. */
+  readonly combo?: HeroCombo;
+  /**
+   * The tier-2 clock for THIS build, over the race's (`PlusRaceTable.tier2Clock`). A build that
+   * names one also refuses the tier-up BEFORE it (plan.ts `tier2`), where every other build will
+   * buy the Keep at the bottom of the ladder whenever the gold is left over: that is what a
+   * rush or a fast expand IS — the hall's 300 gold spent on soldiers or a second mine instead.
+   */
+  readonly tier2Clock?: number;
+  /** A RUSH: the wave does not wait for the hero's third level in the opening (index.ts
+   *  `waveReady`'s `EARLY_GAME` gate) — the whole build is spent before the camps would pay. */
+  readonly rush?: boolean;
 }
+
+/**
+ * The SECOND and THIRD hero a race fields after a given opening hero — the developer's own
+ * hero pairings (issue: "improve the Insane difficulty's hero choice"), applied at EVERY
+ * difficulty because the second and third rows simply never come up on Easy (one hero) and the
+ * third never on Normal (two).
+ *
+ *  · `second` — one is rolled, evenly.
+ *  · `third` — one OPTION is rolled, evenly, and within it the first hero not already fielded.
+ *    That is how "Alchemist, or Tauren Chieftain / Shadow Hunter depending on what's missing"
+ *    is written: `[[ALCHEMIST], [TAUREN_CHIEF, SHADOW_HUNTER]]`.
+ *  · `skills` — a skill build this pairing needs over the hero's usual list (the Blood Mage's
+ *    Siphon Mana is his FIRST skill beside a Paladin, because feeding the Paladin's Holy Light is
+ *    what the pair is for — plus/casting.ts `siphonMana`).
+ *
+ * A TAVERN hero the map cannot sell (no Tavern placed, or a Reign of Chaos data set, which has
+ * none of them) is skipped like a taken one, and the race's own order fills the gap
+ * (index.ts `pickHeroes`).
+ */
+export interface HeroCombo {
+  readonly second?: readonly string[];
+  readonly third?: readonly (readonly string[])[];
+  readonly skills?: Readonly<Record<string, readonly string[]>>;
+}
+
+/** The tavern heroes Computer+ hires — their skill builds, shared by every race that hires them.
+ *  The same A B A B A · ultimate · B · C C C shape as the race heroes' (`PlusRaceTable.skills`),
+ *  with the skill the developer named FIRST (Healing Spray, Summon Lava Spawn, Black Arrow, a
+ *  Beastmaster's Bear or Quilbeast). Skill ids are each hero's `heroAbilList`
+ *  (Units\UnitAbilities.slk). */
+const TAVERN_SKILLS: Readonly<Record<string, readonly (readonly string[])[]>> = {
+  [ALCHEMIST]: [[HEALING_SPRAY, ACID_BOMB, HEALING_SPRAY, ACID_BOMB, HEALING_SPRAY, TRANSMUTE,
+    ACID_BOMB, CHEMICAL_RAGE, CHEMICAL_RAGE, CHEMICAL_RAGE]],
+  [FIRE_LORD]: [[LAVA_SPAWN, SOUL_BURN, LAVA_SPAWN, SOUL_BURN, LAVA_SPAWN, VOLCANO,
+    SOUL_BURN, INCINERATE, INCINERATE, INCINERATE]],
+  [BEASTMASTER]: [
+    [SUMMON_BEAR, SUMMON_QUILBEAST, SUMMON_BEAR, SUMMON_QUILBEAST, SUMMON_BEAR, STAMPEDE,
+      SUMMON_QUILBEAST, SUMMON_HAWK, SUMMON_HAWK, SUMMON_HAWK],
+    [SUMMON_QUILBEAST, SUMMON_BEAR, SUMMON_QUILBEAST, SUMMON_BEAR, SUMMON_QUILBEAST, STAMPEDE,
+      SUMMON_BEAR, SUMMON_HAWK, SUMMON_HAWK, SUMMON_HAWK],
+  ],
+  [NAGA_WITCH]: [[FORKED_LIGHTNING, FROST_ARROWS, FORKED_LIGHTNING, FROST_ARROWS, FORKED_LIGHTNING,
+    TORNADO, FROST_ARROWS, MANA_SHIELD, MANA_SHIELD, MANA_SHIELD]],
+  [PIT_LORD]: [[RAIN_OF_FIRE, CLEAVING_ATTACK, RAIN_OF_FIRE, CLEAVING_ATTACK, RAIN_OF_FIRE, DOOM,
+    CLEAVING_ATTACK, HOWL_OF_TERROR, HOWL_OF_TERROR, HOWL_OF_TERROR]],
+  [DARK_RANGER]: [[BLACK_ARROW, LIFE_DRAIN, BLACK_ARROW, LIFE_DRAIN, BLACK_ARROW, CHARM,
+    LIFE_DRAIN, SILENCE, SILENCE, SILENCE]],
+};
+
+/** Every tavern hero Computer+ may hire — what `pickHeroes` asks the map's Tavern about. */
+export const TAVERN_HEROES: ReadonlySet<string> = new Set(Object.keys(TAVERN_SKILLS));
 
 export interface PlusRaceTable {
   readonly race: PlayableRace;
@@ -358,6 +433,9 @@ export interface PlusRaceTable {
    * the build order and the hero order.
    */
   readonly skills: Readonly<Record<string, readonly (readonly string[])[]>>;
+  /** The second and third hero after each OPENING hero — see `HeroCombo`. `"*"` is the race's
+   *  rule for an opening hero with no row of its own. */
+  readonly combos?: Readonly<Record<string, HeroCombo>>;
 }
 
 // --------------------------------------------------------------------------------------
@@ -504,6 +582,23 @@ const HUMAN: PlusRaceTable = {
     ],
     [BLOOD_MAGE]: [[FLAME_STRIKE, SIPHON_MANA, FLAME_STRIKE, SIPHON_MANA, FLAME_STRIKE,
       SUMMON_PHOENIX, SIPHON_MANA, BANISH, BANISH, BANISH]],
+    ...TAVERN_SKILLS,
+  },
+  // The developer's pairings. PALADIN → the Blood Mage, SIPHON MANA FIRST: he drains whatever
+  // has mana on the other side and pours it into the Paladin, who spends it on Holy Light
+  // (plus/casting.ts `siphonMana`). ARCHMAGE → the Mountain King. The third is the Paladin when
+  // there is none yet, else the Alchemist for Healing Spray.
+  combos: {
+    [PALADIN]: {
+      second: [BLOOD_MAGE],
+      third: [[PALADIN, ALCHEMIST]],
+      skills: {
+        [BLOOD_MAGE]: [SIPHON_MANA, FLAME_STRIKE, SIPHON_MANA, FLAME_STRIKE, SIPHON_MANA,
+          SUMMON_PHOENIX, FLAME_STRIKE, BANISH, BANISH, BANISH],
+      },
+    },
+    [ARCHMAGE]: { second: [MTN_KING], third: [[PALADIN, ALCHEMIST]] },
+    "*": { third: [[PALADIN, ALCHEMIST]] },
   },
 };
 
@@ -614,6 +709,21 @@ const ORC: PlusRaceTable = {
       mix: { [TAUREN]: 3, [GRUNT]: 0.8, [HEAD_HUNTER]: 0.8, [SHAMAN]: 1.2, [WYVERN]: 1, [WITCH_DOCTOR]: 0.6 } },
     { id: "wyverns", name: "Wind Riders and Batriders", tier: 3, weight: 12, expandAt: 450, expandAgainAt: 870,
       mix: { [WYVERN]: 3, [BATRIDER]: 0.8, [HEAD_HUNTER]: 1.5, [SHAMAN]: 1 } },
+    // THE HEAD HUNTER RUSH — INSANE ONLY, and half of every Far Seer opening there (`replaces`).
+    // The developer's: "mass builds a lot of headhunters and gets either Fire Lord (Summon Lava
+    // Spawn) or Beastmaster (Summon Quilbeast or Bear) as the second hero from the tavern … and
+    // tries to rush the opponent as much as possible (delay its main hall upgrade to have more
+    // resources to mass low tier units)". So: two Barracks pouring Head Hunters, the Stronghold
+    // held back to six minutes (`tier2Clock` — it STANDS about two and a half minutes later, once
+    // the upgrade is saved for and built: held to seven it stood at ten, measured live), and the
+    // wave out before the hero has creeped to three (`rush`). A tavern hero is a hero like any
+    // other — he arrives with the Stronghold, so the hall's delay is also the summoner's. Expands
+    // late, like every rush.
+    { id: "hhrush", name: "Head Hunter rush", tier: 2, weight: 0, expandAt: 480, expandAgainAt: 840,
+      replaces: { first: [FAR_SEER], chance: 0.5 }, rush: true, tier2Clock: 360,
+      combo: { second: [FIRE_LORD, BEASTMASTER], third: [[ALCHEMIST], [TAUREN_CHIEF, SHADOW_HUNTER]] },
+      factories: { [ORC_BARRACKS]: 2 }, thenAt3: "taurens",
+      mix: { [HEAD_HUNTER]: 4, [GRUNT]: 1.2, [SHAMAN]: 0.6, [WITCH_DOCTOR]: 0.4 } },
   ],
   heroes: [BLADE_MASTER, FAR_SEER, TAUREN_CHIEF, SHADOW_HUNTER],
   skills: {
@@ -637,8 +747,23 @@ const ORC: PlusRaceTable = {
       [WAR_STOMP, ENDURANE_AURA, WAR_STOMP, ENDURANE_AURA, WAR_STOMP,
         REINCARNATION, ENDURANE_AURA, SHOCKWAVE, SHOCKWAVE, SHOCKWAVE],
     ],
-    [SHADOW_HUNTER]: [[HEALING_WAVE, SERPENT_WARD, HEALING_WAVE, SERPENT_WARD, HEALING_WAVE,
-      VOODOO, SERPENT_WARD, HEX, HEX, HEX]],
+    // HEX FIRST or HEALING WAVE FIRST — the developer's "shadow hunter must start with either
+    // Hex or Healing Wave", and the two are each other's second skill: a Shadow Hunter's whole
+    // job is the heal and the one disable (plus/casting.ts aims the Hex at HEROES first).
+    [SHADOW_HUNTER]: [
+      [HEALING_WAVE, HEX, HEALING_WAVE, HEX, HEALING_WAVE,
+        VOODOO, HEX, SERPENT_WARD, SERPENT_WARD, SERPENT_WARD],
+      [HEX, HEALING_WAVE, HEX, HEALING_WAVE, HEX,
+        VOODOO, HEALING_WAVE, SERPENT_WARD, SERPENT_WARD, SERPENT_WARD],
+    ],
+    ...TAVERN_SKILLS,
+  },
+  // BLADEMASTER → ALWAYS the Shadow Hunter. FAR SEER → the Tauren Chieftain or the Shadow Hunter,
+  // even odds. The third is the Alchemist, or whichever of those two is still missing.
+  combos: {
+    [BLADE_MASTER]: { second: [SHADOW_HUNTER], third: [[ALCHEMIST], [TAUREN_CHIEF, SHADOW_HUNTER]] },
+    [FAR_SEER]: { second: [TAUREN_CHIEF, SHADOW_HUNTER], third: [[ALCHEMIST], [TAUREN_CHIEF, SHADOW_HUNTER]] },
+    "*": { third: [[ALCHEMIST], [TAUREN_CHIEF, SHADOW_HUNTER, FAR_SEER]] },
   },
 };
 
@@ -770,6 +895,16 @@ const UNDEAD: PlusRaceTable = {
       mix: { [ABOMINATION]: 3, [CRYPT_FIEND]: 1.5, [MEAT_WAGON]: 1.2, [NECRO]: 1 } },
     { id: "frostwyrms", name: "Gargoyles and Frost Wyrms", tier: 3, weight: 12, expandAt: 450, expandAgainAt: 870,
       mix: { [GARGOYLE]: 2.5, [FROST_WYRM]: 1, [CRYPT_FIEND]: 1.5, [NECRO]: 0.8 } },
+    // THE FAST EXPAND — INSANE ONLY, and EVERY Crypt Lord or Dreadlord opening there. The
+    // developer's: "a fast expansion with mass ghouls and/or crypt fiends (so it delays its main
+    // hall upgrade/tier 2 a bit to keep resources for a bigger early game army and extra
+    // acolytes to attempt to get an early gold mine)". The second mine at two and a half minutes
+    // (`expandAt` — its Acolytes are the mine crew `plan.ts` hires for every mine it owns), two
+    // Crypts of Ghouls and Fiends, and the Halls of the Dead held to five and a half minutes.
+    { id: "fastexpand", name: "Fast expansion, Ghouls and Fiends", tier: 2, weight: 0, expandAt: 150, expandAgainAt: 600,
+      replaces: { first: [CRYPT_LORD, DREAD_LORD], chance: 1 }, tier2Clock: 330,
+      factories: { [CRYPT]: 2 }, thenAt3: "aboms",
+      mix: { [GHOUL]: 3, [CRYPT_FIEND]: 3, [NECRO]: 0.8, [MEAT_WAGON]: 0.5 } },
   ],
   heroes: [DEATH_KNIGHT, LICH, DREAD_LORD, CRYPT_LORD],
   // …and whatever the build opened with, the Death Knight comes SECOND — see `secondHero`.
@@ -790,6 +925,16 @@ const UNDEAD: PlusRaceTable = {
     ],
     [CRYPT_LORD]: [[IMPALE, CARRION_SCARAB, IMPALE, CARRION_SCARAB, IMPALE, LOCUST_SWARM,
       CARRION_SCARAB, THORNY_SHIELD, THORNY_SHIELD, THORNY_SHIELD]],
+    ...TAVERN_SKILLS,
+  },
+  // DEATH KNIGHT → ALWAYS the Lich, then the Dark Ranger (Black Arrow) or the Crypt Lord
+  // (Impale). CRYPT LORD or DREADLORD → ALWAYS the Death Knight, then the Dark Ranger. The Death
+  // Knight being second whenever he did not open is also `secondHero`'s rule.
+  combos: {
+    [DEATH_KNIGHT]: { second: [LICH], third: [[DARK_RANGER], [CRYPT_LORD]] },
+    [CRYPT_LORD]: { second: [DEATH_KNIGHT], third: [[DARK_RANGER]] },
+    [DREAD_LORD]: { second: [DEATH_KNIGHT], third: [[DARK_RANGER]] },
+    "*": { second: [DEATH_KNIGHT], third: [[DARK_RANGER]] },
   },
 };
 
@@ -890,6 +1035,14 @@ const NIGHT_ELF: PlusRaceTable = {
       STARFALL, TRUESHOT, SCOUT, SCOUT, SCOUT]],
     [WARDEN]: [[SHADOW_TOUCH, FAN_KNIVES, SHADOW_TOUCH, FAN_KNIVES, SHADOW_TOUCH, VENGEANCE,
       FAN_KNIVES, BLINK, BLINK, BLINK]],
+    ...TAVERN_SKILLS,
+  },
+  // DEMON HUNTER → the Keeper of the Grove or the Naga Sea Witch (Tavern), then the Alchemist or
+  // the Priestess of the Moon. KEEPER → the Demon Hunter or the Pit Lord (Tavern), then the
+  // Alchemist or the Fire Lord (Lava Spawn).
+  combos: {
+    [DEMON_HUNTER]: { second: [KEEPER, NAGA_WITCH], third: [[ALCHEMIST], [MOON_CHICK]] },
+    [KEEPER]: { second: [DEMON_HUNTER, PIT_LORD], third: [[ALCHEMIST], [FIRE_LORD]] },
   },
 };
 
@@ -1006,9 +1159,10 @@ export function tableForEdition(table: PlusRaceTable, tech: EditionTech): PlusRa
  * tier-1 half of whichever of them it drew.
  */
 export function rollStrategy(table: PlusRaceTable, techTier: number, roll: (lo: number, hi: number) => number): PlusStrategy {
-  const eligible = table.strategies.filter((s) => s.tier <= techTier);
-  const lowest = Math.min(...table.strategies.map((s) => s.tier));
-  const pool = eligible.length ? eligible : table.strategies.filter((s) => s.tier === lowest);
+  const rollable = table.strategies.filter((s) => !s.replaces);
+  const eligible = rollable.filter((s) => s.tier <= techTier);
+  const lowest = Math.min(...rollable.map((s) => s.tier));
+  const pool = eligible.length ? eligible : rollable.filter((s) => s.tier === lowest);
   const total = pool.reduce((n, s) => n + s.weight, 0);
   let pick = roll(1, Math.max(1, total));
   for (const s of pool) {
@@ -1016,4 +1170,20 @@ export function rollStrategy(table: PlusRaceTable, techTier: number, roll: (lo: 
     if (pick <= 0) return s;
   }
   return pool[pool.length - 1];
+}
+
+/**
+ * The INSANE-ONLY build a rolled build turns into, if any (`PlusStrategy.replaces`) — keeping the
+ * rolled build's opening hero, because the rule is stated per opening hero. Asked only for an
+ * Insane seat (index.ts `add`); every other difficulty plays the build it rolled.
+ */
+export function insaneVariant(table: PlusRaceTable, rolled: PlusStrategy, roll: () => number): PlusStrategy {
+  const first = (rolled.heroes ?? table.heroes)[0];
+  if (!first) return rolled;
+  for (const s of table.strategies) {
+    if (!s.replaces?.first.includes(first)) continue;
+    if (roll() >= s.replaces.chance) continue;
+    return { ...s, heroes: [first, ...(rolled.heroes ?? table.heroes).slice(1)] };
+  }
+  return rolled;
 }

@@ -320,6 +320,46 @@ export const UPG_RESIST_SKIN = "Rers";
 export const UPG_WELL_SPRING = "Rews";
 
 // --------------------------------------------------------------------------------------
+//  TAVERN HEROES — NOT common.ai's: Blizzard's melee AI never hires one, so the file names
+//  none of them. The ids are the game's own all the same: the heroes off `[ntav] Sellunits`
+//  (Units\NeutralUnitFunc.txt) and each hero's skills off its `heroAbilList`
+//  (Units\UnitAbilities.slk). Only the heroes and skills Computer+ plays are named.
+// --------------------------------------------------------------------------------------
+
+export const TAVERN = "ntav";
+export const ALCHEMIST = "Nalc";
+export const NAGA_WITCH = "Nngs";
+export const PIT_LORD = "Nplh";
+export const FIRE_LORD = "Nfir";
+export const BEASTMASTER = "Nbst";
+export const DARK_RANGER = "Nbrn";
+
+export const HEALING_SPRAY = "ANhs";
+export const ACID_BOMB = "ANab";
+export const CHEMICAL_RAGE = "ANcr";
+export const TRANSMUTE = "ANtm";
+export const FORKED_LIGHTNING = "ANfl";
+export const FROST_ARROWS = "ANfa";
+export const MANA_SHIELD = "ANms";
+export const TORNADO = "ANto";
+export const RAIN_OF_FIRE = "ANrf";
+export const HOWL_OF_TERROR = "ANht";
+export const CLEAVING_ATTACK = "ANca";
+export const DOOM = "ANdo";
+export const INCINERATE = "ANia";
+export const SOUL_BURN = "ANso";
+export const LAVA_SPAWN = "ANlm";
+export const VOLCANO = "ANvc";
+export const SUMMON_BEAR = "ANsg";
+export const SUMMON_QUILBEAST = "ANsq";
+export const SUMMON_HAWK = "ANsw";
+export const STAMPEDE = "ANst";
+export const SILENCE = "ANsi";
+export const BLACK_ARROW = "ANba";
+export const LIFE_DRAIN = "ANdr";
+export const CHARM = "ANch";
+
+// --------------------------------------------------------------------------------------
 //  Scalars
 // --------------------------------------------------------------------------------------
 

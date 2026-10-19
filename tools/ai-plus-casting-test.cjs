@@ -83,6 +83,17 @@ const ABILS = {
   // DESTROYER FORM, with its real row: `[Aave]` no target, `Cast1` 1, `Dur1` 1.1, `DataA1` uobs,
   // `UnitID1` ubsp. Its price and its research are `castUseError`'s, answered yes by the stub.
   Aave: { code: "Aave", target: "none", autocast: false, targetFlags: [], levelData: [lvl({ castTime: 1, duration: 1.1, dataStr: ["uobs"], summon: "ubsp", data: [NaN, 31, 1, 0, 8] })] },
+  // CANNIBALIZE, SIPHON MANA and HEX — the three buttons the hero pairings and the Ghoul report
+  // turned on (plus/casting.ts `CANNIBALIZE_HP`, `SIPHON_MANA`, `HEX_HERO_FIRST`). Real rows:
+  // `[Acan]` no target (it finds its own corpse), `[AHdr]` "air,ground,organic,notself" `Rng1`
+  // 600 `Dur1` 6, DataB 15 drained / DataE 30 given; `[AOhx]` an enemy unit, `Dur1` 7 /
+  // `HeroDur1` 3.
+  // `[Ahrl]` Harvest Lumber — the Ghoul's chop, a unit-target row the caster used to derive as a
+  // spell and throw at the creep the Ghoul was swinging at.
+  Ahrl: { code: "Ahrl", target: "unit", autocast: false, targetFlags: ["tree"], levelData: [lvl({ castRange: 128, duration: 1 })] },
+  Acan: { code: "Acan", target: "none", autocast: false, targetFlags: ["dead"], levelData: [lvl({ duration: 15 })] },
+  AHdr: { code: "AHdr", target: "unit", autocast: false, targetFlags: ["air", "ground", "organic", "notself"], levelData: [lvl({ castRange: 600, duration: 6, cost: 10, data: [0, 15, 0, 0, 30] })] },
+  AOhx: { code: "AOhx", target: "unit", autocast: false, targetFlags: ["air", "ground", "enemy", "neutral", "organic"], levelData: [lvl({ castRange: 800, duration: 7, heroDuration: 3, cost: 70 })] },
   AOmi: { code: "AOmi", target: "none", autocast: false, targetFlags: [], levelData: [lvl({ area: 1000, castRange: 128, cost: 100, duration: 60, heroDuration: 60, buffs: ["BOmi"], data: [1, 0, 2, 0.5] })] },
 };
 
@@ -754,6 +765,45 @@ const soldiers = (n, o = {}) => Array.from({ length: n }, (_, i) => unit({ owner
   const casters = soldiers(3, { maxMana: 200, mana: 200 });
   const two = [unit({ typeId: "ubsp", x: -200 }), unit({ typeId: "ubsp", x: -250 })];
   check("…and not past two Destroyers against one opponent", cast([statue({ hp: 200 }), unit({ typeId: "uobs", x: -100 }), ...two, ...casters]), null);
+}
+
+
+// THE GHOUL REPORT: Cannibalize was a panic button, pressed every pass while the Ghoul was being
+// hit — and the press cancelled the swing it was in the middle of. It is eaten BETWEEN fights.
+console.log("\n--- Cannibalize is eaten between fights, never in one ---");
+{
+  const ghoul = (o = {}) => caster({ abilId: "Acan", isHero: false, typeId: "ugho", race: "undead", hp: 400, maxHp: 1000, ...o });
+  const g1 = ghoul();
+  const creep = unit({ owner: 1, x: 120, targetId: g1.id, weapon: { range: 100, acquire: 500 } });
+  check("a hurt Ghoul being hit in a camp keeps swinging", cast([g1, creep]), null);
+  check("…and the same Ghoul with the camp dead eats", cast([ghoul()])?.code, "Acan");
+  check("…but not when it is barely scratched", cast([ghoul({ hp: 900 })]), null);
+  const chopper = caster({ abilId: "Ahrl", isHero: false, typeId: "ugho", race: "undead" });
+  check("a Ghoul's Harvest Lumber is never cast at the creep it is hitting",
+    cast([chopper, unit({ owner: 1, x: 100, targetId: chopper.id })]), null);
+}
+
+// THE BLOOD MAGE AND THE PALADIN: Siphon Mana FEEDS a short allied hero (a healer first), else
+// DRAINS whatever on the other side has mana — never a body with none.
+console.log("\n--- Siphon Mana feeds the Paladin and drains the casters ---");
+{
+  const bm = (o = {}) => caster({ abilId: "AHdr", mana: 280, maxMana: 300, ...o });
+  const pal = caster({ abilId: "AHhb", x: 300, mana: 40, maxMana: 300 });
+  const am = caster({ abilId: "AHtb", x: 250, mana: 40, maxMana: 300 });
+  check("a Blood Mage with mana feeds the hero with the heal", cast([bm(), pal, am])?.targetId, pal.id);
+  const sorc = unit({ owner: 1, x: 400, mana: 200, maxMana: 300 });
+  const footman = unit({ owner: 1, x: 200, mana: 0, maxMana: 0 });
+  check("…and a dry one drains the enemy caster, not the Footman", cast([bm({ mana: 30 }), sorc, footman])?.targetId, sorc.id);
+  check("…and with nothing worth taking, does nothing", cast([bm({ mana: 30 }), unit({ owner: 1, x: 200, mana: 0, maxMana: 0 })]), null);
+}
+
+// HEX GOES ON HEROES — "hex must be used on heroes more than units".
+console.log("\n--- Hex is aimed at heroes ---");
+{
+  const sh = caster({ abilId: "AOhx", race: "orc" });
+  const hero = unit({ owner: 1, x: 400, isHero: true, level: 3 });
+  const grunt = unit({ owner: 1, x: 200 });
+  check("a Shadow Hunter hexes the hero over the soldier in front of him", cast([sh, grunt, hero])?.targetId, hero.id);
 }
 
 console.log(failed ? `\n${failed} FAILED` : "\nall ok");

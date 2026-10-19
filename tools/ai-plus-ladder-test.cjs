@@ -907,6 +907,12 @@ function runEconomy() {
       townGuarded: () => null,
       // The id's own `Requires`, off this edition's Func.txt — a Keep met by a Castle.
       techMeets: (id) => editionTech.requires(id).every((r) => townCountDone(r) > 0),
+      // The hero TIER (`Requires1=TWN2…` on every melee hero): the next hero waits on the hall
+      // whose tier is one more than the heroes already bought — `AiPlayer.heroLegal`.
+      heroLegal: () => {
+        const owned = [ai.heroId, ai.heroId2, ai.heroId3].filter((h) => h && countRaw(h) > 0).length;
+        return owned < 1 || ctx.tier > owned;
+      },
     };
     const ctx = {
       ai, profile, table, strategy,
@@ -1155,7 +1161,7 @@ function runEconomy() {
   for (const [race, table] of Object.entries(TABLES)) {
     for (const s of table.strategies) {
       const [name, profile] = ["NORM", PLUS_NORMAL];
-      if (s.tier > profile.techTier) continue;
+      if (s.tier > profile.techTier || s.replaces) continue; // an Insane-only build — see below
       const base = run(race, s.id, profile, 900);
       const won = run(race, s.id, profile, 900, { wonAt: 240 });
       console.log(`      ${name} ${(race + "/" + s.id).padEnd(22)} expand@${String(base.expandAt).padStart(4)}s`
@@ -1169,6 +1175,9 @@ function runEconomy() {
     for (const s of table.strategies) {
       for (const [name, profile] of [["EASY", PLUS_EASY], ["NORM", PLUS_NORMAL], ["INSA", PLUS_INSANE]]) {
         if (s.tier > profile.techTier) continue;
+        // An INSANE-ONLY build (`PlusStrategy.replaces` — the orc's Head Hunter rush, the undead's
+        // fast expand) is never rolled at the other two rungs, so it is only measured at its own.
+        if (s.replaces && profile !== PLUS_INSANE) continue;
         const r = run(race, s.id, profile, 600);
         console.log(`      ${name} ${(race + "/" + s.id).padEnd(22)} tier=${r.tier} army=${String(r.armyFood).padStart(3)}`
           + ` ${table.barracks}x${r.producers} workers=${String(r.workers).padStart(2)}`
@@ -1180,6 +1189,15 @@ function runEconomy() {
           + ` tower@${String(r.towerAt).padStart(3)}s`
           + ` openingStuckOnTier=${Math.round(r.tierHaltShare * 100)}%`);
         check(`${EDITION} ${name} ${race}/${s.id} asks for nothing this edition lacks`, r.foreign.join(","), "");
+        if (s.replaces) {
+          // …and pinned on ITS terms: the tier-up is held to the build's own clock and no sooner
+          // (plan.ts `tier2`), it still arrives inside the ten minutes, and the gold the hall was
+          // not given went into an army.
+          check(`${race}/${s.id} (Insane) holds its tier-up to its own clock`, r.tier2At >= s.tier2Clock, true);
+          check(`${race}/${s.id} (Insane) reaches tier 2 in ten minutes`, r.tier >= 2, true);
+          check(`${race}/${s.id} (Insane) fields an army`, r.armyFood >= 20, true);
+          continue;
+        }
         if (name !== "NORM") continue;
         // A NORMAL computer that is not stuck reaches its second tier and fields a real army.
         // The bar is deliberately well under what the fixed plan actually manages (24–37 food):

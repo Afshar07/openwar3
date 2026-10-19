@@ -81,7 +81,8 @@ const ROLES: Partial<Record<Role, readonly string[]>> = {
     "AOwk", // Wind Walk — but see `windWalkRole`: this is only HALF of that button, the exit,
             // and the row is here so the exit sits at the top of the ladder where an exit
             // belongs. Its other half is an opener and is graded `buff`.
-    "Acan", // Cannibalize — a Ghoul eating a body IS its heal
+    "Acan", // Cannibalize — a Ghoul eating a body IS its heal, but NOT in a fight: see
+            // `CANNIBALIZE_HP`
     "AEbl", // Blink — an ESCAPE here and nothing else. The classic caster refuses it because
             // the thread records nothing about when the engine blinks; used only to leave a
             // fight the hero is losing, a wrong guess costs one hero one hop.
@@ -383,6 +384,17 @@ const NEVER = new Set<string>([
   "Aent", // Entangle Gold Mine — the economy's (AiPlayer.entangleMines)
   "Ambt", // Replenish — the Moon Well pours itself
   "Aeat", // Eat Tree
+  // HARVEST — a worker's job, and the GHOUL's. Reported: Ghouls "play their attack animation
+  // and stop it abruptly before the attack registers" in creep camps. Traced live (Insane
+  // undead, Echo Isles, seven minutes): 183 Ghoul swings at creeps were cancelled by a CAST
+  // order, every one of them `Ahrl` "Harvest Lumber" aimed at the creep being hit — 118 times at
+  // one Forest Troll. The Ghoul is not `isPeon`, so `canAct` let it through; `Ahrl` is on no list
+  // here, so `roleOf` derived it as a unit-target attack spell off its row; and the press
+  // re-tasked the Ghoul mid-swing (`issueCast` → `cancelSwing`) every `castPeriod` (0.35 s on
+  // Insane), shorter than a Ghoul's own swing, so the blow never landed. All four harvest codes
+  // (AbilityData.slk: `Ahar` Harvest, `Ahrl` Harvest Lumber and its two aliases, `Aaha` Acolyte
+  // Harvest, `Awha` Wisp Harvest) are the economy's.
+  "Ahar", "Ahrl", "Aaha", "Awha",
   "Auns", // Unsummon
   "Ashm", // Shadow Meld — a stance the sim holds
   "Aroo", // Root / Uproot — an Ancient walking, which is a building decision
@@ -558,6 +570,19 @@ const CAMP_FEW_BODIES = 2;
 const CAMP_FEW_HP = 0.5;
 /** …and how hurt the CASTER has to be for a panic button. */
 const NEAR_DEATH = 0.5;
+/**
+ * CANNIBALIZE IS EATEN BETWEEN FIGHTS, never in one — and only by a Ghoul that is actually hurt.
+ *
+ * The other half of the Ghoul report (see the harvest codes in `NEVER` for the half the trace
+ * proved): `Acan` sat with the panic buttons, and a panic button fires the moment the caster is
+ * `underAttack`, which a Ghoul in a camp always is — a press that re-tasks it mid-swing exactly as
+ * the harvest one did, the moment a corpse lies within reach. Cannibalize is a CHANNEL (`[Acan]`
+ * `Dur1` 15) that stands the Ghoul over a corpse, which a player does when the camp is DEAD, not
+ * in the middle of it. So: no enemy in reach (`engaged` false) and under this share of its life.
+ * Ours — nothing in the install says when an AI eats.
+ */
+const CANNIBALIZE_HP = 0.7;
+const CANNIBALIZE = "Acan";
 /** Dark Ritual is mana economy: it only makes sense when the caster is actually short. */
 const DARK_RITUAL_MANA = 0.5;
 /** How many bodies an area spell wants under it. The same two the classic caster uses, from
@@ -599,6 +624,58 @@ const IMMOLATION = "AEim";
  * See `imagesStanding` for the gate.
  */
 const MIRROR_IMAGE = "AOmi";
+
+/**
+ * THE BLOOD MAGE AND THE PALADIN — Siphon Mana (`AHdr`) as a mana PUMP.
+ *
+ * The developer's pairing (plus/races.ts `HeroCombo`): "the Blood Mage drains mana from enemy
+ * units that have mana using Siphon Mana and then uses Siphon Mana to 'feed' mana to the Paladin
+ * so that the Paladin can spam Holy Light". The row is two spells on one button and the sim
+ * already plays both halves (sim/spells.ts `AHdr`): aimed at an enemy it TAKES `DataB` mana a
+ * second, aimed at an ally it GIVES `DataE` — 15 and 30 at rank 1, over `Dur1` 6 s.
+ *
+ * Graded `nuke` with everything else it was simply thrown at the best enemy body, whether or not
+ * that body had a drop of mana (a Footman), and never at a friend. So the button gets an aim of
+ * its own (`siphonMana`), FEED first:
+ *
+ *  · an allied HERO with a mana pool under `SIPHON_FEED_BELOW` of it, in range, while the Blood
+ *    Mage holds at least `SIPHON_FEED_KEEP` of his own — a hero that carries a HEAL is fed
+ *    `SIPHON_HEALER` times as eagerly, which is the Paladin;
+ *  · otherwise an ENEMY with at least `SIPHON_DRAIN_MIN` mana to take (a hero at `SIPHON_HERO`×),
+ *    while his own bar has room for it. Never a worker: no melee worker has a mana pool anyway.
+ *
+ * The Dark Ranger's Drain shares the CODE and moves life, not mana (`DataB`/`DataE` both 0), so
+ * it keeps the ordinary nuke aim. All of the numbers here are ours.
+ */
+const SIPHON_MANA = "AHdr";
+const SIPHON_FEED_BELOW = 0.6;
+const SIPHON_FEED_KEEP = 0.35;
+const SIPHON_HEALER = 3;
+const SIPHON_DRAIN_MIN = 40;
+const SIPHON_HERO = 2;
+/** The heals a fed hero is spending its mana on — Holy Light first among them. */
+const SIPHON_HEALS: ReadonlySet<string> = new Set(["AHhb", "AOhw", "AUdc", "ANhs", "AEtq", "Arej"]);
+
+/**
+ * HEX GOES ON HEROES — the developer's "hex must be used on heroes more than units". A hero is
+ * what a Shadow Hunter's one disable buys the most against: the Hex takes the hero's spells AND
+ * its blows out of the fight, where a hexed Footman is one Footman. The expert ladder prices a
+ * disable on a hero DOWN by its shorter `herodur1` (targeting.ts `spellFacts`: 3 s of 7), which is
+ * right of a stun and wrong of this — so Hex is priced at its full duration on a hero, and then at
+ * this premium on top. Ours.
+ */
+const HEX = "AOhx";
+const HEX_HERO_FIRST = 3;
+
+/**
+ * HOLY LIGHT IS SPAMMED WHEN THE MANA IS THERE — the other end of `SIPHON_MANA`'s pump. A
+ * Paladin holding more than `HOLY_LIGHT_RICH` of his bar heals anybody under `HOLY_LIGHT_TOPUP`
+ * rather than waiting for the ordinary `HURT` bar: the mana the Blood Mage is pouring in is worth
+ * nothing sitting in the Paladin. Ours.
+ */
+const HOLY_LIGHT = "AHhb";
+const HOLY_LIGHT_RICH = 0.5;
+const HOLY_LIGHT_TOPUP = 0.9;
 
 /** Sentry Ward's base code — the Witch Doctor's `[Aeye]` and the item `[AIsw]` alike. Its
  *  planting is spaced out (`wardsWatching`). */
@@ -957,6 +1034,7 @@ export class PlusCaster {
         // is that there is a fight to leave at all. Without that clause a hero at a third life
         // walking home across an empty map spends the cooldown on nothing.
         if (def.code === WIND_WALK) return engaged;
+        if (def.code === CANNIBALIZE) return !engaged && u.hp / Math.max(1, u.maxHp) < CANNIBALIZE_HP;
         // "Casts when attacked … the health of the unit isn't a factor" is the real client's
         // Divine Shield; a Wind Walk or a Blink is the opposite, an exit taken when losing.
         // Both are here: hit right now, or hurt badly enough to leave.
@@ -1122,6 +1200,11 @@ export class PlusCaster {
     // point is ignored by the handler (`SPELL_HANDLERS`' morph entries take only the caster).
     if (role === "morph") {
       return this.view.order({ c: "cast", unitId: u.id, code, targetId: 0, x: u.x, y: u.y, queued: false });
+    }
+    if (def.code === SIPHON_MANA && (dat(lvl, 1, 0) > 0 || dat(lvl, 4, 0) > 0)) {
+      const t = this.siphonTarget(u, code, lvl, friends, foes);
+      if (!t) return false;
+      return this.view.order({ c: "cast", unitId: u.id, code, targetId: t.id, x: 0, y: 0, queued: false });
     }
     if (def.target === "unit") {
       const t = this.pickTarget(u, code, def, lvl, role, friends, foes);
@@ -1315,7 +1398,9 @@ export class PlusCaster {
     // says so: `healsUndead` is what makes this the Death Coil side of the mirror, whose other
     // half is the undead's opening nuke (see `COIL_HEAL_HP`). Holy Light's other half only ever
     // reaches enemy Undead, so it competes with nothing and keeps the ordinary `HURT` bar.
-    const healBar = POLARITY_SPELLS[code]?.healsUndead ? COIL_HEAL_HP : HURT;
+    const healBar = POLARITY_SPELLS[code]?.healsUndead ? COIL_HEAL_HP
+      : code === HOLY_LIGHT && u.mana >= u.maxMana * HOLY_LIGHT_RICH ? HOLY_LIGHT_TOPUP
+      : HURT;
     const pool: SimUnit[] = friendly ? friends : polarity ? [...friends, ...foes] : foes;
     // WAS THE POLARITY INFERRED? — true when the row named no side and its ROLE settled it
     // (`friendlyAim`). It matters for one thing only: whether the CASTER is a candidate. Every
@@ -1391,7 +1476,10 @@ export class PlusCaster {
       // it. Putting a body back on its feet is worth more than hurting one.
       const worth = manaBurn
         ? manaBurnValue(t, lvl)
-        : this.value(t, half, lvl) * (half === "heal" && polarity ? POLARITY_HEAL_FIRST : 1);
+        : code === HEX
+          // HEX: priced at its FULL duration on a hero, and then at a premium — see `HEX_HERO_FIRST`.
+          ? this.value(t, half, { ...lvl, heroDuration: lvl.duration }) * (t.isHero ? HEX_HERO_FIRST : 1)
+          : this.value(t, half, lvl) * (half === "heal" && polarity ? POLARITY_HEAL_FIRST : 1);
       const s = worth * 1000 - Math.hypot(t.x - u.x, t.y - u.y);
       if (s > bestScore) { bestScore = s; best = t; }
     }
@@ -1403,6 +1491,35 @@ export class PlusCaster {
     const bestHeals = !!best && (friendly || (polarity && !this.view.hostile(best)));
     if (best && role !== "heal" && !bestHeals && legal.length > 1 && this.mistake()) {
       return legal[Math.min(legal.length - 1, Math.floor(this.roll() * legal.length))] ?? best;
+    }
+    return best;
+  }
+
+  /** Siphon Mana's aim — FEED a hero that is short, else DRAIN an enemy that has some. See
+   *  `SIPHON_MANA`. Legality is still the click's own (`castError`). */
+  private siphonTarget(u: SimUnit, code: string, lvl: AbilityLevel, friends: SimUnit[], foes: SimUnit[]): SimUnit | null {
+    const ok = (t: SimUnit): boolean =>
+      near(u, t, lvl.castRange) && this.view.world.castError(u.id, code, t.id) === null && !this.view.refuses?.(u, code, t);
+    if (dat(lvl, 4, 0) > 0 && u.mana >= u.maxMana * SIPHON_FEED_KEEP) {
+      let best: SimUnit | null = null;
+      let bestScore = 0;
+      for (const t of friends) {
+        if (t === u || !t.isHero || t.isIllusion || t.maxMana <= 0) continue;
+        if (t.mana >= t.maxMana * SIPHON_FEED_BELOW) continue;
+        const healer = t.abilities.some((ab) => ab.level > 0 && SIPHON_HEALS.has(this.view.def(ab.id)?.code ?? ""));
+        const score = (t.maxMana - t.mana) * (healer ? SIPHON_HEALER : 1);
+        if (score > bestScore && ok(t)) { bestScore = score; best = t; }
+      }
+      if (best) return best;
+    }
+    const take = dat(lvl, 1, 0);
+    if (take <= 0 || u.mana > u.maxMana - take * 2) return null;
+    let best: SimUnit | null = null;
+    let bestScore = 0;
+    for (const t of foes) {
+      if (t.building || t.isPeon || t.mana < SIPHON_DRAIN_MIN) continue;
+      const score = Math.min(t.mana, take * Math.max(1, lvl.duration)) * (t.isHero ? SIPHON_HERO : 1);
+      if (score > bestScore && ok(t)) { bestScore = score; best = t; }
     }
     return best;
   }

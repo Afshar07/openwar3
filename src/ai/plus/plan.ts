@@ -735,7 +735,16 @@ function extraHeroes(c: PlusCtx): void {
     // ladder, and asking for it again down here would put the SAME row in the build array twice
     // — `OneBuildLoop` reserves a row's gold whether or not it started it, so a duplicate unit
     // row is four hundred gold withheld from everything below it for nothing.
-    if (c.tier < 2 && profile.heroes >= 2 && armyFood >= HERO2_ARMY) ai.setBuildUnit(1, ai.heroId2);
+    //
+    // …and only once the hero is LEGAL. A second hero's requirement is the tier-2 hall
+    // (`Requires1=TWN2,…` on every melee hero, the Tavern's included), so at tier 1 this row was
+    // a 425-gold reservation that could never be spent, taken off every row beneath it — the
+    // whole army among them — for as long as the hall was not up. A build that holds its tier-up
+    // back on purpose (`PlusStrategy.tier2Clock`, the Head Hunter rush) held its army flat for
+    // the minute before its Stronghold for exactly that (tools/ai-plus-ladder-test.cjs).
+    if (c.tier < 2 && profile.heroes >= 2 && armyFood >= HERO2_ARMY && (ai.heroLegal?.(ai.heroId2) ?? true)) {
+      ai.setBuildUnit(1, ai.heroId2);
+    }
     return;
   }
   if (profile.heroes >= 3 && ai.count(ai.heroId3) < 1 && armyFood >= HERO3_ARMY) {
@@ -1215,14 +1224,19 @@ function tierUpDue(c: PlusCtx): void {
   tier2(c);
 }
 
-/** …and the clock is the RACE'S — see `PlusRaceTable.tier2Clock`. */
+/** …and the clock is the BUILD'S, then the RACE'S — see `PlusStrategy.tier2Clock` and
+ *  `PlusRaceTable.tier2Clock`. */
 function tier2Clock(c: PlusCtx): number {
-  return c.table.tier2Clock ?? TIER2_CLOCK;
+  return c.strategy.tier2Clock ?? c.table.tier2Clock ?? TIER2_CLOCK;
 }
 
 function tier2(c: PlusCtx): void {
   const { ai, profile, table, armyFood, tier } = c;
   if (profile.techTier < 2 || tier < 1) return;
+  // A build that names its OWN tier-2 clock (a rush, a fast expand) does not buy the hall before
+  // it, not even out of leftover gold at the bottom of the ladder — the gold is the army's and
+  // the second mine's until then. See `PlusStrategy.tier2Clock`.
+  if (c.strategy.tier2Clock !== undefined && c.clock < c.strategy.tier2Clock && !starved(c)) return;
   if (armyFood < TIER2_ARMY && !starved(c)) return;
   ai.setBuildUnit(1, table.halls[1]);
 }

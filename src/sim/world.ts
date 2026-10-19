@@ -4818,6 +4818,20 @@ export class SimWorld {
     return out;
   }
 
+  /** Has `player` ANY unit of its own standing in `shop`'s reach — a building, a ward, a dead
+   *  body and an illusion excepted? The question a Tavern's hire asks, which unlike an item
+   *  sale wants no inventory: "A valid patron must be nearby" is about somebody being THERE.
+   *  Asked by the computer before it hires (AiPlayer.hireAtTavern). */
+  hasUnitAtShop(shopId: number, player: number): boolean {
+    const shop = this.units.get(shopId);
+    if (!shop) return false;
+    for (const u of this.units.values()) {
+      if (u.owner !== player || u.hp <= 0 || u.building || u.isIllusion) continue;
+      if (this.inShopRange(shop, u)) return true;
+    }
+    return false;
+  }
+
   /** Is `u` standing close enough to use `shop`? The one range test both the patron list and
    *  the purchase itself go through — stated as "within", never as "not beyond", so a NaN
    *  coordinate fails it. (`NaN > reach` is false, so the negated form would have quietly let

@@ -665,6 +665,21 @@ because it walked out of it, and `REGROUP_PATIENCE` bounds even that. Its reason
 (`"stuck"`), because `ItemCtx.portalWorthIt` reads that field and a Scroll of Town Portal is for
 leaving a fight, not for leaving a walk that did not work out.
 
+### Insane does not wait at home: the ROAM
+
+Measured before it existed (live Insane matches on Echo Isles, sampled every 3 s after 2:00): an
+army spent **14–19 %** of its time massing at home with nothing to do — no camp its party could
+price, and too small for a wave (`attackFood` 16). `PlusProfile.roam` (Insane only) moves that
+wait OUT ONTO THE MAP: while massing, with a hero fit to creep (`creepAt`, `CREEP_HEALTH`,
+`creepFood`), the muster point is a circuit (`roamCircuit`) of the free gold mines on our half (no
+building of anyone's within 900, no living camp within 900) and the camps we have already cleared
+there, nearest first, `ROAM_DWELL` (35 s) at each; with none of those, a point `ROAM_SHARE` of
+the way toward the enemy, at most `ROAM_OUT`. Everything else is unchanged and simply happens from
+there: a creep run sets off from the party's feet, a wave sets off when it is ready, an enemy army
+met is `contactPass`'s, and a threat at home is `defendPass`'s, above every mode. `b.afield` is
+true while roaming, so the at-home errands (shopping, the Ghoul relief) wait for the army to come
+home. All of the numbers are ours.
+
 ### A wave is what SETS OFF, not what exists
 
 The other half of *"the undead leaves its army at home and the hero goes out to creep by
@@ -1576,11 +1591,6 @@ weapon around it, so a bad matchup quietly promotes the casters it could not jud
 is the cap, set where it does not argue with a build that MEANS to be caster-heavy: the double
 Sanctum keeps its Priests and Sorceresses exactly where its own weights put them.
 
-**The tavern is not a hero shop yet.** Several of these builds are played in real games with a
-Naga Sea Witch or a Dark Ranger as the second or third hero; `AiPlayer` only ever produces heroes
-at an ALTAR, so the tables name altar heroes throughout and a tavern hero is a thing no Computer+
-player can buy. Worth knowing before reading a build's `heroes` list as the whole of the build.
-
 **Difficulty picks which builds are on the menu.** A strategy declares the hall tier it aims at,
 and one above the difficulty's `techTier` is never offered — so an easy computer only ever rolls
 its race's simplest openings, and where a race's builds ALL aim higher than its ceiling it rolls
@@ -1593,6 +1603,55 @@ passed; we do not, because a switch abandons half-built production and nothing h
 whether it was worth it. Countering (below) and the build's own `thenAt3` are the two things that
 move, and neither is a change of plan: one re-weights the mix the build already named, the other
 is a clause the build wrote down before the match started.
+
+### Heroes: the opener is the build's, the rest are PAIRINGS
+
+The opening hero is the build's (above). The second and third are the developer's own pairings,
+keyed on the opener (`PlusRaceTable.combos`, plus/races.ts `HeroCombo`) and applied at EVERY
+difficulty — Easy simply never reaches a second row and Normal never a third:
+
+| race | opener | second | third |
+|---|---|---|---|
+| human | Paladin | Blood Mage, **Siphon Mana first** | Alchemist |
+| human | Archmage | Mountain King | Paladin |
+| orc | Blademaster | Shadow Hunter | Alchemist, or the Tauren Chieftain |
+| orc | Far Seer | Tauren Chieftain / Shadow Hunter, even odds | Alchemist, or whichever of those two is missing |
+| undead | Death Knight | Lich | Dark Ranger (Black Arrow) / Crypt Lord (Impale) |
+| undead | Crypt Lord, Dreadlord | Death Knight | Dark Ranger |
+| night elf | Demon Hunter | Keeper of the Grove / Naga Sea Witch | Alchemist / Priestess of the Moon |
+| night elf | Keeper of the Grove | Demon Hunter / Pit Lord | Alchemist / Fire Lord (Lava Spawn) |
+
+A `third` is a list of OPTIONS, one rolled, and within an option the first hero not already
+fielded — which is how "Alchemist, or Tauren/Shadow Hunter depending on what's missing" is
+written. The Shadow Hunter opens on Hex or on Healing Wave (two skill builds, one rolled), and the
+caster aims Hex at HEROES first (plus/casting.ts `HEX_HERO_FIRST`). The Blood Mage beside a
+Paladin is a mana PUMP (`siphonTarget`): Siphon Mana drains whatever on the other side has mana
+and feeds a short allied hero — a healer three times as eagerly — and a Paladin holding over half
+his bar spends it on Holy Light at 90 % rather than at the usual 75 % (`HOLY_LIGHT_TOPUP`).
+
+**The Tavern is a hero shop.** A hero none of our buildings trains is hired at the nearest Tavern
+(`AiPlayer.hireAtTavern`): a worker walks to its door first — a Tavern's `Ane2` sells only to a
+buyer with a unit inside its 450 reach — and is `tavernRunner` until the hire lands, so the harvest
+plan leaves it alone. Not before the hero is LEGAL (`heroLegal`: the next hero's tier, indexed by
+how many we already have), or a worker would stand at the door waiting on a Keep. A map with no
+Tavern, and Reign of Chaos (which has none of these heroes), falls back on the race's own order.
+
+That same tier rule fixed a dead reservation: `extraHeroes` asked for the second hero at TIER 1,
+where every melee hero is `Requires1=TWN2`, so 425 gold was withheld from every row under it
+(the whole army) until the hall went up. It now asks only once the hero is buyable.
+
+### Insane-only builds: the rush and the fast expand
+
+Two builds are never rolled; they REPLACE the rolled build when it opens on a given hero
+(`PlusStrategy.replaces`, `insaneVariant`), on Insane only:
+
+* **Head Hunter rush** (orc, half of every Far Seer opening) — two Barracks of Head Hunters, the
+  second hero a Fire Lord or a Beastmaster off the Tavern, the Stronghold held to 6:00
+  (`PlusStrategy.tier2Clock`, which also refuses the tier-up BEFORE it), and the wave not waiting
+  on the hero's third level (`rush`). Headless: 15 army food at 5:00 and 20 at 6:00 against the
+  standard Head Hunter build's 13 and 15.
+* **Fast expansion** (undead, every Crypt Lord or Dreadlord opening) — the second mine on a 2:30
+  clock, two Crypts of Ghouls and Fiends, and the Halls of the Dead held to 5:30.
 
 ### Losing the buildings a build is made of
 
@@ -4036,6 +4095,22 @@ the one building in the middle. Three pieces undo that:
   shooting over a Farm). And `contactPass` leaves a wave that is razing a base alone
   (`assaulting`): `CONTACT_LOOK` (1400) is wider than most bases, so every defender anywhere in
   it read as "in contact", and re-aiming the wave at their centre was the chase itself.
+
+### A Ghoul's harvest button is not a spell — and Cannibalize waits for the fight to end
+
+Reported: Ghouls "play their attack animation and stop it abruptly before the attack registers".
+Traced live (Insane undead, Echo Isles): of 227 Ghoul swings at creeps in seven minutes, **188 were
+cancelled** — and every cancel was a CAST order of **`Ahrl` "Harvest Lumber" aimed at the creep
+being hit** (118 at one Forest Troll). The caster grades any ability it has no row for off the
+ability's own data (`roleOf`), workers are kept out by `isPeon`, and a Ghoul is not a peon, so its
+harvest button read as a unit-target attack spell; each press re-tasked the Ghoul mid-swing
+(`issueCast` → `cancelSwing`) every `castPeriod` (0.35 s on Insane), shorter than its swing. All
+four harvest codes (`Ahar`, `Ahrl`, `Aaha`, `Awha`) are now in the caster's `NEVER` list.
+
+Cannibalize had the same shape and is fixed beside it: it sat with the `panic` buttons, which fire
+while the caster is under attack — always, for a Ghoul in a camp. It is now pressed only with no
+enemy in reach and the Ghoul under 70 % (`CANNIBALIZE_HP`), and a Ghoul eating counts as
+`recovering`, so no rally or commit order walks it off its meal.
 
 ## Manners: glhf, gg, and leaving
 

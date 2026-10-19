@@ -26,7 +26,7 @@ const { join } = require("node:path");
 const REPO = join(__dirname, "..");
 require("node:fs").writeFileSync(join(REPO, ".sim-build", "package.json"), '{"type":"commonjs"}');
 const { buildableMix } = require(join(REPO, ".sim-build", "src", "ai", "plus", "plan.js"));
-const { PLUS_RACES } = require(join(REPO, ".sim-build", "src", "ai", "plus", "races.js"));
+const { PLUS_RACES, insaneVariant, rollStrategy, TAVERN_HEROES } = require(join(REPO, ".sim-build", "src", "ai", "plus", "races.js"));
 const { PLUS_EASY, PLUS_NORMAL, PLUS_INSANE } = require(join(REPO, ".sim-build", "src", "ai", "plus", "profile.js"));
 
 let failed = 0;
@@ -169,6 +169,50 @@ for (const profile of [PLUS_EASY, PLUS_NORMAL, PLUS_INSANE]) {
   const empty = { ...orc.strategies[0], id: "empty", mix: {} };
   const rows = buildableMix(ctx(orc, empty, profile, [orc.halls[0], orc.barracks], 1));
   check(`orc opens on Grunts at difficulty ${profile.difficulty}`, rows.map((r) => r.unit).join(","), "ogru");
+}
+
+
+// THE HERO PAIRINGS AND THE INSANE-ONLY BUILDS (plus/races.ts `HeroCombo`, `PlusStrategy.replaces`).
+// The pairings are the developer's own rules, so what is pinned is that the table SAYS them; the
+// two builds that replace a rolled one must never be rolled on their own, must replace only the
+// openers they name, and must keep the rolled build's opening hero.
+console.log("\n--- hero pairings, and the Insane-only builds ---");
+{
+  const { human, orc, undead, nightelf } = PLUS_RACES;
+  check("Paladin → Blood Mage", human.combos.Hpal.second.join(), "Hblm");
+  check("…with Siphon Mana as his first skill", human.combos.Hpal.skills.Hblm[0], "AHdr");
+  check("Archmage → Mountain King", human.combos.Hamg.second.join(), "Hmkg");
+  check("human third: Paladin if missing, else the Alchemist", human.combos["*"].third[0].join(), "Hpal,Nalc");
+  check("Blademaster → Shadow Hunter", orc.combos.Obla.second.join(), "Oshd");
+  check("Far Seer → Tauren Chieftain or Shadow Hunter", orc.combos.Ofar.second.join(), "Otch,Oshd");
+  check("every Shadow Hunter build opens on Hex or Healing Wave",
+    orc.skills.Oshd.every((b) => b[0] === "AOhx" || b[0] === "AOhw"), true);
+  check("Death Knight → Lich", undead.combos.Udea.second.join(), "Ulic");
+  check("Crypt Lord → Death Knight, then the Dark Ranger", undead.combos.Ucrl.second.join() + "/" + undead.combos.Ucrl.third.flat().join(), "Udea/Nbrn");
+  check("Demon Hunter → Keeper or Naga Sea Witch", nightelf.combos.Edem.second.join(), "Ekee,Nngs");
+  check("Keeper → Demon Hunter or Pit Lord", nightelf.combos.Ekee.second.join(), "Edem,Nplh");
+  check("every tavern hero has a skill build in every race table",
+    Object.values(PLUS_RACES).every((t) => [...TAVERN_HEROES].every((h) => t.skills[h]?.length)), true);
+
+  for (const table of Object.values(PLUS_RACES)) {
+    for (let k = 1; k <= 200; k++) {
+      const s = rollStrategy(table, 3, () => k);
+      if (s.replaces) { check(`${table.race}: a replacing build is never rolled`, s.id, "(none)"); break; }
+    }
+  }
+  const fs = orc.strategies.find((s) => s.id === "headhunters");
+  check("Insane Far Seer: the rush on a low roll", insaneVariant(orc, fs, () => 0.1).id, "hhrush");
+  check("…its own build on a high one", insaneVariant(orc, fs, () => 0.9).id, "headhunters");
+  check("…and the rush keeps the Far Seer", insaneVariant(orc, fs, () => 0.1).heroes[0], "Ofar");
+  const bm = orc.strategies.find((s) => s.id === "grunts");
+  check("a Blademaster opening is never the rush", insaneVariant(orc, bm, () => 0).id, "grunts");
+  for (const id of ["meatwagons", "ghouls", "aboms"]) {
+    const s = undead.strategies.find((x) => x.id === id);
+    const v = insaneVariant(undead, s, () => 0.99);
+    check(`Insane undead ${id} (${s.heroes[0]}) becomes the fast expand, same opener`, `${v.id}/${v.heroes[0]}`, `fastexpand/${s.heroes[0]}`);
+  }
+  check("a Death Knight opening is never the fast expand",
+    insaneVariant(undead, undead.strategies.find((x) => x.id === "fiends"), () => 0).id, "fiends");
 }
 
 console.log(failed === 0 ? "\nAll Computer+ plan checks passed." : `\n${failed} check(s) FAILED.`);
