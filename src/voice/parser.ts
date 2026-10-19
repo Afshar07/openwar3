@@ -99,7 +99,13 @@ export type VoiceIntent =
   | { kind: "useitem"; entry?: LexEntry; slot?: number; target?: VoiceTarget }
   | { kind: "select"; what: "army" | "idle" | "hero" | "subject"; subject?: Subject; index?: number }
   | { kind: "group"; n: number; mode: "recall" | "assign" | "add" }
-  | { kind: "camera"; target: VoiceTarget };
+  | { kind: "camera"; target: VoiceTarget }
+  /** The console's four panels — F9 Quests, F10 Menu, F11 Allies, F12 the chat/message log.
+   *  `open` null = toggle. */
+  | { kind: "panel"; panel: "quests" | "menu" | "allies" | "chat"; open: boolean | null }
+  | { kind: "pause"; on: boolean }
+  /** A chat line, or with no text the chat input opened. `scope` null = the player's default. */
+  | { kind: "chat"; text: string; scope: "all" | "allies" | null };
 
 /** Number words → value. "a"/"an" count as one ("train a footman"). */
 const NUMBERS: Record<string, number> = {
@@ -300,6 +306,9 @@ export function grammarWords(): string[] {
 /** Parse what was heard. An empty list means nothing in it was a command. */
 export function parse(text: string, ctx: ParseContext): VoiceIntent[] {
   const ws = words(text);
+  // A chat line is ONE thing however many "and"s it has: they are the message's own.
+  const chat = parseChat(ws);
+  if (chat) return [chat];
   const out: VoiceIntent[] = [];
   // Split on the joins a player uses between two commands. A clause with no verb of its own
   // inherits the previous one ("select footmen and riflemen").
@@ -386,8 +395,57 @@ export function readTarget(ws: readonly string[], at: number, lex: Lexicon): Voi
   return undefined;
 }
 
+/** The console's panels by what players call them. */
+const PANELS: Array<[RegExp, "quests" | "menu" | "allies" | "chat"]> = [
+  [/\b(quests?|quest log|objectives?|missions?)\b/, "quests"],
+  [/\b(menu|game menu|pause menu|main menu|options|escape menu)\b/, "menu"],
+  [/\b(allies|alliance|alliances|diplomacy|ally menu|ally panel)\b/, "allies"],
+  [/\b(message log|chat log|log|chat panel|chat history|messages)\b/, "chat"],
+];
+
+/**
+ * A CHAT line: "say good game", "tell allies push mid", "type gg to all", "send message attack
+ * now to everyone", or "chat" / "open chat" alone for the input. The message is the rest of the
+ * sentence as said — the recogniser's free half fills it in (src/voice/control.ts) — less the
+ * words that say WHO it is for ("to all", "to allies", "all chat", "team").
+ */
+export function parseChat(ws: readonly string[]): VoiceIntent | null {
+  let i = 0;
+  if (ws[0] === "send" && /^(message|msg|text|chat)$/.test(ws[1] ?? "")) i = 2;
+  else if (ws[0] === "send" && ws[1] === "a" && /^(message|msg|text|chat)$/.test(ws[2] ?? "")) i = 3;
+  else if (/^(say|tell|type|write|chat|message)$/.test(ws[0] ?? "")) i = 1;
+  else if (/^(open|start)$/.test(ws[0] ?? "") && ws[ws.length - 1] === "chat" && ws.length <= 3) return { kind: "chat", text: "", scope: null };
+  else return null;
+  const rest = ws.slice(i);
+  let scope: "all" | "allies" | null = null;
+  const take = (n: number, sc: "all" | "allies", at: number): void => { rest.splice(at, n); scope = sc; };
+  const tail = rest.join(" ");
+  // Who, at the end ("… to all") or at the start ("tell allies …", "all chat …").
+  if (/ (to|for) (all|everyone|everybody|every one)$/.test(` ${tail}`)) take(2, "all", rest.length - 2);
+  else if (/ (to|for) (allies|ally|team|my team|teammates|the team)$/.test(` ${tail}`)) take(rest[rest.length - 2] === "my" || rest[rest.length - 2] === "the" ? 3 : 2, "allies", rest.length - (rest[rest.length - 2] === "my" || rest[rest.length - 2] === "the" ? 3 : 2));
+  else if (/^(all|everyone|everybody)\b/.test(tail)) take(rest[1] === "chat" ? 2 : 1, "all", 0);
+  else if (/^(allies|team|ally)\b/.test(tail)) take(rest[1] === "chat" ? 2 : 1, "allies", 0);
+  return { kind: "chat", text: rest.join(" ").trim(), scope };
+}
+
 function parseClause(ws: string[], ctx: ParseContext, inherited: string | null): { intent: VoiceIntent; verb: string } | null {
   const lex = ctx.lexicon;
+  // A chat line is not a command at all: everything after the verb is the message.
+  const chat = parseChat(ws);
+  if (chat) return { intent: chat, verb: "chat" };
+  // The console's panels: "open the quest log", "close the menu", "show allies", "menu".
+  const text = ws.join(" ");
+  const opener = /^(open|show|toggle|bring|display|view|check|go)\b/.test(text) ? true : /^(close|hide|exit|leave|dismiss)\b/.test(text) ? false : undefined;
+  if (opener !== undefined || ws.length <= 3) {
+    for (const [re, panel] of PANELS) {
+      if (!re.test(text)) continue;
+      if (opener === undefined && ws.length > 2) break;
+      return { intent: { kind: "panel", panel, open: opener === undefined ? null : opener }, verb: "panel" };
+    }
+  }
+  // "pause the game", "pause", "unpause", "resume the game".
+  if (/^(pause)( the)?( game)?$/.test(text)) return { intent: { kind: "pause", on: true }, verb: "pause" };
+  if (/^(unpause|resume|continue)( the)? game$|^unpause$/.test(text)) return { intent: { kind: "pause", on: false }, verb: "pause" };
   // "move the camera to another gold mine", "take the camera to my base", "camera top left":
   // a clause that names the CAMERA is about the camera, whichever verb it opens with — "move"
   // above all, which would otherwise order the army there.
@@ -682,6 +740,9 @@ export function describe(i: VoiceIntent): string {
     case "select": return i.what === "army" ? "Select army" : i.what === "idle" ? "Select idle worker" : i.what === "hero" ? `Select hero ${(i.index ?? 0) + 1}` : `Select ${who(i.subject)}`;
     case "group": return `${i.mode === "recall" ? "Group" : i.mode === "assign" ? "Assign group" : "Add to group"} ${i.n}`;
     case "camera": return `Camera${t(i.target)}`;
+    case "panel": return `${i.open === false ? "Close" : "Open"} ${i.panel}`;
+    case "pause": return i.on ? "Pause" : "Unpause";
+    case "chat": return i.text ? `Chat${i.scope ? ` (${i.scope})` : ""}: ${i.text}` : "Open chat";
   }
 }
 

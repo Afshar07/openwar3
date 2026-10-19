@@ -112,3 +112,34 @@ onto commands is the same cost again. Instead:
 
 `window.openwar3.voiceSay("train three footmen")` runs a sentence through the same path with no
 microphone — the way to test the mapping in a live match.
+
+## The menus and the in-game panels
+
+`src/voice/menu.ts` is the second host: when no match is taking commands (the main menu, every
+glue screen, and in a match whenever F10's menu, the Quest Log, Allies or Chat is up) the press
+goes to it, and it reads the SCREEN rather than a grammar of its own — every visible button by its
+caption, every checkbox and dropdown by the label on its line (right of a box, left of a
+dropdown), every list row by its text, and every dropdown's own options (`popupOptions`, a
+WeakMap the widget fills). So "click single player", "select lost temple", "set hotkeys to grid",
+"turn on observer mode", "previous menu", "quit mission" need nothing written per screen.
+
+- **Lobby rows** are told apart only by their row (`NameMenu3`, `RaceMenu3`, `TeamButton3`,
+  `ColorButton3`, `HandicapMenu3`), so a sentence names a ROW — an ordinal ("the second player",
+  "player three"), a colour ("the red player": the colour menu labels its swatches "Player N",
+  mapped to the game's own playercolor order), or "my" (the first row that is a person) — and
+  maybe a FIELD. With none said, the field is the row's dropdown that HAS the value: "change the
+  second player to insane" is the player menu, "… to orc" the race. "Player" names the player
+  menu only when no other field word was said.
+- **Every action is the pad's** (`voicePoint` / `voiceClick` in ui/gamepad.ts): the drawn cursor
+  and the gold box land on the control and press it, so it hears a mouse's pointer events — the
+  click sound, the glow, the tooltip, the screen's own handler. "Move the cursor to X" leaves the
+  box there; "click" then presses it. The real mouse moving takes it away, as for the pad.
+- **"Close"/"exit"** presses a button by that name if the panel has one, else sends the panel its
+  own Escape.
+- The CONSOLE lines belong to the match even while a panel is up or the game is paused — "open
+  the quest log", "pause"/"unpause", and chat — and opening one panel puts away whichever is open.
+- **Chat**: "say good game to all", "tell allies push mid", "send message … to my team", "open
+  chat". A chat line's words are not in any grammar, so the match runs a SECOND, free recogniser
+  beside the grammar one (`VoiceHost.dictates`) and the message is read off it; the grammar one
+  only has to hear the verb. "And" inside a chat line is the message's own.
+- `window.openwar3.voiceSay(text)` works on the menus too (it asks whichever host is active).

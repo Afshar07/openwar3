@@ -276,6 +276,8 @@ body.in-game {
 /* Voice Control's "Listening…" line (render/mapViewer.ts installVoiceControl): the tooltip slab,
    centred over the console while "." is held, showing what the recogniser hears so far. */
 .voice-control-status.game-tip { left: 50%; bottom: 27%; z-index: 30; }
+/* …and on the menus (src/voice/menu.ts), over every glue screen and dialog. */
+.voice-control-status.game-tip.menu { bottom: 12%; z-index: 10001; }
 .update-overlay-caption,
 .update-overlay-percent {
   position: absolute;

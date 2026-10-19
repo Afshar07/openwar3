@@ -37,7 +37,8 @@ import { applyVideoOptions } from "./render/videoQuality";
 import { applyHealthBarOptions } from "./render/worldOverlays";
 import { applyHotkeyOptions } from "./data/hotkeys";
 import { applyScrollOptions } from "./render/scrollOptions";
-import { applyVoiceOptions, voicePrerollState, voiceSay } from "./voice/control";
+import { applyVoiceOptions, setMenuVoiceHost, voicePrerollState, voiceSay } from "./voice/control";
+import { makeMenuVoiceHost } from "./voice/menu";
 import { GlueManager, type GlueScreenDef } from "./ui/glue";
 import { mountLoadingScreen, type LoadingScreen } from "./ui/loadingScreen";
 import { mountScoreScreen, scoreScreenMusic } from "./ui/scoreScreen";
@@ -104,6 +105,9 @@ applyHotkeyOptions(bootOptions);
 applyScrollOptions(bootOptions);
 // …and "Voice Control", whose push-to-talk key is only read while it is ticked (src/voice/).
 applyVoiceOptions(bootOptions);
+// …and the menus' half of it: every glue screen and in-game panel, read off the page when "." is
+// held (src/voice/menu.ts).
+setMenuVoiceHost(makeMenuVoiceHost());
 
 const resolver = new AssetResolver(null);
 

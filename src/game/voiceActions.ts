@@ -67,6 +67,14 @@ export interface VoiceDriver {
   creepCamps(): Array<{ x: number; y: number; level: number }>;
   recallGroup(n: number): boolean;
   selectHero(index: number): boolean;
+  /** The console's four panels (F9–F12): whether one is open, and its key's toggle. */
+  panelOpen(panel: "quests" | "menu" | "allies" | "chat"): boolean;
+  togglePanel(panel: "quests" | "menu" | "allies" | "chat"): void;
+  /** The player's pause (the F10 menu's Pause Game), on or off. */
+  pause(on: boolean): void;
+  /** The chat line: open it for typing, or send a line. `scope` null = the player's default. */
+  openChat(scope: "all" | "allies" | null): void;
+  sendChat(text: string, scope: "all" | "allies" | null): void;
   /** The inventory pockets' names, null for an empty one. */
   inventory(): Array<{ name: string; usable: boolean } | null>;
   useInventory(slot: number): void;
@@ -727,6 +735,22 @@ export function makeVoiceHost(d: VoiceDriver): VoiceHost {
         if (r.aimingTarget()) aim(i.target, "mine");
         return;
       }
+      case "panel": {
+        // The F-key's own toggle, asked only when the panel is not already where it was asked
+        // to be ("open the menu" with the menu open does nothing).
+        // Another panel up: put it away first — one panel at a time, as the F-keys do.
+        if (i.open !== false && !d.panelOpen(i.panel)) {
+          for (const p of ["quests", "menu", "allies", "chat"] as const) if (p !== i.panel && d.panelOpen(p)) d.togglePanel(p);
+        }
+        if (i.open === null || i.open !== d.panelOpen(i.panel)) d.togglePanel(i.panel);
+        return;
+      }
+      case "pause": d.pause(i.on); return;
+      case "chat": {
+        if (!i.text) { d.openChat(i.scope); return; }
+        d.sendChat(i.text, i.scope);
+        return;
+      }
       case "finish": {
         // A building of ours whose construction HALTED — its builder walked off, as a human
         // structure stops dead the moment it does — gets a worker back on it, with the
@@ -785,6 +809,8 @@ export function makeVoiceHost(d: VoiceDriver): VoiceHost {
     acceptsInput: () => d.canAct(),
     lexicon: () => lexicon(d, mine()),
     vocabulary: () => (vocab ??= gameVocabulary(d)),
+    // The match runs the free recogniser beside the grammar one, for chat lines.
+    dictates: true,
     perform: (intents, heard) => {
       // The echo: what was heard, then what it was read as — in the message log, where the game
       // prints what a player said.

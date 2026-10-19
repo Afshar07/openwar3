@@ -35,6 +35,12 @@ export interface VoiceHost {
   vocabulary(): readonly string[];
   /** Carry the intents out. */
   perform(intents: VoiceIntent[], heard: string): void;
+  /** A host that understands sentences ITSELF (the menus, src/voice/menu.ts) takes the text
+   *  whole instead of the match's intents. True if it did something with it. */
+  handle?(text: string): boolean;
+  /** Whether to run the free DICTATION recogniser beside the grammar one — the match does, for
+   *  "say good game to all", whose message is words no grammar can hold. */
+  dictates?: boolean;
   /** Tell the player what is going on (listening, heard nothing, …). null clears it. */
   status(text: string | null): void;
   /** Tell the player something went wrong (no microphone, …). */
@@ -60,7 +66,24 @@ const PREROLL_SECS = 0.6;
 const TAP_SAMPLES = 2048;
 
 let enabled = false;
+/** The match, while one is up. */
 let host: VoiceHost | null = null;
+/** The menus — every glue screen, and the in-game panels (F10, quests, allies) — registered
+ *  once at boot. Asked only when the match is not taking commands. */
+let menuHost: VoiceHost | null = null;
+
+/** Who a press is for right now: the match if it is taking commands, else the menus. */
+function active(): VoiceHost | null {
+  if (host?.acceptsInput()) return host;
+  if (menuHost?.acceptsInput()) return menuHost;
+  return null;
+}
+
+/** The menus register themselves once (main.ts). */
+export function setMenuVoiceHost(h: VoiceHost | null): void {
+  menuHost = h;
+  warm();
+}
 
 /** Options → Gameplay → "Voice Control", live. */
 export function applyVoiceOptions(opts: Options): void {
@@ -75,13 +98,13 @@ export function applyVoiceOptions(opts: Options): void {
  * Get ready to listen BEFORE the first press: with Voice Control on, a match up and the model
  * installed, the recogniser is loaded and the microphone opened, so the pre-roll is already
  * filling when "." goes down — the first command of a match is not the one that loses its start
- * to a permission prompt and a model load. The microphone is closed again when the option is
- * turned off or the match ends (`setVoiceHost(null)`).
+ * to a permission prompt and a model load — and the menus listen too, so it is open whenever the
+ * option is on. The microphone is closed again when the option is turned off.
  */
 function warm(): void {
-  if (!enabled || !host) return;
+  if (!enabled || (!host && !menuHost)) return;
   void voiceModelInstalled().then((ok) => {
-    if (!ok || !enabled || !host) return;
+    if (!ok || !enabled || (!host && !menuHost)) return;
     void loadVoiceModel().catch(() => {});
     void openMic();
   });
@@ -90,10 +113,8 @@ function warm(): void {
 /** The match registers itself while it is up; null when it ends. */
 export function setVoiceHost(h: VoiceHost | null): void {
   host = h;
-  if (!h) {
-    cancelUtterance();
-    closeMic();
-  } else warm();
+  if (!h) cancelUtterance();
+  warm();
 }
 
 // ---- the microphone --------------------------------------------------------------------
@@ -114,7 +135,7 @@ function openMic(): Promise<boolean> {
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 },
       });
     } catch {
-      host?.error("Voice Control: microphone unavailable or permission refused.");
+      (host ?? menuHost)?.error("Voice Control: microphone unavailable or permission refused.");
       return false;
     }
     source = ctx.createMediaStreamSource(stream);
@@ -145,14 +166,24 @@ function closeMic(): void {
 
 type Recognizer = InstanceType<VoskModel["KaldiRecognizer"]>;
 
+/** A sentence that is a CHAT line ("say good game", "tell allies push mid", "send message gg to
+ *  all"): its message is whatever was said, so it is read off the dictation recogniser. */
+const CHAT_START = /^(say|tell|type|write|chat|message|send (a )?(message|msg|text|chat))\b/;
+
 interface Utterance {
+  h: VoiceHost;
   rec: Recognizer | null;
+  /** The free recogniser — no grammar, the model's whole vocabulary — for chat dictation. */
+  free: Recognizer | null;
   lexicon: Lexicon;
-  /** Audio captured before the recogniser was ready (the first press loads the model). */
+  /** Audio captured before the recognisers were ready (the first press loads the model). */
   pending: Float32Array[];
   /** Text of every result segment so far — Kaldi ends a segment at a pause, so a long
-   *  sentence can arrive in pieces. */
+   *  sentence can arrive in pieces. One list per recogniser. */
   text: string[];
+  freeText: string[];
+  /** Final results still to come back (one per recogniser running). */
+  outstanding: number;
   listening: boolean;
   finishing: boolean;
 }
@@ -173,39 +204,54 @@ function feed(samples: Float32Array): void {
     while (preroll.length > keep) preroll.shift();
     return;
   }
-  if (u.rec) u.rec.acceptWaveformFloat(copy, ctx.sampleRate);
-  else u.pending.push(copy);
+  if (u.rec) {
+    u.rec.acceptWaveformFloat(copy, ctx.sampleRate);
+    u.free?.acceptWaveformFloat(copy, ctx.sampleRate);
+  } else u.pending.push(copy);
 }
 
-async function begin(): Promise<void> {
-  if (!host || current) return;
-  const lexicon = new Lexicon(host.lexicon());
+async function begin(h: VoiceHost): Promise<void> {
+  if (current) return;
+  const lexicon = new Lexicon(h.lexicon());
   // The utterance starts with the pre-roll — the audio from just BEFORE the key went down.
-  const u: Utterance = { rec: null, lexicon, pending: preroll, text: [], listening: true, finishing: false };
+  const u: Utterance = {
+    h, rec: null, free: null, lexicon, pending: preroll, text: [], freeText: [], outstanding: 0, listening: true, finishing: false,
+  };
   preroll = [];
   current = u;
-  host.status("Listening…");
+  h.status("Listening…");
   const [model, mic] = await Promise.all([loadVoiceModel().catch(() => null), openMic()]);
   if (current !== u) return;
   if (!model || !mic) {
-    if (!model) host?.error("Voice Control: the speech model could not be loaded.");
-    host?.status(null);
+    if (!model) h.error("Voice Control: the speech model could not be loaded.");
+    h.status(null);
     current = null;
     return;
   }
-  const rec = new model.KaldiRecognizer(ctx!.sampleRate, JSON.stringify(await grammarFor(lexicon, host.vocabulary())));
+  const rec = new model.KaldiRecognizer(ctx!.sampleRate, JSON.stringify(await grammarFor(lexicon, h.vocabulary())));
   if (current !== u) { rec.remove(); return; }
-  rec.on("result", (m) => {
-    if (m.event !== "result") return;
-    const t = m.result.text.trim();
-    if (t) u.text.push(t);
-    if (u.finishing) finish(u);
-  });
+  const collect = (r: Recognizer, into: string[]): void => {
+    r.on("result", (m) => {
+      if (m.event !== "result") return;
+      const t = m.result.text.trim();
+      if (t) into.push(t);
+      if (u.finishing && --u.outstanding <= 0) finish(u);
+    });
+  };
+  collect(rec, u.text);
   rec.on("partialresult", (m) => {
-    if (m.event === "partialresult" && m.result.partial && current === u) host?.status(`“${m.result.partial}”`);
+    if (m.event === "partialresult" && m.result.partial && current === u) h.status(`“${m.result.partial}”`);
   });
   u.rec = rec;
-  for (const p of u.pending) rec.acceptWaveformFloat(p, ctx!.sampleRate);
+  if (h.dictates) {
+    // No grammar: the model's whole vocabulary, so a chat line is heard as said.
+    u.free = new model.KaldiRecognizer(ctx!.sampleRate);
+    collect(u.free, u.freeText);
+  }
+  for (const p of u.pending) {
+    rec.acceptWaveformFloat(p, ctx!.sampleRate);
+    u.free?.acceptWaveformFloat(p, ctx!.sampleRate);
+  }
   u.pending = [];
   if (!u.listening) end(u); // the key came up while the model was loading
 }
@@ -221,39 +267,66 @@ function release(): void {
 
 function end(u: Utterance): void {
   u.finishing = true;
+  u.outstanding = (u.rec ? 1 : 0) + (u.free ? 1 : 0);
   u.rec?.retrieveFinalResult();
+  u.free?.retrieveFinalResult();
 }
+
+const clean = (parts: string[]): string => parts.join(" ").replace(/\[unk\]/g, "").replace(/\s+/g, " ").trim();
 
 function finish(u: Utterance): void {
   if (current !== u) return;
   current = null;
   u.rec?.remove();
-  const heard = u.text.join(" ").replace(/\[unk\]/g, "").replace(/\s+/g, " ").trim();
+  u.free?.remove();
+  let heard = clean(u.text);
+  // A chat line: the grammar recogniser heard the VERB ("say …"); the message is the free one's.
+  const dictated = clean(u.freeText);
+  if (CHAT_START.test(heard) && dictated) heard = CHAT_START.test(dictated) ? dictated : `${heard.split(" ")[0]} ${dictated}`;
+  run(u.h, heard, u.lexicon);
+}
+
+/** One sentence, to whichever host it was spoken at. */
+function run(h: VoiceHost, heard: string, lexicon: Lexicon): string[] {
+  h.status(null);
   if (!heard) {
-    host?.status(null);
-    host?.error("Voice Control: didn't catch that.");
-    return;
+    h.error("Voice Control: didn't catch that.");
+    return [];
   }
-  const intents = parse(heard, { lexicon: u.lexicon });
-  host?.status(null);
+  // A match is up but not taking commands — paused, or a panel is open. Its CONSOLE lines still
+  // belong to it: "unpause", "open the quest log", "say gg to all" are not on any panel's face.
+  if (h === menuHost && host) {
+    const intents = parse(heard, { lexicon: new Lexicon([]) });
+    if (intents.length && intents.every((i) => i.kind === "pause" || i.kind === "chat" || (i.kind === "panel" && i.open === true))) {
+      console.info("[voice]", JSON.stringify(heard), "→", intents.map(describe).join(" · "));
+      host.perform(intents, heard);
+      return intents.map(describe);
+    }
+  }
+  if (h.handle) {
+    console.info("[voice:menu]", JSON.stringify(heard));
+    h.handle(heard);
+    return [heard];
+  }
+  const intents = parse(heard, { lexicon });
   if (!intents.length) {
-    host?.error(`Voice Control: “${heard}” is not a command.`);
-    return;
+    h.error(`Voice Control: “${heard}” is not a command.`);
+    return [];
   }
   console.info("[voice]", JSON.stringify(heard), "→", intents.map(describe).join(" · "));
-  host?.perform(intents, heard);
+  h.perform(intents, heard);
+  return intents.map(describe);
 }
 
 /**
- * Run a sentence through the same parse-and-perform path an utterance takes, with no microphone —
+ * Run a sentence through the same path an utterance takes, with no microphone —
  * `window.openwar3.voiceSay("train three footmen")`, the console probe for testing the mapping
- * in a live match (and for a player to see what a phrase would do).
+ * in a live match or on a menu (and for a player to see what a phrase would do).
  */
 export function voiceSay(text: string): string[] {
-  if (!host) return [];
-  const intents = parse(text, { lexicon: new Lexicon(host.lexicon()) });
-  if (intents.length) host.perform(intents, text);
-  return intents.map(describe);
+  const h = active() ?? host ?? menuHost;
+  if (!h) return [];
+  return run(h, text, new Lexicon(h.lexicon()));
 }
 
 /** Whether the microphone is open and how many seconds of pre-roll it holds — a console probe
@@ -265,6 +338,7 @@ export function voicePrerollState(): { micOpen: boolean; seconds: number } {
 
 function cancelUtterance(): void {
   current?.rec?.remove();
+  current?.free?.remove();
   current = null;
 }
 
@@ -277,10 +351,14 @@ function typing(t: EventTarget | null): boolean {
 }
 
 window.addEventListener("keydown", (e) => {
-  if (e.code !== VOICE_CONTROL_KEY_CODE || !enabled || !host || e.ctrlKey || e.altKey || e.metaKey || typing(e.target)) return;
-  if (!host.acceptsInput()) return;
+  if (e.code !== VOICE_CONTROL_KEY_CODE || !enabled || e.ctrlKey || e.altKey || e.metaKey || typing(e.target)) return;
+  const h = active();
+  if (!h) return;
   e.preventDefault();
-  if (!e.repeat) void begin();
+  // Swallowed before anything else hears it: on a menu, "." is nobody's key, and in a match the
+  // HUD's handler must not see it either.
+  e.stopImmediatePropagation();
+  if (!e.repeat) void begin(h);
 });
 window.addEventListener("keyup", (e) => {
   if (e.code === VOICE_CONTROL_KEY_CODE) release();

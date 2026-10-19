@@ -161,6 +161,30 @@ check("look at my base", i?.kind === "camera" && i.target.kind === "base" && i.t
 i = one("show the enemy base");
 check("show the enemy base", i?.kind === "camera" && i.target.kind === "base" && i.target.side === "enemy", JSON.stringify(i));
 
+console.log("panels, pause & chat");
+i = one("open the quest log");
+check("open the quest log", i?.kind === "panel" && i.panel === "quests" && i.open === true, JSON.stringify(i));
+i = one("close the menu");
+check("close the menu", i?.kind === "panel" && i.panel === "menu" && i.open === false, JSON.stringify(i));
+i = one("allies");
+check("allies (toggle)", i?.kind === "panel" && i.panel === "allies" && i.open === null, JSON.stringify(i));
+i = one("show the message log");
+check("show the message log", i?.kind === "panel" && i.panel === "chat", JSON.stringify(i));
+i = one("pause the game");
+check("pause the game", i?.kind === "pause" && i.on, JSON.stringify(i));
+i = one("unpause");
+check("unpause", i?.kind === "pause" && !i.on, JSON.stringify(i));
+i = one("say good game to all");
+check("say good game to all", i?.kind === "chat" && i.text === "good game" && i.scope === "all", JSON.stringify(i));
+i = one("tell allies push the middle and then attack");
+check("tell allies … (and is part of the message)", i?.kind === "chat" && i.scope === "allies" && i.text === "push the middle and then attack", JSON.stringify(p("tell allies push the middle and then attack")));
+i = one("send message we need help to my team");
+check("send message … to my team", i?.kind === "chat" && i.scope === "allies" && i.text === "we need help", JSON.stringify(i));
+i = one("open chat");
+check("open chat = the input", i?.kind === "chat" && i.text === "", JSON.stringify(i));
+i = one("show the enemy base");
+check("show the enemy base is still the camera", i?.kind === "camera", JSON.stringify(i));
+
 console.log("not commands");
 check("small talk is nothing", p("hello how are you").length === 0, JSON.stringify(p("hello how are you")));
 check("describe() names every intent", p("train three footmen and group two").map(describe).join(" · ") === "Train 3 × Footman · Group 2", p("train three footmen and group two").map(describe).join(" · "));
