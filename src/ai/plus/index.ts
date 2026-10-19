@@ -33,7 +33,7 @@ import {
 import { liveProfile, plusProfile, type PlusProfile } from "./profile";
 import { aimCtx, HERO_KILL_HP, heroKillable, isSiege, isTower, killValue, razeCost, razeValue } from "./targeting";
 import { PLUS_RACES, TAVERN_HEROES, insaneVariant, rollStrategy, tableForEdition, type HeroCombo, type PlusRaceTable, type PlusStrategy } from "./races";
-import { MELEE_INSANE, MIRROR_IMAGE } from "../ids";
+import { MELEE_INSANE, MELEE_NEWBIE, MIRROR_IMAGE } from "../ids";
 import { isRoc } from "../../data/edition";
 import { CAMP_GREEN_MAX, armyPower, maxCampLevel, type CreepForce, type Fighter } from "./power";
 
@@ -187,6 +187,11 @@ const ROAM_CAMP_CLEAR = 900;
 const ROAM_SHARE = 0.3;
 const ROAM_OUT = 2400;
 const ROAM_REREAD = 5;
+/** Defend (`stancePass`): the ability code, and how close something armed must be for the
+ *  shields to come up — just past the longest tower reach a Footman walks into (UnitWeapons
+ *  `rangeN1`: `[owtw]` and `[hatw]` 800, `[hgtw]` 700), so they are up before the first shot. */
+const DEFEND = "Adef";
+const DEFEND_LOOK = 850;
 /** …and how far along the line to the enemy a roam spot must be — see `roamCircuit`. OURS. */
 const ROAM_AHEAD_MIN = 0.15;
 /** …and how close to that spot counts as "there". */
@@ -2453,7 +2458,7 @@ export class ComputerPlusAi {
     this.brains.push({
       ai, profile, table, strategy,
       memory: new EnemyMemory(),
-      enemy: { seen: 0, air: 0, armor: {} },
+      enemy: { seen: 0, air: 0, armor: {}, pierce: 0 },
       caster: new PlusCaster({
         world: this.host.world,
         player,
@@ -3093,6 +3098,9 @@ export class ComputerPlusAi {
     // base and out of one in its own, and `pullPass` reads the fight itself rather than the
     // mode. Inert on Easy (`pullOutHp` 0).
     this.pullPass(b);
+    // …and the Footmen raise their shields for the fight and lower them for the walk — after
+    // `pullPass`, which is what decides who is walking out of it. See `stancePass`.
+    this.stancePass(b);
     // …and so does a hero that has just WIND WALKED out of one, which is the same withdrawal
     // taken with a spell instead of with a pair of feet. After `pullPass`, so that the escape's
     // own entry is the one that stands rather than being overwritten by a pull-back a pass
@@ -7068,6 +7076,48 @@ export class ComputerPlusAi {
       });
       this.issue(b, { c: "order", unitId: u.id, order: { kind: "move", x: spot.x, y: spot.y }, queued: false });
     }
+  }
+
+  /**
+   * DEFEND, IN A FIGHT AND ONLY IN ONE — the Footman's shield stance (`Adef`, `[Adef]
+   * Requires=Rhde`, HumanAbilityFunc `Order=defend / Unorder=undefend`).
+   *
+   * The developer's: "footmen Defend — must use it during fights and disabled when running around
+   * the map or falling back, useful against towers". It was never used at all: plus/casting.ts
+   * keeps `Adef` on its `HAND_AUTOCAST` list (the stance is not a spell to press) and nothing ever
+   * took it by hand. The stance is the sim's (`SimWorld.defendStance`): it cuts PIERCING damage
+   * taken — the archers', the riflemen's and every tower's — and it costs the Footman `DataC` of
+   * his move speed for as long as it is up, which is why it is a decision and not a switch left on.
+   *
+   * UP while something armed and hostile — a unit or a TOWER — stands within `DEFEND_LOOK` of him;
+   * DOWN when there is nothing to shield against, when the army is `retreating`, and when he
+   * himself has been walked out of the line (`pullPass`): a Footman leaving a fight is the one
+   * that most needs his legs. Not on Easy: a novice does not micro a stance. Ours.
+   */
+  private stancePass(b: Brain): void {
+    if (b.profile.difficulty === MELEE_NEWBIE) return;
+    const world = this.host.world;
+    for (const u of this.squadUnits(b)) {
+      if (u.hp <= 0 || isCopy(u)) continue;
+      const ab = u.abilities.find((a) => a.code === DEFEND && a.level >= 1);
+      if (!ab || !world.unitMeets(u, ab.id)) continue; // no shield, or Defend not researched yet
+      const leaving = b.mode === "retreating" || pulledOut(b.pulls.get(u.id), b.clock);
+      const want = !leaving && this.armedFoeNear(b, u, DEFEND_LOOK);
+      if (want !== ab.autocastOn) b.ai.order({ c: "autocast", unitId: u.id, code: DEFEND });
+    }
+  }
+
+  /** Is anything hostile that can actually HURT — a unit or a building with a weapon (a tower) —
+   *  standing within `radius` of `u`, under our own eyes? */
+  private armedFoeNear(b: Brain, u: SimUnit, radius: number): boolean {
+    for (const t of this.host.world.units.values()) {
+      if (t.hp <= 0 || t.owner === b.ai.player) continue;
+      if (Math.abs(t.x - u.x) > radius || Math.abs(t.y - u.y) > radius) continue;
+      if (Math.hypot(t.x - u.x, t.y - u.y) > radius) continue;
+      if (!t.weapons.some((w) => w.enabled) || !b.ai.hostileTo(t) || !b.ai.knows(t)) continue;
+      return true;
+    }
+    return false;
   }
 
   /**

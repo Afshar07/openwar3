@@ -2181,6 +2181,28 @@ stands the worker down the tick the bank runs dry, and a computer spends every c
 hall-exempt hire with nothing in the bank was an Acolyte that knelt for ONE frame, stood up, and
 was hired again on the next pass: the repair crew "jittering" at the hall.
 
+### Research: the ability unlocks first, and Defend only against ranged units
+
+A research row neither reserves gold nor halts the ladder (`AiPlayer.startUpgrade`); it is bought
+out of what is left over, in LIST ORDER. So an unlock listed behind three ranks each of attack and
+armour waited for all six: measured live, an Insane undead's Web arrived at 13:21. The unit-ability
+unlocks therefore head each race's list (plus/races.ts): **Web** (`[Ruwb] Requires=ugrv,unp1`) and
+**Ghoul Frenzy** (`unp2`) for the undead, the **Berserker Upgrade** (`[Robk] Requires=ofrt,ofor`,
+tier 3) and **Ensnare** for the orc, **Defend** for the human. Each is still bought only once its
+own requirement stands.
+
+**Defend is researched only once three or more enemy PIERCING units have been scouted**
+(`UpgradeRow.when: "enemyRanged"`, `ENEMY_RANGED`, read off `EnemyRead.pierce`): it cuts piercing
+damage and nothing else, so against a Ghoul-and-Grunt army it is 150/100 for nothing. (Easy takes
+no scouting read and so never researches it.)
+
+…and once researched it is USED (`stancePass`, Normal and Insane): `Adef` was on the caster's
+`HAND_AUTOCAST` list and nothing took it by hand, so a Computer+ Footman never raised his shield.
+Up while anything armed and hostile — a unit or a tower — is within `DEFEND_LOOK` (850: just past
+the longest tower reach, `[owtw]`/`[hatw]` 800); down with nothing to shield against, while the
+army is `retreating`, and for a Footman walked out of the line (`pullPass`), because the stance
+costs 30 % of his move speed.
+
 ### A second Barracks is bought with the BANK, not with army food
 
 `techBuildings` gated another copy of the main producer on `armyFood >= 40 && gold > 800`, and the

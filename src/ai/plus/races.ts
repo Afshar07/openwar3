@@ -116,6 +116,21 @@ export interface UpgradeRow {
   ranks: number;
   /** Army food that must be fielded first: you upgrade an army you HAVE. */
   after?: number;
+  /**
+   * A condition on what the ENEMY fields, for an upgrade that only answers one thing.
+   * `"enemyRanged"`: researched only once `ENEMY_RANGED` piercing units of theirs have been seen
+   * (plus/plan.ts `upgrades`, off the scouting read `EnemyRead.pierce`). Defend is the case —
+   * the developer's "Defend should be researched if the enemy has a few ranged units, don't
+   * research it always by default": it cuts PIERCING damage and nothing else.
+   */
+  when?: "enemyRanged";
+  /**
+   * A UNIT-ABILITY UNLOCK — Defend, Web, Ghoul Frenzy, the Berserker Upgrade, Ensnare, Abolish
+   * Magic: research that gives a unit a button or a body, rather than a rank of a stat. Bought
+   * HIGH in the ladder and SAVED for (plan.ts `abilityUpgrades`, `AiPlayer.setBuildUpgrSaved`),
+   * because these are researched in the PRODUCTION buildings the army keeps busy.
+   */
+  unlock?: boolean;
 }
 
 /** A support building every build of this race wants, whatever its mix. */
@@ -513,8 +528,14 @@ const HUMAN: PlusRaceTable = {
     [GRYPHON]: { from: AVIARY, needs: [LUMBER_MILL], tier: 3, air: true },
     [HUMAN_DRAGON_HAWK]: { from: AVIARY, needs: [LUMBER_MILL, ARCANE_VAULT], tier: 2, air: true },
   },
+  // The UNIT-ABILITY unlocks go FIRST in every race's list — Defend here, Berserker Upgrade and
+  // Ensnare for the orc, Web and Ghoul Frenzy for the undead. A research row never reserves gold
+  // nor halts the ladder (`AiPlayer.startUpgrade`); it is bought out of what is left, in LIST
+  // ORDER, so an unlock listed behind three ranks each of attack and armour waited for all six
+  // of them: measured live, an Insane undead's Web arrived at 13:21 (the developer's "make sure
+  // each race uses their upgrades like Web and Berserker Strength").
   upgrades: [
-    { id: UPG_DEFEND, from: BARRACKS, ranks: 1, after: 6 },
+    { id: UPG_DEFEND, from: BARRACKS, ranks: 1, after: 6, when: "enemyRanged", unlock: true },
     { id: UPG_MELEE, from: BLACKSMITH, ranks: 3, after: 8 },
     { id: UPG_ARMOR, from: BLACKSMITH, ranks: 3, after: 8 },
     { id: UPG_RANGED, from: BLACKSMITH, ranks: 3, after: 12 },
@@ -642,13 +663,15 @@ const ORC: PlusRaceTable = {
     [TAUREN]: { from: TOTEM, needs: [FORGE], tier: 3 }, // `[otau] Requires=ofor,ofrt`
   },
   upgrades: [
+    // `[Robk] Requires=ofrt,ofor` — a Fortress and a War Mill, so it comes up at tier 3 and is
+    // the first thing bought there. Ensnare (`[Roen]`, no requirement) is the Raider's.
+    { id: UPG_ORC_BERSERKER, from: ORC_BARRACKS, ranks: 1, after: 12, unlock: true },
+    { id: UPG_ORC_ENSNARE, from: BESTIARY, ranks: 1, after: 12, unlock: true },
     { id: UPG_ORC_MELEE, from: FORGE, ranks: 3, after: 8 },
     { id: UPG_ORC_ARMOR, from: FORGE, ranks: 3, after: 8 },
     { id: UPG_ORC_RANGED, from: FORGE, ranks: 3, after: 12 },
     { id: UPG_ORC_SPIKES, from: FORGE, ranks: 1, after: 16 },
-    { id: UPG_ORC_BERSERKER, from: ORC_BARRACKS, ranks: 1, after: 12 },
     { id: UPG_ORC_WAR_DRUMS, from: BESTIARY, ranks: 3, after: 20 },
-    { id: UPG_ORC_ENSNARE, from: BESTIARY, ranks: 1, after: 16 },
     { id: UPG_ORC_SHAMAN, from: LODGE, ranks: 2, after: 20 },
     { id: UPG_ORC_PULVERIZE, from: TOTEM, ranks: 1, after: 30 },
   ],
@@ -847,15 +870,16 @@ const UNDEAD: PlusRaceTable = {
     [FROST_WYRM]: { from: BONEYARD, tier: 3, air: true }, // `[ubon] Requires=unp2,usap`
   },
   upgrades: [
+    // WEB, and every fiend build wants it the moment tier 2 lands — it is what lets a GROUND
+    // army answer air at all, which for the undead is most of what a Crypt Fiend is for.
+    // `[usep] Researches=Ruac,Ruwb,Rugf,Rusf,Rubu` and `[Ruwb] Requires=ugrv,unp1`. FIRST, with
+    // Ghoul Frenzy (`[Rugf] Requires=ugrv,unp2`) — see the human list's note.
+    { id: UPG_FIEND_WEB, from: CRYPT, ranks: 1, after: 6, unlock: true },
+    { id: UPG_GHOUL_FRENZY, from: CRYPT, ranks: 1, after: 8, unlock: true },
     { id: UPG_UNHOLY_STR, from: GRAVEYARD, ranks: 3, after: 8 },
     { id: UPG_UNHOLY_ARMOR, from: GRAVEYARD, ranks: 3, after: 8 },
     { id: UPG_CR_ATTACK, from: GRAVEYARD, ranks: 3, after: 12 },
     { id: UPG_CR_ARMOR, from: GRAVEYARD, ranks: 3, after: 16 },
-    { id: UPG_GHOUL_FRENZY, from: CRYPT, ranks: 1, after: 12 },
-    // WEB, and every fiend build wants it the moment tier 2 lands — it is what lets a GROUND
-    // army answer air at all, which for the undead is most of what a Crypt Fiend is for.
-    // `[usep] Researches=Ruac,Ruwb,Rugf,Rusf,Rubu` and `[Ruwb] Requires=ugrv,unp1`.
-    { id: UPG_FIEND_WEB, from: CRYPT, ranks: 1, after: 10 },
     { id: UPG_NECROS, from: DAMNED_TEMPLE, ranks: 2, after: 20 },
     { id: UPG_BANSHEE, from: DAMNED_TEMPLE, ranks: 2, after: 24 },
     // DESTROYER FORM, off the Slaughterhouse that already makes both statues (`always`). Without
@@ -996,7 +1020,7 @@ const NIGHT_ELF: PlusRaceTable = {
     // (`[Abrf] Requires=Redc Requiresamount=2`), which is why the "bears" build exists and why
     // this row is worth two ranks — see the Computer+ caster.
     { id: UPG_DRUID_CLAW, from: ANCIENT_LORE, ranks: 2, after: 18 },
-    { id: UPG_ABOLISH, from: ANCIENT_LORE, ranks: 1, after: 18 },
+    { id: UPG_ABOLISH, from: ANCIENT_LORE, ranks: 1, after: 12, unlock: true },
     { id: UPG_DRUID_TALON, from: ANCIENT_WIND, ranks: 2, after: 20 },
     { id: UPG_CHIM_ACID, from: CHIMAERA_ROOST, ranks: 1, after: 30 },
   ],

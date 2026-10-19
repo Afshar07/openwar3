@@ -97,6 +97,9 @@ interface BuildRow {
   qty: number;
   item: string;
   town: number; // -1 = "anywhere", else a town index (SecondaryTown)
+  /** A research row that SAVES for itself (`setBuildUpgrSaved`) rather than waiting for spare
+   *  change. Ours — common.ai's research rows never reserve. */
+  save?: boolean;
 }
 
 /** One row of the assault group — `harass_qty`/`harass_max`/`harass_units`. */
@@ -653,6 +656,38 @@ export class AiPlayer {
   }
 
   /**
+   * A research row that SAVES for itself — ours, beside `setBuildUpgr`.
+   *
+   * An ordinary research row neither reserves nor halts: it is bought out of whatever the rows
+   * above it left, and only if a building that researches it is IDLE (`setUpgrade`). For the
+   * unit-ability unlocks that is never: Defend is researched at the Barracks, Web and Ghoul Frenzy
+   * at the Crypt, the Berserker Upgrade at the orc Barracks — buildings the army rows keep busy
+   * for the whole match — and Web's 150 LUMBER is the undead's scarcest thing. Measured live: an
+   * Insane human that had scouted twelve enemy ranged units had no Defend at fourteen minutes, and
+   * an Insane undead with both of Web's requirements standing never bought it at all.
+   *
+   * So this row, once the research is LEGAL (its own `Requires`, and a building that researches
+   * it standing), does what a unit row does: it keeps its price back from every row below until
+   * it is paid (`runBuildLoop`), and once it is paid it holds one of its buildings out of
+   * `trainUnits` for the pass so the research can actually start (`holdForUpgrades` — the
+   * tier-up's own trick). It never HALTS the loop: the rows below simply see less.
+   */
+  setBuildUpgrSaved(level: number, item: string): void {
+    this.buildList.push({ type: BUILD_UPGRADE, qty: level, item, town: -1, save: true });
+  }
+
+  /** Is this research row one the loop should save for right now — not yet at `level`, its own
+   *  requirements met, and a building of ours that researches it standing? */
+  private researchDue(level: number, id: string): boolean {
+    if (this.upgradeLevelOrQueued(id) >= level || !this.techMeets(id)) return false;
+    for (const b of this.host.world.units.values()) {
+      if (b.owner !== this.player || b.hp <= 0 || !b.building || b.building.constructionLeft > 0) continue;
+      if (this.host.tech.researches(b.typeId).includes(id)) return true;
+    }
+    return false;
+  }
+
+  /**
    * Hold `gold` back from every row BELOW this point in the ladder (`BUILD_RESERVE`). Not a
    * Blizzard setter — the race scripts never save for anything the build array does not
    * produce — but it is the build array's own mechanism: a row's price is reserved off
@@ -719,7 +754,13 @@ export class AiPlayer {
     let released = false;
     for (const row of this.buildList) {
       if (row.type === BUILD_UPGRADE) {
-        this.startUpgrade(row.qty, row.item);
+        // A SAVING row that could not start keeps its price back from everything below it —
+        // see `setBuildUpgrSaved`. May run the budget negative, exactly as a reserve row does.
+        if (!this.startUpgrade(row.qty, row.item) && row.save && this.researchDue(row.qty, row.item)) {
+          const cost = this.host.upgrades.cost(row.item, this.upgradeLevelOrQueued(row.item) + 1);
+          this.totalGold -= cost.gold;
+          this.totalWood -= cost.lumber;
+        }
         continue;
       }
       if (row.type === BUILD_RESERVE) {
@@ -818,6 +859,19 @@ export class AiPlayer {
     let saved = 0;
     for (const row of this.buildList) {
       if (row.type === BUILD_RESERVE) saved += row.qty;
+      // A SAVING research row that can be paid for holds ONE building that researches it, so the
+      // research can start (`setBuildUpgrSaved`). One, not all: the rest keep producing.
+      if (row.type === BUILD_UPGRADE && row.save && this.researchDue(row.qty, row.item)) {
+        const cost = this.host.upgrades.cost(row.item, this.upgradeLevelOrQueued(row.item) + 1);
+        if (this.gold() - saved < cost.gold || this.wood() < cost.lumber) continue;
+        for (const b of this.host.world.units.values()) {
+          if (b.owner !== this.player || b.hp <= 0 || !b.building || b.building.constructionLeft > 0) continue;
+          if (!this.host.tech.researches(b.typeId).includes(row.item)) continue;
+          held.add(b.id);
+          break;
+        }
+        continue;
+      }
       if (row.type !== BUILD_UNIT) continue;
       const def = this.host.registry.get(row.item);
       if (!def?.isBuilding) continue;

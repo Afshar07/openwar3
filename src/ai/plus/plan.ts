@@ -428,6 +428,8 @@ export function buildPlan(c: PlusCtx): void {
   // attack upgrades come out of — was queued behind a Tomb of Relics and a Halls of the Dead and
   // took over five minutes to come back.
   supportBuildings(c);
+  // …and the UNIT-ABILITY UNLOCKS (Web, Berserker, Defend…), saved for — see `abilityUpgrades`.
+  abilityUpgrades(c);
   // THE SECOND HERO COMES WITH THE KEEP — see `tierTwoHero`, and note WHERE it is: above the
   // Castle, above the tech buildings and above the upgrades, because at tier 2 that is the order
   // a ladder player spends in. Below the core army, so it can never be the reason there is
@@ -1679,11 +1681,43 @@ function firstTower(c: PlusCtx): void {
  * gives about the support buildings: Forged Swords is a hundred gold and makes the army you
  * ALREADY HAVE better, where a Castle is a thousand and makes nothing until it lands.
  */
+/**
+ * THE UNIT-ABILITY UNLOCKS — Web, Ghoul Frenzy, the Berserker Upgrade, Ensnare, Defend, Abolish
+ * Magic (`UpgradeRow.unlock`) — high in the ladder and SAVED for.
+ *
+ * The developer's: "make sure that each race uses their upgrades like Web (undead) and Berserker
+ * Strength (orc), footmen Defend". As ordinary research rows at the bottom of the ladder they were
+ * bought out of spare change, and only from an IDLE building — and every one of them is researched
+ * at a PRODUCTION building the army rows never leave idle. Measured live (Insane, Echo Isles,
+ * fourteen minutes): no Defend after twelve enemy ranged units had been scouted, and no Web at all
+ * with both its requirements standing. Here, just under the support buildings, each is a saving row
+ * (`AiPlayer.setBuildUpgrSaved`): once legal it keeps its price back from everything below and
+ * frees one of its buildings to start it. Same gates as any research row — its building standing,
+ * the army it is for (`after`), and its `when`.
+ */
+function abilityUpgrades(c: PlusCtx): void {
+  const { ai, table, armyFood } = c;
+  for (const row of table.upgrades) {
+    if (!row.unlock || ai.countDone(row.from) < 1) continue;
+    if (armyFood < (row.after ?? 0)) continue;
+    if (row.when === "enemyRanged" && (c.enemy.pierce ?? 0) < ENEMY_RANGED) continue;
+    ai.setBuildUpgrSaved(row.ranks, row.id);
+  }
+}
+
+/** How many enemy PIERCING units must have been seen before Defend is worth researching
+ *  (`UpgradeRow.when`) — "a few". Ours. */
+const ENEMY_RANGED = 3;
+
 function upgrades(c: PlusCtx): void {
   const { ai, profile, table, armyFood } = c;
   for (const row of table.upgrades) {
+    if (row.unlock) continue; // `abilityUpgrades`, much higher up
     if (ai.countDone(row.from) < 1) continue;
     if (armyFood < (row.after ?? 0)) continue;
+    // …and an upgrade that only answers one thing waits until that thing has been SEEN — see
+    // `UpgradeRow.when`. Asked of the scouting read, so it is only as good as the scouting.
+    if (row.when === "enemyRanged" && (c.enemy.pierce ?? 0) < ENEMY_RANGED) continue;
     ai.setBuildUpgr(Math.min(row.ranks, profile.upgradeRank), row.id);
   }
 }

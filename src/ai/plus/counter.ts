@@ -38,9 +38,13 @@ export interface EnemyRead {
   air: number;
   /** Share by armour type, thresholded (see the file header). */
   armor: Readonly<Partial<Record<ArmorType, number>>>;
+  /** How many of them shoot PIERCING missiles — Archers, Riflemen, Head Hunters, Crypt Fiends,
+   *  Dryads… — as a COUNT, not a share: "the enemy has a few ranged units" is a number of bodies
+   *  whatever else is beside them. What decides Defend (plus/races.ts `UpgradeRow.when`). */
+  pierce: number;
 }
 
-const EMPTY_READ: EnemyRead = { seen: 0, air: 0, armor: {} };
+const EMPTY_READ: EnemyRead = { seen: 0, air: 0, armor: {}, pierce: 0 };
 
 /**
  * What this player has seen of the enemy, and when.
@@ -74,11 +78,13 @@ export class EnemyMemory {
     const armor = new Map<ArmorType, number>();
     let total = 0;
     let air = 0;
+    let pierce = 0;
     for (const s of this.seen.values()) {
       const def = defOf(s.typeId);
       if (!def || def.isBuilding || def.classification.includes("peon")) continue;
       total++;
       if (def.moveType === MoveType.Fly) air++; // `movetp` fly — the same test the sim flies on
+      if (def.attackType === AttackType.Pierce) pierce++;
       armor.set(def.armorType, (armor.get(def.armorType) ?? 0) + 1);
     }
     if (total === 0) return EMPTY_READ;
@@ -88,7 +94,7 @@ export class EnemyMemory {
       if (share >= minShare) shares[type] = share;
     }
     const airShare = air / total;
-    return { seen: total, air: airShare >= minShare ? airShare : 0, armor: shares };
+    return { seen: total, air: airShare >= minShare ? airShare : 0, armor: shares, pierce };
   }
 }
 

@@ -75,6 +75,7 @@ function recorder(table, strategy, profile, opts = {}) {
     setBuildUnit: (qty, item) => { if (qty > 0) build.push({ kind: "unit", qty, item }) },
     setBuildNext: (qty, item) => { if (count(item) < qty) build.push({ kind: "unit", qty: count(item) + 1, item }) },
     setBuildUpgr: (level, item) => build.push({ kind: "upgrade", qty: level, item }),
+    setBuildUpgrSaved: (level, item) => build.push({ kind: "upgrade", qty: level, item, save: true }),
     setBuildExpa: (qty, item) => build.push({ kind: "expand", qty, item }),
     reserveGold: (gold) => { if (gold > 0) build.push({ kind: "reserve", qty: gold, item: "" }) },
     secondaryTown: (town, qty, item) => { if (qty > 0) build.push({ kind: "unit", qty, item, town }) },
@@ -138,6 +139,25 @@ function recorder(table, strategy, profile, opts = {}) {
     defOf: () => undefined,
   };
   return { ctx, build, harvest, ai };
+}
+
+// --- Defend is researched against RANGED units, and the ability unlocks go first ---------
+//
+// The developer's: "Defend should be researched if the enemy has a few ranged units, don't
+// research it always by default" (`UpgradeRow.when`, plan.ts `ENEMY_RANGED`); and "make sure each
+// race uses their upgrades like Web" — a research row is bought out of what is LEFT, in list
+// order, so the unlocks must be at the front of the list (plus/races.ts).
+console.log("--- Defend waits for enemy ranged units; the ability unlocks come first ---");
+{
+  const human = PLUS_RACES.human;
+  const standing = { [human.halls[0]]: 1, [human.barracks]: 1, [human.altar]: 1, [human.farm]: 6 };
+  const asked = (enemy) => recorder(human, human.strategies[0], PLUS_INSANE, { standing, armyFood: 20, gold: 5000, wood: 5000, enemy });
+  const has = (r) => { buildPlan(r.ctx); return r.build.some((x) => x.kind === "upgrade" && x.item === "Rhde"); };
+  check("no Defend against an army with no ranged units", has(asked({ seen: 8, air: 0, armor: {}, pierce: 0 })), false);
+  check("…nor against two archers", has(asked({ seen: 8, air: 0, armor: {}, pierce: 2 })), false);
+  check("…but Defend once three are seen", has(asked({ seen: 8, air: 0, armor: {}, pierce: 3 })), true);
+  check("Web is the undead's first research row", PLUS_RACES.undead.upgrades[0].id, "Ruwb");
+  check("…Berserker Upgrade the orc's", PLUS_RACES.orc.upgrades[0].id, "Robk");
 }
 
 // --- the extra production building -----------------------------------------------------
@@ -880,6 +900,7 @@ function runEconomy() {
       setBuildUnit: (q, item) => { if (q > 0 && known(item)) list.push({ type: "u", qty: q, item }) },
       setBuildNext: (q, item) => { if (countRaw(item) < q && known(item)) list.push({ type: "u", qty: doneRaw(item) + 1, item }) },
       setBuildUpgr: (lvl, item) => list.push({ type: "r", qty: lvl, item }),
+      setBuildUpgrSaved: (lvl, item) => list.push({ type: "r", qty: lvl, item }),
       setBuildExpa: (q, item) => { if (known(item)) list.push({ type: "e", qty: q, item }) },
       secondaryTown: (t, q, item) => { if (q > 0 && known(item)) list.push({ type: "u", qty: q, item }) },
       basicExpansion: (go, hall) => { if (go && townCount(hall) === townCountDone(hall)) ai.setBuildExpa(townCount(hall) + 1, hall) },
@@ -1009,6 +1030,9 @@ function runEconomy() {
         if (row.type === "r") {
           const have = S.research[row.item] ?? 0;
           if (have >= row.qty) continue;
+          // …and not before the research's own `Requires` (Web waits for Halls of the Dead,
+          // `[Ruwb] Requires=ugrv,unp1`): the sim refuses it, so the model must not spend on it.
+          if (!ai.techMeets(row.item)) continue;
           const cost = { gold: 100 + 50 * have, lumber: 100 + 50 * have }; // flat: not what this measures
           if (tg < cost.gold || tw < cost.lumber) continue;
           const src = (table.upgrades.find((u) => u.id === row.item) ?? {}).from;
