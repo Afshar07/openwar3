@@ -6,7 +6,7 @@ import type { TechRegistry } from "../data/techtree";
 import type { UpgradeRegistry } from "../data/upgrades";
 import type { SimUnit } from "../sim/world";
 import { FogState } from "../sim/vision";
-import { describe, type LexEntry, type Pick, type Region, type VoiceIntent, type VoiceTarget } from "../voice/parser";
+import { describe, type LexEntry, type Pick, type Region, type Subject, type VoiceIntent, type VoiceTarget } from "../voice/parser";
 import type { VoiceHost } from "../voice/control";
 
 // Voice Control's HANDS: an intent the parser read (src/voice/parser.ts) carried out through the
@@ -43,6 +43,9 @@ export interface VoiceDriver {
   cursor(): { x: number; y: number };
   /** The ground at the middle of the screen — what "here" means — in world units. */
   screenCentre(): [number, number] | null;
+  /** Where the camera is aimed (its target, updated the instant a pan is asked for — the screen
+   *  centre only follows on the next frame). What "another" steps away from. */
+  cameraFocus(): [number, number];
   /** The playable map, `[x0, y0, width, height]` in world units (regions are thirds of it). */
   mapBounds(): [number, number, number, number];
   /** With a building on the cursor: a valid site for it somewhere on screen, preferring one
@@ -56,6 +59,10 @@ export interface VoiceDriver {
   placeAt(x: number, y: number): void;
   panTo(wx: number, wy: number): void;
   jumpToSelection(): void;
+  /** The "-" key: every army unit of ours (the HUD driver's own `selectAllArmy`). */
+  selectAllArmy(): boolean;
+  /** The creep camps the minimap marks, from this player's eyes. */
+  creepCamps(): Array<{ x: number; y: number; level: number }>;
   recallGroup(n: number): boolean;
   selectHero(index: number): boolean;
   /** The inventory pockets' names, null for an empty one. */
@@ -114,20 +121,6 @@ export function makeVoiceHost(d: VoiceDriver): VoiceHost {
   /** Where "nearest" is measured from: the selection, else the camera's own focus. */
   const anchor = (): [number, number] => rts()?.selectionAnchor() ?? [0, 0];
 
-  const nearest = (pred: (u: SimUnit) => boolean): SimUnit | null => {
-    const r = rts();
-    if (!r) return null;
-    const [ax, ay] = anchor();
-    let best: SimUnit | null = null;
-    let bestD = Infinity;
-    for (const u of r.simView.units.values()) {
-      if (!pred(u)) continue;
-      const dd = (u.x - ax) ** 2 + (u.y - ay) ** 2;
-      if (dd < bestD) { bestD = dd; best = u; }
-    }
-    return best;
-  };
-
   /** Whether a unit stands in a part of the map ("on the right side", "top left"). Halves on a
    *  lone axis, thirds where the middle is asked for. */
   const inRegion = (x: number, y: number, region?: Region): boolean => {
@@ -141,14 +134,36 @@ export function makeVoiceHost(d: VoiceDriver): VoiceHost {
 
   /** The nearest unit passing `pred`, from `from` — or, for "another", the nearest that is
    *  not the one the CAMERA is on (so saying it again walks on to the next). */
+  /**
+   * "Another" as a TOUR: each one asked for is the nearest the camera has not already been taken
+   * to in this run of "another"s, so saying it again and again walks through every camp (or mine,
+   * or tavern) rather than bouncing between the two nearest. The run starts over when the kind of
+   * thing changes or every one has been seen. `list` is sorted nearest-the-camera first.
+   */
+  let tour: { kind: string; seen: Array<[number, number]> } = { kind: "", seen: [] };
+  const NEAR = 700;
+  const stepNext = <T extends { x: number; y: number }>(kind: string, list: T[]): T | null => {
+    const cam = d.cameraFocus();
+    if (tour.kind !== kind) tour = { kind, seen: [cam] };
+    const far = (p: T): boolean => Math.hypot(p.x - cam[0], p.y - cam[1]) > NEAR;
+    const unseen = (p: T): boolean => !tour.seen.some(([x, y]) => Math.hypot(p.x - x, p.y - y) < NEAR);
+    let pick = list.find((p) => far(p) && unseen(p));
+    if (!pick) {
+      tour.seen = [cam];
+      pick = list.find(far) ?? list[0];
+    }
+    if (pick) tour.seen.push([pick.x, pick.y]);
+    return pick ?? null;
+  };
+
   const choose = (pred: (u: SimUnit) => boolean, pick: Pick | undefined, region: Region | undefined, from: [number, number]): SimUnit | null => {
     const r = rts();
     if (!r) return null;
     const list = [...r.simView.units.values()].filter((u) => pred(u) && inRegion(u.x, u.y, region));
-    const cam = d.screenCentre() ?? from;
+    const cam = d.cameraFocus();
     const origin = pick === "next" ? cam : from;
     list.sort((a, b) => (a.x - origin[0]) ** 2 + (a.y - origin[1]) ** 2 - ((b.x - origin[0]) ** 2 + (b.y - origin[1]) ** 2));
-    if (pick === "next") return list.find((u) => Math.hypot(u.x - cam[0], u.y - cam[1]) > 700) ?? list[0] ?? null;
+    if (pick === "next") return stepNext(`unit:${list[0]?.typeId ?? ""}`, list);
     return list[0] ?? null;
   };
 
@@ -174,12 +189,21 @@ export function makeVoiceHost(d: VoiceDriver): VoiceHost {
       }
       case "hero": {
         const side = t.side === "any" ? prefer : t.side;
+        // "My hero" is the FIRST one — the top portrait, the one F1 selects — not the nearest.
+        if (side === "mine" && !t.pick && !t.region) {
+          const first = r.heroBar().find((h) => !h.dead && r.simView.units.get(h.simId)?.hp);
+          const u = first ? r.simView.units.get(first.simId) : undefined;
+          return u ? { unit: u } : { fail: "You have no hero." };
+        }
         const u = choose((x) => x.isHero && !x.isIllusion && x.hp > 0 && (side === "mine" ? x.owner === me() : visible(x) && sideOk(x, side)), t.pick, t.region, from);
         return u ? { unit: u } : { fail: side === "mine" ? "You have no hero." : "No hero in sight." };
       }
       case "unit": {
         const side = t.side;
-        const u = choose((x) => x.hp > 0 && x.typeId === t.entry.id && (x.owner === me() ? side !== "enemy" : visible(x) && sideOk(x, side)), t.pick, t.region, from)
+        // A BUILDING is found wherever the player has seen it (it stays on the map in memory —
+        // "the tavern", "the fountain"); a unit only where it can be seen now.
+        const seen = (x: SimUnit): boolean => (x.building ? known(x) : visible(x));
+        const u = choose((x) => x.hp > 0 && x.typeId === t.entry.id && (x.owner === me() ? side !== "enemy" : seen(x) && sideOk(x, side)), t.pick, t.region, from)
           ?? choose((x) => x.hp > 0 && d.units.get(x.typeId)?.name === t.entry.phrase && x.owner !== me() && visible(x) && sideOk(x, side), t.pick, t.region, from);
         return u ? { unit: u } : { fail: `No ${t.entry.phrase} in sight.` };
       }
@@ -193,13 +217,22 @@ export function makeVoiceHost(d: VoiceDriver): VoiceHost {
         // A gold mine is not a unit in the sim — it is `SimMine`, its own table — so it is chosen
         // the way `choose` chooses a unit, among the mines the player has ever had in view (the
         // minimap shows them) that still hold gold.
-        const cam = d.screenCentre() ?? from;
+        const cam = d.cameraFocus();
         const origin = t.pick === "next" ? cam : from;
         const list = [...r.simView.mines.values()]
           .filter((m) => m.gold > 0 && r.getVision().stateAt(m.x, m.y) !== FogState.Unexplored && inRegion(m.x, m.y, t.region))
           .sort((a, b) => Math.hypot(a.x - origin[0], a.y - origin[1]) - Math.hypot(b.x - origin[0], b.y - origin[1]));
-        const m = t.pick === "next" ? list.find((x) => Math.hypot(x.x - cam[0], x.y - cam[1]) > 700) ?? list[0] : list[0];
+        const m = t.pick === "next" ? stepNext("mine", list) : list[0];
         return m ? { point: [m.x, m.y] } : { fail: t.region ? "No gold mine found there." : "No gold mine found." };
+      }
+      case "creeps": {
+        const cam = d.cameraFocus();
+        const origin = t.pick === "next" ? cam : from;
+        const list = d.creepCamps()
+          .filter((c) => inRegion(c.x, c.y, t.region))
+          .sort((a, b) => Math.hypot(a.x - origin[0], a.y - origin[1]) - Math.hypot(b.x - origin[0], b.y - origin[1]));
+        const c = t.pick === "next" ? stepNext("creeps", list) : list[0];
+        return c ? { point: [c.x, c.y] } : { fail: "No creep camp found." };
       }
       case "trees": {
         const tree = r.simWorld.nearestTree(from[0], from[1], 2500);
@@ -330,6 +363,50 @@ export function makeVoiceHost(d: VoiceDriver): VoiceHost {
     return true;
   };
 
+  /** Whether a unit of ours is a gatherer — the race's worker, or anything carrying a harvest
+   *  order right now (an undead Ghoul in the trees). */
+  const gathering = (u: SimUnit, res?: "gold" | "lumber"): boolean =>
+    // Walking a load home is still working that resource (`resKind` outlives the trip).
+    (u.order === "harvest" || u.order === "return") && !!u.resKind && (!res || u.resKind === res);
+  const isWorker = (u: SimUnit): boolean => u.isPeon || gathering(u);
+  const idleWorker = (u: SimUnit): boolean => u.isPeon && u.order === "idle" && !u.building;
+
+  /**
+   * The units a SUBJECT names, best first: idle ones first (a worker said with no number means an
+   * IDLE one), then the nearest to the middle of the screen. `from` keeps only those gathering
+   * that resource; "all" is every one of them, map-wide.
+   */
+  const pickSubject = (sub: Subject): SimUnit[] => {
+    const matches = mine().filter((u) =>
+      !u.building && (sub.worker ? isWorker(u) : u.typeId === sub.entry?.id) &&
+      (!sub.from || gathering(u, sub.from)) &&
+      (!sub.idle || idleWorker(u)));
+    const centre = d.screenCentre() ?? anchor();
+    matches.sort((a, b) =>
+      Number(idleWorker(b)) - Number(idleWorker(a)) ||
+      Math.hypot(a.x - centre[0], a.y - centre[1]) - Math.hypot(b.x - centre[0], b.y - centre[1]));
+    // "select peasant" / "select worker" — no number said — is the idle-worker button's job.
+    if (sub.worker && !sub.counted && sub.count === 1 && !sub.from) return matches.filter(idleWorker).slice(0, 1);
+    return sub.count === "all" ? matches : matches.slice(0, sub.count);
+  };
+
+  /** What to call a subject in an error ("No idle worker.", "No Footman."). */
+  const subjectName = (sub: Subject): string =>
+    `${sub.idle || (sub.worker && !sub.counted && sub.count === 1 && !sub.from) ? "idle " : ""}${sub.worker ? "worker" : sub.entry?.phrase ?? "unit"}${sub.from ? ` on ${sub.from}` : ""}`;
+
+  /** Select a subject's units (a selection holds 12); false, with the reason said, if none. */
+  const selectSubject = (sub: Subject): SimUnit[] | null => {
+    const r = rts();
+    const units = pickSubject(sub);
+    if (!r || !units.length) {
+      d.error(`No ${subjectName(sub)}.`);
+      return null;
+    }
+    r.clearSelection();
+    for (const u of units.slice(0, 12)) r.scriptSelect(u.id, true);
+    return units;
+  };
+
   const needSelection = (): boolean => {
     if (rts()?.selectedUnitIds().length) return true;
     d.error("Select something first.");
@@ -349,6 +426,15 @@ export function makeVoiceHost(d: VoiceDriver): VoiceHost {
     return true;
   };
 
+  /** The names of what `id` still needs: its first requirement tier, less whatever of ours
+   *  already stands (finished) of each. */
+  const missingRequirements = (id: string): string[] => {
+    const have = new Set(mine().filter((u) => u.constructing === 0).map((u) => u.typeId));
+    return (d.tech.get(id).requiresTiers[0] ?? [])
+      .filter((req) => !have.has(req) && !d.tech.get(req).dependencyOr.some((alt) => have.has(alt)))
+      .map((req) => d.units.get(req)?.name || d.tech.get(req).name || req);
+  };
+
   /** The own building that can train `unitId` — the selected one first, then the least busy. */
   const trainer = (unitId: string): SimUnit | null => {
     const r = rts();
@@ -359,11 +445,40 @@ export function makeVoiceHost(d: VoiceDriver): VoiceHost {
     return can[0] ?? null;
   };
 
+  /**
+   * "Put the rally point of the barracks on my hero": every finished building of ours of that
+   * type rallies there, with the command the Set Rally Point click sends — and the selection is
+   * left alone, since the player never selected the barracks. A unit is rallied ON (its units
+   * follow it), a mine or a point is rallied AT.
+   */
+  const rallyOf = (source: LexEntry, t: VoiceTarget | undefined): void => {
+    const r = rts();
+    if (!r) return;
+    const at = mine().filter((u) => u.building && u.typeId === source.id && u.constructing === 0);
+    if (!at.length) { d.error(`You have no ${source.phrase}.`); return; }
+    if (!t) { d.error(`Where should the ${source.phrase} rally?`); return; }
+    const spot = resolve(t, "mine", [at[0].x, at[0].y]);
+    if ("fail" in spot) { d.error(spot.fail); return; }
+    let p: [number, number] | null = "unit" in spot ? [spot.unit.x, spot.unit.y] : "point" in spot ? spot.point : null;
+    if ("cursor" in spot) {
+      const c = d.cursor();
+      p = r.groundPoint(c.x, c.y);
+    }
+    if (!p) return;
+    for (const b of at) {
+      r.execute(me(), "unit" in spot
+        ? { c: "rally", unitId: b.id, x: p[0], y: p[1], kind: "unit", targetId: spot.unit.id }
+        : { c: "rally", unitId: b.id, x: p[0], y: p[1], kind: "point", targetId: 0 });
+    }
+  };
+
   const run = (i: VoiceIntent): void => {
     const r = rts();
     if (!r) return;
     switch (i.kind) {
       case "order": {
+        if (i.order === "rally" && i.source) { rallyOf(i.source, i.target); return; }
+        if (i.subject && !selectSubject(i.subject)) return;
         if (!needSelection()) return;
         if (i.order === "smart") {
           if (!i.target) return;
@@ -384,14 +499,27 @@ export function makeVoiceHost(d: VoiceDriver): VoiceHost {
       case "hold": if (needSelection()) r.holdSelected(); return;
       case "cancel": d.press("cancel"); return;
       case "harvest": {
-        // Gathering is the workers' RIGHT-CLICK on a mine or a tree, so it is one here too.
-        if (!r.selectedUnitIds().length) r.cycleIdleWorker();
-        if (!needSelection()) return;
-        const t: VoiceTarget = i.target ?? (i.res === "lumber" ? { kind: "trees" } : { kind: "mine" });
-        const spot = resolve(t, "mine");
-        if ("fail" in spot) { d.error(spot.fail); return; }
-        const at = screenOf(spot);
-        if (at) r.moveAt(at.x, at.y, false);
+        // Gathering is the workers' RIGHT-CLICK on a mine or a tree, so it is one here too —
+        // given a selection at a time (a selection holds 12; "all peasants" may be more).
+        let units: SimUnit[];
+        if (i.subject) {
+          units = pickSubject(i.subject);
+          if (!units.length) { d.error(`No ${subjectName(i.subject)}.`); return; }
+        } else {
+          const sel = r.selectedUnitIds().map((id) => r.simView.units.get(id)).filter((u): u is SimUnit => !!u && isWorker(u));
+          units = sel.length ? sel : pickSubject({ worker: true, count: 1, counted: false, idle: true });
+          if (!units.length) { d.error("Select a worker first."); return; }
+        }
+        for (let k = 0; k < units.length; k += 12) {
+          const batch = units.slice(k, k + 12);
+          r.clearSelection();
+          for (const u of batch) r.scriptSelect(u.id, true);
+          const t: VoiceTarget = i.target ?? (i.res === "lumber" ? { kind: "trees" } : { kind: "mine" });
+          const spot = resolve(t, "mine");
+          if ("fail" in spot) { d.error(spot.fail); return; }
+          const at = screenOf(spot);
+          if (at) r.moveAt(at.x, at.y, false);
+        }
         return;
       }
       case "train": {
@@ -419,7 +547,12 @@ export function makeVoiceHost(d: VoiceDriver): VoiceHost {
             return !!u && d.tech.get(u.typeId).builds.includes(i.entry.id);
           });
           if (!canBuild()) {
-            const worker = nearest((u) => u.owner === me() && !u.building && d.tech.get(u.typeId).builds.includes(i.entry.id));
+            // An IDLE builder first — taking a miner off the gold is the cost of asking — then the
+            // one nearest the middle of the screen.
+            const builders = mine().filter((u) => !u.building && d.tech.get(u.typeId).builds.includes(i.entry.id));
+            const centre = d.screenCentre() ?? anchor();
+            builders.sort((a, b) => Number(idleWorker(b)) - Number(idleWorker(a)) || Math.hypot(a.x - centre[0], a.y - centre[1]) - Math.hypot(b.x - centre[0], b.y - centre[1]));
+            const worker = builders[0];
             if (!worker) { d.error(`Nothing of yours builds ${i.entry.phrase}.`); return; }
             r.selectSingle(worker.id);
           }
@@ -429,7 +562,21 @@ export function makeVoiceHost(d: VoiceDriver): VoiceHost {
           }
           b = findButton((x) => x.id === `build:${i.entry.id}`);
         }
+        const name = d.units.get(i.entry.id)?.name ?? i.entry.phrase;
+        if (b?.disabled) {
+          // Greyed for a REQUIREMENT is worth saying in words: "build a tower" as a night elf
+          // with no Hunter's Hall is a question about the tech tree, not a broken command.
+          const missing = missingRequirements(i.entry.id);
+          d.error(missing.length ? `${name} requires ${missing.join(", ")}.` : `${name} is not available.`);
+          return;
+        }
         if (!b || !pressButton(b) || !d.placing()) return;
+        // A word for a kind of building that THIS race reaches by an upgrade ("tower" as the
+        // undead: a Ziggurat, which becomes the Spirit Tower) says so.
+        if (i.entry.phrase.toLowerCase() === "tower" && !/tower/i.test(name)) {
+          const up = d.tech.get(i.entry.id).upgrade.map((u) => d.units.get(u)?.name).find((n) => n && /tower/i.test(n));
+          if (up) d.message(`Building a ${name} — upgrade it to a ${up} for a tower.`);
+        }
         // "Here", or nothing said: SOMEWHERE ON THE SCREEN it fits, beside our other buildings —
         // the site a player would have picked, found rather than asked for. "At the cursor" is
         // the mouse; any other place ("by the gold mine") is that place.
@@ -497,18 +644,11 @@ export function makeVoiceHost(d: VoiceDriver): VoiceHost {
         return;
       }
       case "select": {
-        if (i.what === "army") { if (!r.selectAllArmy()) d.error("You have no army."); return; }
+        // "Select army" is the "-" key, through the HUD's own door.
+        if (i.what === "army") { if (!d.selectAllArmy()) d.error("You have no army."); return; }
         if (i.what === "idle") { if (!r.cycleIdleWorker()) d.error("No idle workers."); else d.jumpToSelection(); return; }
         if (i.what === "hero") { if (!d.selectHero(i.index ?? 0)) d.error("No such hero."); return; }
-        const id = i.entry?.id;
-        const ofType = mine().filter((u) => u.typeId === id);
-        if (!ofType.length) { d.error(`You have no ${i.entry?.phrase ?? "such unit"}.`); return; }
-        // The double-click's selection, map-wide: voice cannot see the screen edge, so "select
-        // footmen" means your footmen — nearest first, as many as a selection holds (12).
-        const [ax, ay] = anchor();
-        ofType.sort((a, b) => (a.x - ax) ** 2 + (a.y - ay) ** 2 - ((b.x - ax) ** 2 + (b.y - ay) ** 2));
-        r.clearSelection();
-        for (const u of ofType.slice(0, 12)) r.scriptSelect(u.id, true);
+        if (i.subject && selectSubject(i.subject)) d.jumpToSelection();
         return;
       }
       case "group": {
@@ -595,21 +735,77 @@ function lexicon(d: VoiceDriver, own: SimUnit[]): LexEntry[] {
       if (ab?.name && ab.target !== "passive") out.push({ kind: "ability", id: a.id, phrase: ab.name });
     }
   }
-  // What is on the map that the player can see — the names targets are said by.
+  // The words a player uses for a KIND of building rather than its name — "tower", "shop",
+  // "farm" — meaning this race's own (`raceTerms`).
+  const builds = new Set<string>();
+  for (const t of types) for (const id of d.tech.get(t).builds) builds.add(id);
+  out.push(...raceTerms(d, [...builds]));
+  // What is on the map that the player knows of — the names targets are said by: a unit while it
+  // can be seen, a BUILDING wherever it has been seen ("the tavern", "the fountain", "the goblin
+  // merchant"), by its whole name and by its first and last words ("fountain", "merchant").
   const r = d.rts();
   if (r) {
     const seen = new Set<string>();
     for (const u of r.simView.units.values()) {
       if (seen.has(u.typeId) || u.hp <= 0) continue;
-      if (r.getVision().stateAt(u.x, u.y) !== FogState.Visible) continue;
+      const fog = r.getVision().stateAt(u.x, u.y);
+      if (u.building ? fog === FogState.Unexplored : fog !== FogState.Visible) continue;
       seen.add(u.typeId);
       const def = d.units.get(u.typeId);
-      if (def?.name) out.push({ kind: def.isBuilding ? "building" : def.isHero ? "hero" : "unit", id: u.typeId, phrase: def.name });
+      if (!def?.name) continue;
+      const kind = def.isBuilding ? "building" : def.isHero ? "hero" : "unit";
+      out.push({ kind, id: u.typeId, phrase: def.name });
+      if (def.isBuilding && u.owner !== d.localPlayer()) {
+        const ws = def.name.split(/\s+/).filter((w) => w.length >= 4 && !/^(of|the)$/i.test(w));
+        for (const w of new Set([ws[0], ws[ws.length - 1]])) if (w && w !== def.name) out.push({ kind, id: u.typeId, phrase: w });
+      }
     }
   }
   // The inventory, by name.
   d.inventory().forEach((s) => {
     if (s?.usable && s.name) out.push({ kind: "item", id: s.name, phrase: sayable(s.name) });
   });
+  return out;
+}
+
+/**
+ * The race-neutral words for a KIND of building, each meaning the one THIS player's workers
+ * build — read off the data rather than listed per race, so a custom race gets them too:
+ *
+ * - **shop**: builds whose `Makeitems` is not empty (Arcane Vault, Voodoo Lounge, Tomb of Relics,
+ *   Ancient of Wonders) — the race shop is the one building whose stock is items it makes;
+ * - **tower**: one whose name says Tower, or one that ATTACKS and trains nothing (the Ancient
+ *   Protector — an Ancient of War attacks too, but it is a barracks), or one that UPGRADES into
+ *   either (the undead's Ziggurat, which becomes its Spirit Tower);
+ * - **farm / supply / house / food**: one that makes food and is not a town hall (Farm, Orc
+ *   Burrow, Ziggurat, Moon Well);
+ * - **hall / town hall / base**: `buffType` townhall;
+ * - **altar**: one that trains a hero;
+ * - **barracks**: one that trains a soldier — not a hero, not a worker — with the fewest
+ *   requirements (Barracks, Crypt, Ancient of War).
+ */
+function raceTerms(d: VoiceDriver, builds: string[]): LexEntry[] {
+  const out: LexEntry[] = [];
+  const def = (id: string) => d.units.get(id);
+  const attacks = (id: string): boolean => (def(id)?.attackDamage ?? 0) + (def(id)?.attackDice ?? 0) > 0 && def(id)?.buffType !== "townhall";
+  const named = (id: string, w: RegExp): boolean => w.test(def(id)?.name ?? "");
+  const add = (ids: string[], phrases: string[]): void => {
+    const id = ids[0];
+    if (id) for (const phrase of phrases) out.push({ kind: "building", id, phrase });
+  };
+  add(builds.filter((id) => d.tech.get(id).makeitems.length > 0), ["shop", "store"]);
+  // A tower attacks and TRAINS NOTHING — an Ancient of War and a Tree of Life swing at you too.
+  const defends = (id: string): boolean => attacks(id) && d.tech.get(id).trains.length === 0;
+  add([
+    ...builds.filter((id) => named(id, /tower/i)),
+    ...builds.filter(defends),
+    ...builds.filter((id) => d.tech.get(id).upgrade.some((u) => named(u, /tower/i) || defends(u))),
+  ], ["tower", "defense", "defence"]);
+  add(builds.filter((id) => (def(id)?.foodMade ?? 0) > 0 && def(id)?.buffType !== "townhall"), ["farm", "supply", "house", "food"]);
+  add(builds.filter((id) => def(id)?.buffType === "townhall"), ["hall", "town hall", "main building", "base"]);
+  add(builds.filter((id) => d.tech.get(id).trains.some((t) => def(t)?.isHero)), ["altar"]);
+  const soldier = (t: string): boolean => !!def(t) && !def(t)!.isHero && !def(t)!.classification.includes("peon") && attacks(t);
+  const reqs = (id: string): number => d.tech.get(id).requiresTiers[0]?.length ?? 0;
+  add(builds.filter((id) => d.tech.get(id).trains.some(soldier)).sort((a, b) => reqs(a) - reqs(b)), ["barracks"]);
   return out;
 }

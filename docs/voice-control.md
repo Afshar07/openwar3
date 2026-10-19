@@ -72,6 +72,23 @@ onto commands is the same cost again. Instead:
 - **Camera**: any clause naming the camera is a camera command ("move the camera to another gold
   mine" is not a MOVE order). "Another"/"next" is the nearest one the camera is NOT already on;
   "on the right side of the map", "top left" are halves (thirds for "middle") of the playable map.
+- **Subjects**: a clause may name WHO instead of relying on the selection — "put ALL PEASANTS on
+  gold", "send TWO WORKERS to wood", "ALL PEASANTS to the gold mine" (no verb at all). "Worker",
+  "peasant", "peon", "acolyte", "wisp" all mean this race's gatherers. A worker said with NO
+  number ("select peasant") is an IDLE one — the idle-worker button's job; "select one worker"
+  is any one (idle first); "select one worker from wood" is one carrying a lumber order (walking
+  a load home counts). Plural or "all" is every one, map-wide.
+- **"Select army"** is the "-" key, through the HUD's own `selectAllArmy`.
+- **Rally by building**: "put the rally point of the barracks on my hero" sets it on EVERY
+  finished Barracks of ours with the Set Rally Point command, without touching the selection; a
+  unit is rallied ON. "My hero" is the FIRST hero (the top portrait), not the nearest.
+- **Words for a kind of building** (`raceTerms`): "tower", "shop", "farm"/"supply", "hall",
+  "altar", "barracks" mean THIS race's one, read off the data (a shop makes items; a tower attacks
+  and trains nothing, or upgrades into one — the undead build a Ziggurat and are told so). A
+  greyed build button says what it is missing: "Ancient Protector requires Hunter's Hall."
+- **Camera to things**: any building the player has SEEN ("the tavern", "the goblin merchant",
+  "the fountain" — first and last words of a neutral building's name work too) and the minimap's
+  creep camps. "Another" is a tour: each one asked for is one the camera has not yet been taken to.
 - Everything is fog-honest: "the enemy hero" is the nearest one this player can SEE.
 
 `window.openwar3.voiceSay("train three footmen")` runs a sentence through the same path with no

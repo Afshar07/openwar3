@@ -30,6 +30,12 @@ const lex = new Lexicon([
   { kind: "ability", id: "AHhb", phrase: "Holy Light" },
   { kind: "button", id: "ability:AHbz", phrase: "Blizzard" },
   { kind: "button", id: "rally", phrase: "Set Rally Point" },
+  { kind: "building", id: "hbar", phrase: "Barracks" },
+  { kind: "building", id: "usep", phrase: "Crypt" },
+  { kind: "hero", id: "Udea", phrase: "Death Knight" },
+  { kind: "building", id: "ntav", phrase: "Tavern" },
+  { kind: "building", id: "etrp", phrase: "tower" },
+  { kind: "building", id: "eden", phrase: "shop" },
 ]);
 const p = (t) => parse(t, { lexicon: lex });
 const one = (t) => { const r = p(t); return r.length === 1 ? r[0] : null; };
@@ -78,15 +84,53 @@ check("holy light my hero", i?.kind === "press" && i.target?.kind === "hero" && 
 
 console.log("selection & groups");
 i = one("select all footmen");
-check("select all footmen", i?.kind === "select" && i.what === "all-of" && i.entry.id === "hfoo", JSON.stringify(i));
+check("select all footmen", i?.kind === "select" && i.what === "subject" && i.subject.entry.id === "hfoo" && i.subject.count === "all", JSON.stringify(i));
 i = one("select army");
 check("select army", i?.kind === "select" && i.what === "army");
+i = one("select all");
+check("select all = army", i?.kind === "select" && i.what === "army");
+for (const w of ["peasant", "worker", "peon"]) {
+  i = one(`select ${w}`);
+  check(`select ${w} = one IDLE worker`, i?.kind === "select" && i.subject?.worker && i.subject.count === 1 && !i.subject.counted, JSON.stringify(i));
+}
+i = one("select one worker");
+check("select one worker = any one", i?.kind === "select" && i.subject?.worker && i.subject.count === 1 && i.subject.counted, JSON.stringify(i));
+i = one("select one worker from wood");
+check("select one worker from wood", i?.kind === "select" && i.subject?.from === "lumber" && i.subject.count === 1, JSON.stringify(i));
+i = one("select two peasants that are mining gold");
+check("select two peasants mining gold", i?.kind === "select" && i.subject?.from === "gold" && i.subject.count === 2, JSON.stringify(i));
+i = one("select idle peasants");
+check("select idle peasants = all idle", i?.kind === "select" && i.subject?.idle && i.subject.count === "all", JSON.stringify(i));
 i = one("group two");
 check("group two", i?.kind === "group" && i.n === 2 && i.mode === "recall", JSON.stringify(i));
 i = one("make group three");
 check("make group three", i?.kind === "group" && i.n === 3 && i.mode === "assign", JSON.stringify(i));
 
+console.log("gathering & rally");
+i = one("put all peasants on gold");
+check("put all peasants on gold", i?.kind === "harvest" && i.res === "gold" && i.subject?.worker && i.subject.count === "all", JSON.stringify(i));
+i = one("send two workers to wood");
+check("send two workers to wood", i?.kind === "harvest" && i.res === "lumber" && i.subject?.count === 2, JSON.stringify(i));
+i = one("all peasants to the gold mine");
+check("subject first, no verb", i?.kind === "harvest" && i.res === "gold" && i.subject?.count === "all", JSON.stringify(i));
+i = one("put the rally point of barracks on my hero");
+check("rally of barracks on my hero", i?.kind === "order" && i.order === "rally" && i.source?.id === "hbar" && i.target?.kind === "hero" && i.target.side === "mine", JSON.stringify(i));
+i = one("put the rally point of the crypt on the death knight");
+check("rally of crypt on the death knight", i?.kind === "order" && i.order === "rally" && i.source?.id === "usep" && i.target?.kind === "unit" && i.target.entry.id === "Udea", JSON.stringify(i));
+i = one("set rally point here");
+check("set rally point here (selected)", i?.kind === "order" && i.order === "rally" && !i.source && i.target?.kind === "screen", JSON.stringify(i));
+i = one("send all footmen here");
+check("send all footmen here = move", i?.kind === "order" && i.order === "move" && i.subject?.entry.id === "hfoo" && i.target?.kind === "screen", JSON.stringify(i));
+i = one("build a tower");
+check("build a tower (race term)", i?.kind === "build" && i.entry.id === "etrp", JSON.stringify(i));
+i = one("build a shop");
+check("build a shop (race term)", i?.kind === "build" && i.entry.id === "eden", JSON.stringify(i));
+
 console.log("camera");
+i = one("move the camera to the tavern");
+check("camera to the tavern", i?.kind === "camera" && i.target.kind === "unit" && i.target.entry.id === "ntav", JSON.stringify(i));
+i = one("camera to another creep camp");
+check("camera to another creep camp", i?.kind === "camera" && i.target.kind === "creeps" && i.target.pick === "next", JSON.stringify(i));
 i = one("move the camera to another gold mine");
 check("camera → another gold mine (not a MOVE order)", i?.kind === "camera" && i.target.kind === "mine" && i.target.pick === "next", JSON.stringify(i));
 i = one("move the camera to a gold mine on the right side of the map");

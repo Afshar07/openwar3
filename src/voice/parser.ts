@@ -57,16 +57,36 @@ export type VoiceTarget =
   | { kind: "mine"; region?: Region; pick?: Pick } // "the gold mine", "another gold mine"
   | { kind: "trees" } // "the trees", "the forest"
   | { kind: "army" } // "my army"
+  | { kind: "creeps"; region?: Region; pick?: Pick } // "the creep camp", "another camp"
   | { kind: "region"; region: Region }; // "the top left", "the middle of the map"
+
+/**
+ * WHO an order is for, when the player names them instead of selecting them: "ALL PEASANTS on
+ * gold", "select ONE WORKER FROM WOOD", "send two footmen there". `worker` is the race's
+ * gatherers whatever the player calls them (a human saying "peon" means his peasants);
+ * `count` is a number or "all", and `counted` says whether the player said it — "select peasant"
+ * (said nothing, one) means an IDLE one, "select one peasant" any one. `from` keeps only those
+ * gathering that resource.
+ */
+export interface Subject {
+  entry?: LexEntry;
+  worker: boolean;
+  count: number | "all";
+  counted: boolean;
+  idle: boolean;
+  from?: "gold" | "lumber";
+}
 
 export type OrderVerb = "move" | "attack" | "attackmove" | "patrol" | "attackground" | "rally" | "smart";
 
 export type VoiceIntent =
-  | { kind: "order"; order: OrderVerb; target?: VoiceTarget }
+  /** `source` is a rally's building TYPE ("the rally point of the barracks"), set on every one of
+   *  ours without touching the selection. */
+  | { kind: "order"; order: OrderVerb; target?: VoiceTarget; subject?: Subject; source?: LexEntry }
   | { kind: "stop" }
   | { kind: "hold" }
   | { kind: "cancel" }
-  | { kind: "harvest"; res?: "gold" | "lumber"; target?: VoiceTarget }
+  | { kind: "harvest"; res?: "gold" | "lumber"; target?: VoiceTarget; subject?: Subject }
   | { kind: "train"; entry: LexEntry; count: number }
   | { kind: "build"; entry: LexEntry; target?: VoiceTarget }
   | { kind: "research"; entry: LexEntry }
@@ -74,7 +94,7 @@ export type VoiceIntent =
   | { kind: "press"; entry: LexEntry; target?: VoiceTarget }
   | { kind: "autocast"; entry: LexEntry; on: boolean }
   | { kind: "useitem"; entry?: LexEntry; slot?: number; target?: VoiceTarget }
-  | { kind: "select"; what: "army" | "idle" | "hero" | "all-of"; entry?: LexEntry; index?: number }
+  | { kind: "select"; what: "army" | "idle" | "hero" | "subject"; subject?: Subject; index?: number }
   | { kind: "group"; n: number; mode: "recall" | "assign" | "add" }
   | { kind: "camera"; target: VoiceTarget };
 
@@ -110,6 +130,19 @@ const ENEMY_WORDS = new Set(["enemy", "enemies", "their", "hostile", "opponent",
 const MINE_WORDS = new Set(["my", "our", "mine"]);
 const ALLY_WORDS = new Set(["ally", "allied", "friendly"]);
 const PREPOSITIONS = new Set(["on", "at", "to", "into", "onto", "toward", "towards", "near", "in"]);
+/** The race's gatherers, by any race's word for them: a human who says "peon" means his
+ *  peasants. (The undead's Ghoul gathers too, but is a soldier first and is named as one.) */
+const WORKER_WORDS = new Set(["worker", "workers", "peasant", "peasants", "peon", "peons", "acolyte", "acolytes",
+  "wisp", "wisps", "harvester", "harvesters", "gatherer", "gatherers", "builder", "builders", "slave", "slaves"]);
+const ALL_WORDS = new Set(["all", "every", "each", "everyone", "everybody"]);
+/** Words between a subject and the resource it is working ("one worker FROM wood", "peasants
+ *  THAT ARE MINING gold"). */
+const FROM_WORDS = new Set(["from", "on", "at", "in", "that", "are", "is", "who", "which", "currently",
+  "gathering", "mining", "chopping", "harvesting", "working", "cutting", "collecting"]);
+const GOLD_WORDS = new Set(["gold", "mine", "mines"]);
+const LUMBER_WORDS = new Set(["wood", "lumber", "tree", "trees", "forest"]);
+/** A count must not swallow a preposition the recogniser spelled as a number ("send TO gold"). */
+const NOT_COUNTS = new Set(["to", "too", "for", "won", "ate"]);
 
 /** Verb synonyms. The left word is what the player says; the right is what it means. Two-word
  *  verbs are matched first ("attack move" before "attack"). */
@@ -120,12 +153,15 @@ const VERBS2: Array<[string, string]> = [
   ["add to", "add"], ["turn on", "auto-on"], ["turn off", "auto-off"], ["never mind", "cancel"],
   ["look at", "camera"], ["go to", "move"], ["chop wood", "lumber"], ["cut wood", "lumber"],
   ["get gold", "gold"], ["get lumber", "lumber"], ["get wood", "lumber"], ["idle worker", "idle"],
-  ["select army", "army"],
+  ["select army", "army"], ["rally point", "rally"],
 ];
 const VERBS1: Record<string, string> = {
   move: "move", walk: "move", run: "move", retreat: "move", come: "move",
   attack: "attack", hit: "attack", kill: "attack", fight: "attack", charge: "attack",
   amove: "attackmove", patrol: "patrol", rally: "rally", follow: "smart",
+  // "put all peasants on gold", "send two footmen there", "put the rally point of the barracks
+  // on my hero", "put a farm here": one verb whose meaning is read off the rest of the clause.
+  put: "put", send: "put", set: "put", assign: "put", order: "put", tell: "put", have: "put",
   stop: "stop", halt: "stop", hold: "hold", cancel: "cancel", escape: "cancel", back: "cancel",
   gather: "harvest", harvest: "harvest", mine: "harvest", collect: "harvest", chop: "lumber",
   train: "train", make: "train", recruit: "train", hire: "train", produce: "train", summon: "train", create: "train",
@@ -248,6 +284,9 @@ export function grammarWords(): string[] {
   for (const s of [SCREEN_WORDS, CURSOR_WORDS, NEXT_WORDS, NEAREST_WORDS, ENEMY_WORDS, MINE_WORDS, ALLY_WORDS, PREPOSITIONS, FILLER]) for (const w of s) out.add(w);
   for (const w of Object.keys(REGION_WORDS)) out.add(w);
   for (const w of ["side", "map", "corner", "camera", "move", "take", "put", "look", "one"]) out.add(w);
+  for (const set of [WORKER_WORDS, ALL_WORDS, FROM_WORDS, GOLD_WORDS, LUMBER_WORDS]) for (const w of set) out.add(w);
+  for (const w of ["idle", "rally", "point", "creep", "creeps", "camp", "camps", "neutral", "tower", "shop", "farm",
+    "supply", "house", "hall", "altar", "barracks", "tavern", "fountain", "merchant", "laboratory", "marketplace"]) out.add(w);
   for (const w of ["hero", "heroes", "base", "home", "town", "hall", "gold", "lumber", "wood", "trees", "forest", "position",
     "point", "ground", "item", "slot", "off", "worker", "workers", "units", "all", "every", "unit", "group", "add"]) out.add(w);
   return [...out];
@@ -334,6 +373,7 @@ export function readTarget(ws: readonly string[], at: number, lex: Lexicon): Voi
   if ((s === "gold" && (ws[i + 1] === "mine" || ws[i + 1] === undefined)) || (s === "mine" && side === "any")) return { kind: "mine", ...mods };
   if (s === "tree" || s === "forest" || s === "wood" || s === "lumber") return { kind: "trees" };
   if (s === "army") return { kind: "army" };
+  if (s === "creep" || s === "camp" || (s === "neutral" && stem(ws[i + 1] ?? "") === "camp")) return { kind: "creeps", ...mods };
   const m = lex.match(ws, i, ["unit", "building", "hero"]);
   if (m) return { kind: "unit", entry: m.entry, side, ...mods };
   // Nothing but a part of the map: "the top left", "the middle of the map".
@@ -358,14 +398,43 @@ function parseClause(ws: string[], ctx: ParseContext, inherited: string | null):
   const done = (intent: VoiceIntent, v: string = verb ?? inherited ?? ""): { intent: VoiceIntent; verb: string } => ({ intent, verb: v });
 
   switch (verb) {
-    case "move": case "attack": case "attackmove": case "patrol": case "attackground": case "rally": case "smart":
-      return done({ kind: "order", order: verb, target: rest() });
+    case "rally":
+      return done(readRally(ws, i, lex), "rally");
+    case "move": case "attack": case "attackmove": case "patrol": case "attackground": case "smart": {
+      // "move two footmen here", "attack with all footmen" — a subject may follow the verb.
+      while (ws[i] === "with") i++;
+      const sub = readSubject(ws, i, lex, false);
+      if (sub && (sub.subject.counted || sub.subject.worker || sub.plural)) i = sub.end;
+      return done({ kind: "order", order: verb, target: rest(), subject: sub && i === sub.end ? sub.subject : undefined });
+    }
+    case "put": {
+      // The rally point: "put the rally point of the barracks on my hero".
+      const r = ws.indexOf("rally");
+      if (r >= 0) return done(readRally(ws, ws[r + 1] === "point" ? r + 2 : r + 1, lex), "rally");
+      // A building: "put a farm here".
+      let j = i;
+      while (ws[j] === "a" || ws[j] === "an" || ws[j] === "the") j++;
+      const b = lex.match(ws, j, ["building"]);
+      if (b) { i = b.end; return done({ kind: "build", entry: b.entry, target: rest() }, "build"); }
+      // Somebody, somewhere: "put all peasants on gold", "send two footmen there".
+      const sub = readSubject(ws, i, lex, false);
+      if (sub) i = sub.end;
+      const res = resourceAhead(ws, i);
+      if (res) return done({ kind: "harvest", res, subject: sub?.subject }, "harvest");
+      const t = rest();
+      return t || sub ? done({ kind: "order", order: "move", target: t, subject: sub?.subject }, "move") : null;
+    }
     case "stop": return done({ kind: "stop" });
     case "hold": return done({ kind: "hold" });
     case "cancel": return done({ kind: "cancel" });
     case "gold": return done({ kind: "harvest", res: "gold", target: rest() });
     case "lumber": return done({ kind: "harvest", res: "lumber", target: rest() });
     case "harvest": {
+      const sub = readSubject(ws, i, lex, false);
+      if (sub) {
+        const res = resourceAhead(ws, sub.end);
+        if (res) return done({ kind: "harvest", res, subject: sub.subject });
+      }
       const t = rest();
       const res = t?.kind === "mine" ? "gold" : t?.kind === "trees" ? "lumber" : ws.slice(i).some((w) => w === "gold") ? "gold" : undefined;
       return done({ kind: "harvest", res, target: t });
@@ -385,18 +454,16 @@ function parseClause(ws: string[], ctx: ParseContext, inherited: string | null):
     case "select": {
       while (i < ws.length && (FILLER.has(ws[i]) || MINE_WORDS.has(ws[i]))) i++;
       const w = ws[i];
-      if (w === undefined || w === "all" || w === "army" || w === "everyone" || w === "everybody") {
-        // "select all footmen" is a type; "select all" alone is the army.
-        if (w === "all" && ws[i + 1]) i++;
-        else return done({ kind: "select", what: "army" });
+      // "select army", "select all", "select everyone" — the "-" key's army.
+      if (w === undefined || w === "army" || ((ALL_WORDS.has(w)) && (ws[i + 1] === undefined || ws[i + 1] === "army" || ws[i + 1] === "units"))) {
+        return done({ kind: "select", what: "army" });
       }
-      if (ws[i] === "idle" || stem(ws[i]) === "worker" && ws[i - 1] === "idle") return done({ kind: "select", what: "idle" });
-      if (stem(ws[i]) === "hero") {
+      if (stem(w) === "hero") {
         const n = NUMBERS[ws[i + 1] ?? ""];
         return done({ kind: "select", what: "hero", index: n ? n - 1 : 0 });
       }
-      const m = lex.match(ws, i, ["unit", "building", "hero"]);
-      return m ? done({ kind: "select", what: "all-of", entry: m.entry }) : null;
+      const sub = readSubject(ws, i, lex, true);
+      return sub ? done({ kind: "select", what: "subject", subject: sub.subject }) : null;
     }
     case "train": {
       const [count, j] = readCount(ws, i);
@@ -452,13 +519,100 @@ function parseClause(ws: string[], ctx: ParseContext, inherited: string | null):
     const [count, j] = inherited === "train" ? readCount(ws, 0) : [1, 0];
     const m = lex.match(ws, j, kinds);
     if (m) {
-      return inherited === "train"
-        ? done({ kind: "train", entry: m.entry, count }, inherited)
-        : done({ kind: "select", what: "all-of", entry: m.entry }, inherited);
+      if (inherited === "train") return done({ kind: "train", entry: m.entry, count }, inherited);
+    }
+    if (inherited === "select") {
+      const sub = readSubject(ws, 0, lex, true);
+      if (sub) return done({ kind: "select", what: "subject", subject: sub.subject }, inherited);
+    }
+  }
+  // A SUBJECT first: "all peasants on gold", "two peasants to wood", "footmen attack move here".
+  const sub = readSubject(ws, 0, lex, false);
+  if (sub && (sub.subject.counted || sub.subject.worker || sub.plural)) {
+    const res = resourceAhead(ws, sub.end);
+    if (res) return done({ kind: "harvest", res, subject: sub.subject }, "harvest");
+    const after = parseClause(ws.slice(sub.end), ctx, null);
+    if (after && (after.intent.kind === "order" || after.intent.kind === "harvest")) {
+      after.intent.subject ??= sub.subject;
+      return after;
     }
   }
   // …and otherwise it is a BUTTON's name: "storm bolt the hero", "blizzard here", "footman".
   return pressByName(ws, 0, lex, done);
+}
+
+/**
+ * Read a SUBJECT — who an order is for — from `at`: [all | a count] [idle] (worker word | unit
+ * name) [from gold | wood]. `allowFrom` reads the trailing resource as a FILTER ("select one
+ * worker from wood"); without it the resource is left for the verb ("put all peasants ON GOLD"
+ * is a destination). `plural` says the name was said in the plural ("peasants").
+ */
+export function readSubject(
+  ws: readonly string[],
+  at: number,
+  lex: Lexicon,
+  allowFrom: boolean,
+): { subject: Subject; end: number; plural: boolean } | null {
+  let i = at;
+  let count: number | "all" | undefined;
+  let idle = false;
+  const skip = (): void => { while (ws[i] === "the" || ws[i] === "my" || ws[i] === "our" || ws[i] === "of") i++; };
+  skip();
+  if (ALL_WORDS.has(ws[i] ?? "")) { count = "all"; i++; }
+  else if (ws[i] !== undefined && !NOT_COUNTS.has(ws[i]) && NUMBERS[ws[i]] !== undefined) { count = NUMBERS[ws[i]]; i++; }
+  skip();
+  if (ws[i] === "idle" || ws[i] === "lazy" || ws[i] === "free") { idle = true; i++; }
+  let entry: LexEntry | undefined;
+  let worker = false;
+  let plural = false;
+  const w = ws[i];
+  if (w === undefined) return null;
+  if (WORKER_WORDS.has(w)) {
+    worker = true;
+    plural = stem(w) !== w;
+    i++;
+  } else {
+    const m = lex.match(ws, i, ["unit", "hero"]);
+    if (!m) return null;
+    entry = m.entry;
+    const last = ws[m.end - 1];
+    plural = stem(last) !== last;
+    i = m.end;
+  }
+  let from: "gold" | "lumber" | undefined;
+  if (allowFrom) {
+    let j = i;
+    while (j < ws.length && FROM_WORDS.has(ws[j])) j++;
+    if (j > i || j === i) {
+      if (GOLD_WORDS.has(ws[j] ?? "") || (ws[j] === "gold" && ws[j + 1] === "mine")) from = "gold";
+      else if (LUMBER_WORDS.has(ws[j] ?? "")) from = "lumber";
+      if (from) i = j + 1 + (ws[j + 1] === "mine" ? 1 : 0);
+    }
+  }
+  return {
+    subject: { entry, worker, count: count ?? (plural ? "all" : 1), counted: count !== undefined, idle, from },
+    end: i,
+    plural,
+  };
+}
+
+/** A resource named anywhere after `at` ("on gold", "to the gold mine", "chop wood"). */
+function resourceAhead(ws: readonly string[], at: number): "gold" | "lumber" | undefined {
+  for (let i = at; i < ws.length; i++) {
+    if (ws[i] === "gold" || ws[i] === "mine" || ws[i] === "mines" || ws[i] === "mining") return "gold";
+    if (LUMBER_WORDS.has(ws[i]) || ws[i] === "chop" || ws[i] === "chopping") return "lumber";
+  }
+  return undefined;
+}
+
+/** The rest of a rally clause, after "rally (point)": [of | for] [the] <building> <target>.
+ *  Without a building it is the selected building's rally. */
+function readRally(ws: readonly string[], at: number, lex: Lexicon): VoiceIntent {
+  let i = at;
+  while (ws[i] === "point" || ws[i] === "of" || ws[i] === "for" || ws[i] === "from" || ws[i] === "the" || ws[i] === "my" || ws[i] === "our") i++;
+  const b = lex.match(ws, i, ["building"]);
+  if (b) i = b.end;
+  return { kind: "order", order: "rally", target: readTarget(ws, i, lex), source: b?.entry };
 }
 
 function pressByName(
@@ -490,14 +644,15 @@ export function describe(i: VoiceIntent): string {
       case "mine": return ` → ${x.pick === "next" ? "another " : ""}gold mine${x.region ? ` (${regionWords(x.region)})` : ""}`;
       case "trees": return " → trees";
       case "army": return " → army";
+      case "creeps": return ` → ${x.pick === "next" ? "another " : ""}creep camp${x.region ? ` (${regionWords(x.region)})` : ""}`;
     }
   };
   switch (i.kind) {
-    case "order": return `${{ move: "Move", attack: "Attack", attackmove: "Attack-move", patrol: "Patrol", attackground: "Attack ground", rally: "Rally", smart: "Follow" }[i.order]}${t(i.target)}`;
+    case "order": return `${i.subject ? `${who(i.subject)}: ` : ""}${i.source ? `${i.source.phrase} ` : ""}${{ move: "Move", attack: "Attack", attackmove: "Attack-move", patrol: "Patrol", attackground: "Attack ground", rally: "Rally", smart: "Follow" }[i.order]}${t(i.target)}`;
     case "stop": return "Stop";
     case "hold": return "Hold position";
     case "cancel": return "Cancel";
-    case "harvest": return `Gather${i.res ? ` ${i.res}` : ""}${t(i.target)}`;
+    case "harvest": return `${i.subject ? `${who(i.subject)}: ` : ""}Gather${i.res ? ` ${i.res}` : ""}${t(i.target)}`;
     case "train": return `Train ${i.count > 1 ? `${i.count} × ` : ""}${i.entry.phrase}`;
     case "build": return `Build ${i.entry.phrase}${t(i.target)}`;
     case "research": return `Research ${i.entry.phrase}`;
@@ -505,7 +660,7 @@ export function describe(i: VoiceIntent): string {
     case "press": return `${i.entry.phrase}${t(i.target)}`;
     case "autocast": return `Autocast ${i.entry.phrase} ${i.on ? "on" : "off"}`;
     case "useitem": return `Use ${i.entry?.phrase ?? `item ${(i.slot ?? 0) + 1}`}${t(i.target)}`;
-    case "select": return i.what === "army" ? "Select army" : i.what === "idle" ? "Select idle worker" : i.what === "hero" ? `Select hero ${(i.index ?? 0) + 1}` : `Select ${i.entry?.phrase ?? ""}`;
+    case "select": return i.what === "army" ? "Select army" : i.what === "idle" ? "Select idle worker" : i.what === "hero" ? `Select hero ${(i.index ?? 0) + 1}` : `Select ${who(i.subject)}`;
     case "group": return `${i.mode === "recall" ? "Group" : i.mode === "assign" ? "Assign group" : "Add to group"} ${i.n}`;
     case "camera": return `Camera${t(i.target)}`;
   }
@@ -515,4 +670,12 @@ function regionWords(r: Region): string {
   const y = r.y === 1 ? "top" : r.y === -1 ? "bottom" : r.y === 0 ? "middle" : "";
   const x = r.x === 1 ? "right" : r.x === -1 ? "left" : r.x === 0 && r.y !== 0 ? "middle" : "";
   return [y, x].filter(Boolean).join(" ") || "map";
+}
+
+/** A subject in words: "all Peasants", "1 idle worker", "1 worker from lumber". */
+function who(sub?: Subject): string {
+  if (!sub) return "";
+  const name = sub.worker ? "worker" : sub.entry?.phrase ?? "unit";
+  const n = sub.count === "all" ? "all" : String(sub.count);
+  return `${n}${sub.idle || (!sub.counted && sub.worker && sub.count === 1) ? " idle" : ""} ${name}${sub.from ? ` from ${sub.from}` : ""}`;
 }
