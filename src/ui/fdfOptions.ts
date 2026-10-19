@@ -152,7 +152,6 @@ export async function mountOptions(
       GamepadButton: () => gamepadButtonPressed(),
       // Fetch Voice Control's speech model (src/voice/) — the row's face until it is here.
       VoiceDownloadButton: () => voiceDownloadPressed(container, vfs),
-      VoiceDownloadButtonB: () => voiceDownloadPressed(container, vfs),
       // Undo everything this visit changed — including the audio applied live along the way.
       CancelButton: () => { Object.assign(working, committed); applyAudio(committed); applyVideo(committed); applyGameplay(committed); h.onClose(); },
     },

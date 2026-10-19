@@ -1,7 +1,7 @@
 import type { FdfScreen } from "./fdf/render";
 import type { DataSource } from "../vfs/types";
 import { setGameTip } from "./gameTip";
-import { showVoiceDownload, voiceDownloadVariant } from "./voiceDownload";
+import { showVoiceDownload } from "./voiceDownload";
 import { onVoiceModelInstalled, voiceModelInstalled, voiceModelInstalledNow } from "../voice/model";
 
 // Options → Gameplay → "Voice Control": the one row with two faces (src/overrides/ui/
@@ -42,21 +42,18 @@ export function bindVoiceRow(screen: FdfScreen): void {
       const el = screen.frame(name);
       if (el) el.hidden = !on;
     };
-    // Which layout of the row (A/C: a button in the checkbox column; B: a labelled row).
-    const labelled = voiceDownloadVariant() === "B" && !!screen.frame("VoiceDownloadButtonB");
-    show("VoiceDownloadButton", !installed && !labelled);
-    show("VoiceControlRowLabel", !installed && labelled);
-    show("VoiceDownloadButtonB", !installed && labelled);
+    // The label column's "Voice Control:" is the download face's (the glue panel has it; the F10
+    // panel has no room for it and shows the button alone).
+    show("VoiceControlRowLabel", !installed);
+    show("VoiceDownloadButton", !installed);
     show("VoiceControlCheckBox", installed);
     show("VoiceControlLabel", installed);
     // On the BOX: a TEXT frame takes no pointer (every FDF frame is pointer-events: none), so
     // the label cannot carry a hover of its own.
     const box = screen.frame("VoiceControlCheckBox");
     if (box) setGameTip(box, TIP_CHECKBOX);
-    for (const name of ["VoiceDownloadButton", "VoiceDownloadButtonB"]) {
-      const btn = screen.frame(name);
-      if (btn) setGameTip(btn, TIP_DOWNLOAD);
-    }
+    const btn = screen.frame("VoiceDownloadButton");
+    if (btn) setGameTip(btn, TIP_DOWNLOAD);
   };
   bound = { screen, sync };
   sync();

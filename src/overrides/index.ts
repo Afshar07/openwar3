@@ -141,13 +141,13 @@ export const OPTIONS_MENU_OVERRIDE: FdfOverride = {
     { frame: "HotkeyEditorBackdrop", into: "GameplayPanel" },
     { frame: "ShowHotkeysCheckBox", into: "GameplayPanel" },
     { frame: "ShowHotkeysLabel", into: "GameplayPanel" },
-    // Voice Control: the download button and the checkbox it becomes (src/voice/). The button
-    // first — the checkbox is centred on it, and "Detect Gamepad" hangs under it.
+    // Voice Control (src/voice/): the row's band first — both faces and "Detect Gamepad" hang
+    // off it — then the labelled download button, then the checkbox it becomes.
+    { frame: "VoiceControlBand", into: "GameplayPanel" },
+    { frame: "VoiceControlRowLabel", into: "GameplayPanel" },
     { frame: "VoiceDownloadButton", into: "GameplayPanel" },
     { frame: "VoiceControlCheckBox", into: "GameplayPanel" },
     { frame: "VoiceControlLabel", into: "GameplayPanel" },
-    { frame: "VoiceControlRowLabel", into: "GameplayPanel" }, // layout B, while one is picked
-    { frame: "VoiceDownloadButtonB", into: "GameplayPanel" },
     { frame: "GamepadButton", into: "GameplayPanel" }, // Detect / Unpair Gamepad, issue #162
     // Options → Video: "Low Performance Mode" under "Resolution:" (issue #161), and "Vertical
     // Sync" under the game's last row (Occlusion). Box before label in each pair — a label

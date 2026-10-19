@@ -124,6 +124,8 @@ Frame "TEXT" "ShowHotkeysLabel" INHERITS "EscMenuLabelTextTemplate" {
 // "Voice Control" (src/voice/), the row under "Show hotkeys on command buttons" — the same two
 // faces as the glue panel's (see `OptionsMenu.fdf`): a button that fetches the speech model, or
 // the checkbox once it is here. Same frame names, so one OPTION_DEFS row binds on either screen.
+// The glue panel words the download face as a labelled row ("Voice Control:" + the button); this
+// panel is too narrow for both, so here the button stands alone, the width of OK + Cancel.
 // The checkbox steps down like the panel's other checkbox pair (the -0.00375 tuck), and the
 // button is the panel's own `EscMenuButtonTemplate` at the "Detect Gamepad" button's 0.026,
 // centred on that same box so the row does not jump when the model arrives.
