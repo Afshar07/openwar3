@@ -1425,21 +1425,28 @@ const HERO_DOWN_SEEN = 3;
  *
  *  · `WIN_EXPAND` — clear the nearest free mine and take it (`expandOnWin`): the tempo a won
  *    fight buys spent on a second base, while the army that could punish a new hall walks home.
+ *    40 %, and `WIN_EXPAND_ONE_MINE` (50 %) for a player still living off ONE mine — and it is
+ *    rolled FIRST, so the attack share no longer comes off the top of it. It was 25 % behind the
+ *    attack, which past 7:30 left the army walking into the loser's base three times in five:
+ *    *"after winning a fight we must also give chance to the winning Computer+ AI to expand
+ *    (take a new gold mine under its control) instead of attacking the enemy base"* (the
+ *    developer).
+ *  · `WIN_ATTACK_EARLY` / `WIN_ATTACK_LATE` — press on at the loser's base (`pressOn`), 30 %
+ *    before `WIN_LATE` (7:30) and 45 % after. Early on a won fight is two openings bumping into
+ *    each other and a base is towers and a full militia; late, the army that just lost is most
+ *    of what the other player had. They were 10 % and 40 %, raised on the developer's "after a
+ *    fight is won, the Computer+ Normal doesn't seem very keen on attacking its opponent's base …
+ *    I want there to be more velocity between fights", then 60 % late, and brought back to 45 %
+ *    when the expansion was put first.
  *  · CARRY ON — the rest: the wave ends as it would have and the army goes back to creeping and
  *    to its own clocks, at a SHORTER wave gap (`PlusProfile.wonGap`).
- *  · `WIN_ATTACK_EARLY` / `WIN_ATTACK_LATE` — press on at the loser's base (`pressOn`), 30 %
- *    before `WIN_LATE` (7:30) and the likeliest answer after it (60 %). Early on a won fight is
- *    two openings bumping into each other and a base is towers and a full militia; late, the
- *    army that just lost is most of what the other player had. They were 10 % and 40 %, and
- *    were raised on the developer's "after a fight is won, the Computer+ Normal doesn't seem
- *    very keen on attacking its opponent's base … I want there to be more velocity between
- *    fights".
  * An expansion the player cannot take (Easy, its ceiling reached, no free mine, before
  * `WON_EXPAND_FLOOR`) also falls back to carrying on.
  */
-const WIN_EXPAND = 0.25;
+const WIN_EXPAND = 0.4;
+const WIN_EXPAND_ONE_MINE = 0.5;
 const WIN_ATTACK_EARLY = 0.3;
-const WIN_ATTACK_LATE = 0.6;
+const WIN_ATTACK_LATE = 0.45;
 const WIN_LATE = 450;
 export type WinPlan = "expand" | "carryOn" | "attack";
 
@@ -1448,11 +1455,12 @@ export type WinPlan = "expand" | "carryOn" | "attack";
  * `r` is a uniform draw in [0, 1), `clock` the game time and `canExpand` whether an expansion
  * could be taken at all (`expansionOpen`). See `WIN_EXPAND` for the odds.
  */
-export function winPlan(r: number, clock: number, canExpand: boolean): WinPlan {
+export function winPlan(r: number, clock: number, canExpand: boolean, minesOwned = 2): WinPlan {
+  const expand = minesOwned <= 1 ? WIN_EXPAND_ONE_MINE : WIN_EXPAND;
+  if (r < expand) return canExpand ? "expand" : "carryOn";
   const attack = clock < WIN_LATE ? WIN_ATTACK_EARLY : WIN_ATTACK_LATE;
-  if (r < attack) return "attack";
-  if (r < attack + WIN_EXPAND) return canExpand ? "expand" : "carryOn";
-  // Carrying on: whatever the other two leave over — 45 % before `WIN_LATE`, 15 % after.
+  if (r < expand + attack) return "attack";
+  // Carrying on: whatever the other two leave over.
   return "carryOn";
 }
 
@@ -2399,6 +2407,24 @@ const ORDERS_PER_STEP = 6;
  */
 const HELD_CHANNELS: ReadonlySet<string> = new Set(["AEsf", "AEtq", "AOvd", "AUdd", "AOeq", "ANst"]);
 
+/**
+ * …and the one NON-ultimate channel held the same way, with a way out: the Blood Mage's SIPHON
+ * MANA (`AHdr`). Beside a Paladin it is what the pair is FOR (plus/casting.ts `siphonMana` — he
+ * drains whoever has mana and pours it into the Paladin's Holy Light), and it is a channel like
+ * the rest: the army's next re-issue, an attack-move to keep up with the column or a cohesion
+ * stop broke it a second after it began. The developer: *"the AI of Blood Mage must not stop
+ * channeling siphon mana to attack a unit or to simply follow its army. it should only
+ * interrupt its casting by itself if blood mage needs to run away due to danger/low health"*.
+ *
+ * So it is held while he is healthy and the army is not running, and let go the moment either
+ * changes (`SIPHON_LET_GO_HP`, the army's `retreating` mode): those are exactly the orders that
+ * walk him out of danger — the pull-out at `pullOutHp`, the heal trip at 40 %, the retreat.
+ */
+const HELD_UNLESS_DANGER: ReadonlySet<string> = new Set(["AHdr"]);
+/** …below this share of his life the Blood Mage's Siphon Mana is his to break. OURS: the heal
+ *  trip's 40 % with a little room, so every order that walks a hurt hero home gets through. */
+const SIPHON_LET_GO_HP = 0.5;
+
 /** Every Computer+ player in the match. */
 export class ComputerPlusAi {
   private readonly brains: Brain[] = [];
@@ -2709,9 +2735,8 @@ export class ComputerPlusAi {
    * What follows the opener is the race's `combos` row for it (plus/races.ts `HeroCombo` — a
    * Paladin is followed by the Blood Mage, a Blademaster by the Shadow Hunter, a Death Knight by
    * the Lich), or the BUILD's own when it states one (the Head Hunter rush hires its second from
-   * the Tavern). A row that says nothing about a slot falls back on the old rule: the build's
-   * order with the second and third swapped at random, so two computers playing the same build
-   * are still not identical. A Tavern hero the map has no Tavern to sell (`tavernSells`) is
+   * the Tavern). A row that says nothing about a slot falls back on the build's own order,
+   * exactly as written (`pickHeroOrder`). A Tavern hero the map has no Tavern to sell (`tavernSells`) is
    * passed over like one already fielded.
    *
    * …and each hero's SKILL BUILD, which is the other half of "not identical": half of the
@@ -2756,7 +2781,7 @@ export class ComputerPlusAi {
       // AN ULTIMATE BEING CHANNELLED IS NOT INTERRUPTED — see `HELD_CHANNELS`. Refused here, at
       // the one door every army pass leaves through, rather than at each of the dozen call
       // sites that re-aim a squad: a pass that forgets to ask is one Starfall thrown away.
-      if (this.holdsUltimate(cmd.unitId)) return true;
+      if (this.holdsUltimate(cmd.unitId) || this.holdsSiphon(b, cmd.unitId)) return true;
       const kind = cmd.order.kind;
       if (kind === "move" || kind === "attackmove" || kind === "attack" || kind === "patrol") {
         if (b.ordersThisStep >= ORDERS_PER_STEP) {
@@ -2790,7 +2815,7 @@ export class ComputerPlusAi {
       const u = this.host.world.units.get(cmd.unitId);
       if (!u || u.hp <= 0) continue; // gone
       // …and asked again on the way out: the order was queued before the channel began.
-      if (this.holdsUltimate(u.id)) continue;
+      if (this.holdsUltimate(u.id) || this.holdsSiphon(b, u.id)) continue;
       b.ordersThisStep++;
       b.ai.order(cmd);
       simProfile.tally("aiOrdersIssued");
@@ -2806,6 +2831,17 @@ export class ComputerPlusAi {
     if (!world.holdsChannel(id)) return false;
     const code = world.units.get(id)?.pendingCast?.code;
     return !!code && HELD_CHANNELS.has(code);
+  }
+
+  /** Is this unit channelling a `HELD_UNLESS_DANGER` spell, healthy, with its army not running? */
+  private holdsSiphon(b: Brain, id: number): boolean {
+    const world = this.host.world;
+    if (!world.holdsChannel(id)) return false;
+    const u = world.units.get(id);
+    const code = u?.pendingCast?.code;
+    if (!u || !code || !HELD_UNLESS_DANGER.has(code)) return false;
+    if (b.mode === "retreating") return false;
+    return u.hp / Math.max(1, u.maxHp) >= SIPHON_LET_GO_HP;
   }
 
   /** `PauseCompAI` — seats whose AI stands still (it decides nothing and issues nothing; what
@@ -3056,6 +3092,13 @@ export class ComputerPlusAi {
   }
 
   /** The highest hall tier STANDING (1/2/3). */
+  /** The army food a WAVE waits for now: the live profile's `attackFood`, grown by
+   *  `attackFoodPerTier` for each hall tier standing above the first (Insane's 16/26/36). */
+  private waveFood(b: Brain): number {
+    const profile = liveProfile(b.profile, b.clock);
+    return profile.attackFood + profile.attackFoodPerTier * Math.max(0, this.tier(b) - 1);
+  }
+
   private tier(b: Brain): number {
     const [t1, t2, t3] = b.table.halls;
     if (b.ai.countDone(t3) > 0) return 3;
@@ -4278,7 +4321,7 @@ export class ComputerPlusAi {
    * does nothing with the army either.
    */
   private rollWin(b: Brain): WinPlan {
-    return winPlan(b.ai.randomInt(0, 9999) / 10000, b.clock, expansionOpen(b.ai, b.profile, b.clock));
+    return winPlan(b.ai.randomInt(0, 9999) / 10000, b.clock, expansionOpen(b.ai, b.profile, b.clock), b.ai.minesOwned());
   }
 
   /**
@@ -4307,10 +4350,23 @@ export class ComputerPlusAi {
     if (b.creeping || b.mode === "retreating" || b.mode === "defending") return;
     if (this.readiness(b) < WON_HEALTH || !b.squad.size) return;
     const foe = ai.townGuarded(town);
-    if (!foe || isShunned(b.avoid, foe, b.clock, GOAL_MATCH) || !this.reachable(b, foe, foe)) return;
     b.press = null;
     b.resume = null;
     b.vanguardDone = false;
+    if (!foe) {
+      // AN OPEN ROCK, and the wave does NOT walk on. Left alone, the wave's own objective was
+      // still whatever it set out for — very often the loser's base, the fight having been the
+      // meeting on the way there — so "expand" read as "attack" with a hall going up behind it.
+      // The army walks to the new town instead and stands there while the builder arrives (a
+      // spot objective: reaching it with nothing hostile in sight ends the wave, `objectiveDone`).
+      const spot = ai.townAtIndex(town);
+      if (!spot) return;
+      b.target = { id: 0, x: spot.x, y: spot.y };
+      this.setMode(b, "attacking");
+      this.commit(b, spot.x, spot.y);
+      return;
+    }
+    if (isShunned(b.avoid, foe, b.clock, GOAL_MATCH) || !this.reachable(b, foe, foe)) return;
     b.target = { id: foe.id, x: foe.x, y: foe.y };
     this.setMode(b, "attacking");
     this.commit(b, foe.x, foe.y);
@@ -4638,7 +4694,7 @@ export class ComputerPlusAi {
     }
     // …measured at the MUSTER POINT — see `mustered`. A wave is what sets off, not what exists.
     const at = this.mustered(b);
-    if (this.squadFood(b, at) < profile.attackFood) return false;
+    if (this.squadFood(b, at) < this.waveFood(b)) return false;
     // …and from the SECOND wave on, the race's siege if it is on its way — see `siegeHeld`.
     if (this.siegeHeld(b)) return false;
     // …and on Insane, a Town Portal in some hero's belt — see `portalHeld`. A held wave is an
@@ -4762,7 +4818,7 @@ export class ComputerPlusAi {
     if (!u || u.owner < 0 || u.owner >= MELEE.MAX_PLAYERS) return true;
     if (this.host.registry.get(u.typeId)?.race !== "undead") return true;
     const profile = liveProfile(b.profile, b.clock);
-    const bar = Math.min(profile.attackFood * UNDEAD_ARMY, profile.armyFood * UNDEAD_CEILING);
+    const bar = Math.min(this.waveFood(b) * UNDEAD_ARMY, profile.armyFood * UNDEAD_CEILING);
     return this.squadFood(b, this.mustered(b)) >= bar;
   }
 
@@ -8098,7 +8154,7 @@ export class ComputerPlusAi {
   private rallyBusy(b: Brain): readonly string[] | null {
     if (b.mode === "defending" || b.ai.townThreatened()) return RALLY_BUSY_LINES.attacked;
     if (b.mode === "retreating") return RALLY_BUSY_LINES.broken;
-    if (this.squadFood(b) < liveProfile(b.profile, b.clock).attackFood) return RALLY_BUSY_LINES.small;
+    if (this.squadFood(b) < this.waveFood(b)) return RALLY_BUSY_LINES.small;
     if (b.mode === "attacking") return b.creeping ? RALLY_BUSY_LINES.creeping : RALLY_BUSY_LINES.fighting;
     return null;
   }
@@ -8799,8 +8855,12 @@ export function pickHeroOrder(
 ): { first: string; second: string; third: string; combo: HeroCombo } {
   const order = [...(strategy.heroes ?? table.heroes)];
   const first = order[0] ?? "";
+  // The build's order is followed AS WRITTEN. There used to be a coin flip here swapping the
+  // second and third for variety, and it was how an orc opened on the Tauren Chieftain and
+  // followed him with a Blademaster (`taurens` lists the Blademaster third): "it doesn't follow
+  // the build order/heroes order very strictly" (the developer). Variety is the combos' job —
+  // a `second` with two names is rolled — and a build's own list is a ranking, not a pool.
   const rest = order.slice(1);
-  if (rand(0, 1) === 1 && rest.length >= 2) [rest[0], rest[1]] = [rest[1], rest[0]];
   // …the race's pinned second hero (`PlusRaceTable.secondHero` — the undead's Death Knight),
   // moved to the front of the rest whenever he did not open. The combos below say the same for
   // the undead; this keeps the rule for a data set whose combos name a hero it lacks.

@@ -571,8 +571,7 @@ const HUMAN: PlusRaceTable = {
   strategies: [
     // THE RIFLE BUILD, and it is a tier-1 build order as much as a tier-2 one: `[hrif]
     // Requires=hbla`, so it opens on a Blacksmith and Riflemen where every other human build
-    // opens on Footmen. Paladin first, then the Blood Mage or the Mountain King — which is what
-    // `pickHeroes` does with the rest of this list anyway (it swaps the second and third).
+    // opens on Footmen. Paladin first, then the Blood Mage (the race's `combos` row for him).
     // A ranged line holds ground, so it takes its second mine early.
     { id: "rifles", name: "Riflemen, Priests and Mortars", tier: 2, weight: 26, expandAt: 240, expandAgainAt: 660,
       heroes: [PALADIN, BLOOD_MAGE, MTN_KING, ARCHMAGE], thenAt3: "knights",
@@ -591,10 +590,15 @@ const HUMAN: PlusRaceTable = {
       mix: { [RIFLEMAN]: 3, [PRIEST]: 1.5, [SORCERESS]: 0.5 } },
     // THE CLASSIC TIER-3 ARMY, and the build both rifle openings GROW INTO (`thenAt3`): Knights,
     // Priests, Mortar Teams and a few Flying Machines. Rollable on its own too, in which case
-    // the Footman row is what it plays until the Castle lands.
-    { id: "knights", name: "Knights, Priests and Mortars", tier: 3, weight: 20, expandAt: 420, expandAgainAt: 840,
-      heroes: [PALADIN, ARCHMAGE, MTN_KING, BLOOD_MAGE],
-      mix: { [KNIGHT]: 3, [FOOTMAN]: 1, [PRIEST]: 1.5, [MORTAR]: 0.8, [COPTER]: 0.5 } },
+    // the RIFLEMAN row is what it plays until the Castle lands — it opens on the Paladin, and
+    // "when the Human Computer+ AI goes Paladin first, it should get mass riflemen, not
+    // footmen" (the developer). It was a Footman row, so a Paladin opening that rolled this
+    // build fielded nothing but Footmen for its first ten minutes. At tier 3 the same row is
+    // the ranged line the Knights stand in front of, and it is what both rifle builds have
+    // massed by the time they grow into this one.
+    { id: "knights", name: "Knights, Riflemen and Priests", tier: 3, weight: 20, expandAt: 420, expandAgainAt: 840,
+      heroes: [PALADIN, BLOOD_MAGE, MTN_KING, ARCHMAGE],
+      mix: { [KNIGHT]: 3, [RIFLEMAN]: 2, [PRIEST]: 1.5, [MORTAR]: 0.8, [COPTER]: 0.5 } },
     // Air is the slowest build to come online, so it is the last to look up from its own base.
     { id: "gryphons", name: "Gryphon Riders", tier: 3, weight: 12, expandAt: 480, expandAgainAt: 900,
       mix: { [GRYPHON]: 3, [HUMAN_DRAGON_HAWK]: 1, [RIFLEMAN]: 1.5, [PRIEST]: 1 } },
@@ -747,7 +751,7 @@ const ORC: PlusRaceTable = {
     // and a directly-rolled `taurens` gets the mixed melee-and-ranged line an orc tier-3 army
     // actually has.
     { id: "taurens", name: "Taurens, Shamans and Wind Riders", tier: 3, weight: 18, expandAt: 420, expandAgainAt: 840,
-      heroes: [TAUREN_CHIEF, FAR_SEER, BLADE_MASTER, SHADOW_HUNTER],
+      heroes: [TAUREN_CHIEF, SHADOW_HUNTER, FAR_SEER, BLADE_MASTER],
       mix: { [TAUREN]: 3, [GRUNT]: 0.8, [HEAD_HUNTER]: 0.8, [SHAMAN]: 1.2, [WYVERN]: 1, [WITCH_DOCTOR]: 0.6 } },
     { id: "wyverns", name: "Wind Riders and Batriders", tier: 3, weight: 12, expandAt: 450, expandAgainAt: 870,
       mix: { [WYVERN]: 3, [BATRIDER]: 0.8, [HEAD_HUNTER]: 1.5, [SHAMAN]: 1 } },
@@ -801,10 +805,14 @@ const ORC: PlusRaceTable = {
     ...TAVERN_SKILLS,
   },
   // BLADEMASTER → ALWAYS the Shadow Hunter. FAR SEER → the Tauren Chieftain or the Shadow Hunter,
-  // even odds. The third is the Alchemist, or whichever of those two is still missing.
+  // even odds. TAUREN CHIEFTAIN → ALWAYS the Shadow Hunter (the heal and the Hex his line has no
+  // other source of), then the Alchemist or the Far Seer — and NEVER a Blademaster, which is two
+  // melee heroes and no sustain ("a very wrong build", the developer). The third is otherwise
+  // the Alchemist, or whichever of those two is still missing.
   combos: {
     [BLADE_MASTER]: { second: [SHADOW_HUNTER], third: [[ALCHEMIST], [TAUREN_CHIEF, SHADOW_HUNTER]] },
     [FAR_SEER]: { second: [TAUREN_CHIEF, SHADOW_HUNTER], third: [[ALCHEMIST], [TAUREN_CHIEF, SHADOW_HUNTER]] },
+    [TAUREN_CHIEF]: { second: [SHADOW_HUNTER], third: [[ALCHEMIST], [FAR_SEER, SHADOW_HUNTER]] },
     "*": { third: [[ALCHEMIST], [TAUREN_CHIEF, SHADOW_HUNTER, FAR_SEER]] },
   },
 };

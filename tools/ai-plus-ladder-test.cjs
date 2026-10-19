@@ -680,6 +680,34 @@ console.log("\n--- a thin budget still asks for a body ---");
   check("a mix nobody can afford a whole body of still asks for one", soldiers.length > 0, true);
 }
 
+// --- a rifle opening does not fill its Blacksmith's build time with Footmen -----------------
+//
+// The developer: "when the Human Computer+ AI goes Paladin first, it should get mass riflemen,
+// not footmen!" The Footman is the fallback while the Rifleman's Blacksmith is not standing, and
+// the core army row asks for sixteen food of them every pass — so a rifle build used to bank
+// eight Footmen while the Blacksmith went up. With the Blacksmith STARTED, the stopgap is two
+// (plan.ts `FALLBACK_WHILE_TECHING`); with none begun it is the whole core army, because that
+// is the deadlock the fallback breaks.
+console.log("--- a rifle opening buys two Footmen while its Blacksmith goes up, not eight ---");
+{
+  const human = PLUS_RACES.human;
+  const rifles = human.strategies.find((s) => s.id === "rifles");
+  const standing = { [human.halls[0]]: 1, [human.barracks]: 1, [human.altar]: 1, [human.farm]: 3, hpea: 15, Hpal: 1, hbla: 1 };
+  const footmen = (started) => {
+    const r = recorder(human, rifles, PLUS_INSANE, { standing: started ? standing : { ...standing, hbla: 0 }, armyFood: 5, gold: 5000, wood: 5000 });
+    const count = r.ai.count;
+    r.ai.countDone = (id) => (id === "hbla" ? 0 : count(id)); // going up, not standing
+    // The TARGET each army row is handed, before the recorder turns it into "one more".
+    let asked = 0;
+    const next = r.ai.setBuildNext;
+    r.ai.setBuildNext = (qty, item) => { if (item === "hfoo") asked = Math.max(asked, qty); next(qty, item); };
+    buildPlan(r.ctx);
+    return asked;
+  };
+  check("Blacksmith under construction: at most two Footmen asked for", footmen(true) <= 2, true);
+  check("…and with no Blacksmith begun the opening soldier is still there", footmen(false) > 2, true);
+}
+
 // ======================================================================================
 //  Part two: ten minutes of economy. Needs the unpacked install (`pnpm data:extract`).
 // ======================================================================================

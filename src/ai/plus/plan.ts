@@ -275,15 +275,13 @@ const TOWER_CLOCK = 480;
  * developer's "stuck not building an initial army" exactly.
  *
  * Gold a player can SEE is not being spent is when they put up another Barracks, so that is
- * the whole gate now — `FACTORY_GOLD` is the file's own 800, unchanged; what went is the army
- * clause it was ANDed with. The other half is the army still being short of what the
- * difficulty allows, so a computer that has already massed its ceiling does not carpet its
- * base with production it has no food for.
+ * the whole gate now — the price is `PlusProfile.factoryGold`, the file's own 800 below Insane;
+ * what went is the army clause it was ANDed with. The other half is the army still being short of
+ * what the difficulty allows, so a computer that has already massed its ceiling does not carpet
+ * its base with production it has no food for. How many copies there may ever be is
+ * `PlusProfile.factoryMax`: three is what a player who is teching AND fighting keeps, and Insane's
+ * four is a player who means to mass.
  */
-const FACTORY_GOLD = 800;
-/** …and how many copies of it there may ever be. Three is what a player who is teching AND
- *  fighting keeps; more than that is a base built out of Barracks. */
-const FACTORY_MAX = 3;
 
 /** Ore left in our own mines below which it is time to take another whatever the build order
  *  planned — the same question every race script asks as `c_gold_owned < 2000`, at the same
@@ -862,7 +860,13 @@ function army(c: PlusCtx, budget: number): void {
  */
 function armyRows(c: PlusCtx, budget: number): Array<{ unit: string; want: number }> {
   const rows = buildableMix(c);
-  const spend = Math.max(0, Math.min(budget, c.profile.armyFood) - offMixFood(c, rows) - sideOwed(c, rows));
+  let spend = Math.max(0, Math.min(budget, c.profile.armyFood) - offMixFood(c, rows) - sideOwed(c, rows));
+  // A STOPGAP, NOT AN OPENING: while the build's own tier-1 soldier is one building away and that
+  // building is already going up, the fallback buys `FALLBACK_WHILE_TECHING` food and waits.
+  // The core army is 16 food and sits above the support rows, so a rifle build used to fill the
+  // Blacksmith's whole construction time with Footmen — eight of them, standing in the army for
+  // the rest of the match ("it should get mass riflemen, not footmen!", the developer).
+  if (techArriving(c)) spend = Math.min(spend, Math.max(0, FALLBACK_WHILE_TECHING - soldierFood(c)));
   const total = rows.reduce((n, r) => n + r.weight, 0);
   if (total <= 0) return [];
   const out: Array<{ unit: string; want: number }> = [];
@@ -882,6 +886,30 @@ function armyRows(c: PlusCtx, budget: number): Array<{ unit: string; want: numbe
   // then, and the one body would be one over the ceiling for ever (`wholeArmyCeiling`).
   if (out.length === 0 && spend > 0) out.push({ unit: heaviest.unit, want: 1 });
   return out;
+}
+
+/** The most food of opening soldiers bought while the build's own unit is a building away — see
+ *  `armyRows`. OURS: two Footmen, which is what a ladder rifle opening escorts its hero with. */
+const FALLBACK_WHILE_TECHING = 4;
+
+/**
+ * Is the mix producing NOTHING of its own only because a building it needs is under construction
+ * right now — the Blacksmith of a rifle opening, the War Mill of a Head Hunter one? Only at the
+ * tier the unit is from, with its producer standing, and only for a building ALREADY started
+ * (`count` > `countDone`): one nobody has begun is the deadlock `buildableMix`'s fallback exists
+ * to break, and holding the soldiers back for it would bring that back.
+ */
+function techArriving(c: PlusCtx): boolean {
+  if (strategyMix(c).length > 0) return false;
+  const cap = Math.min(c.profile.techTier, c.tier);
+  for (const unit of Object.keys(activeStrategy(c).mix)) {
+    const row = c.table.units[unit];
+    if (!row || row.tier > cap || !row.needs?.length) continue;
+    if (row.from && c.ai.countDone(row.from) < 1) continue;
+    const missing = row.needs.filter((n) => c.ai.countDone(n) < 1);
+    if (missing.length && missing.every((n) => c.ai.count(n) > 0)) return true;
+  }
+  return false;
 }
 
 /**
@@ -1400,7 +1428,7 @@ function techBuildings(c: PlusCtx): void {
  *  · **The BANK.** More copies of the building that makes the bulk of the army, once the bank is
  *    deeper than the queue — the one thing that stops a rich computer sitting on 2000 gold. The
  *    gate used to be `armyFood >= 40 && gold > 800`, and the first half is above the army CEILING
- *    of two of the three difficulties, so it could never fire; see `FACTORY_GOLD`.
+ *    of two of the three difficulties, so it could never fire; see `PlusProfile.factoryGold`.
  *  · **The BUILD ORDER.** "Two Arcane Sanctums", "two Ancient of Lores", "two Crypts"
  *    (`PlusStrategy.factories`) — three of the builds in plus/races.ts are named after their
  *    second building, because one Sanctum makes one caster at a time and a build whose army IS
@@ -1425,7 +1453,12 @@ function extraCopies(c: PlusCtx, stuck: boolean): Array<[string, number]> {
   };
   if (armyFood < profile.armyFood) {
     const main = mainProducer(c);
-    if (main) ask(main, Math.min(FACTORY_MAX, 1 + Math.floor(ai.gold() / FACTORY_GOLD)));
+    // The bank's copies at the profile's own price and ceiling (`PlusProfile.factoryGold`/
+    // `factoryMax` — the file's 800 and 3 below Insane), and from tier 2 the floor Insane holds
+    // whatever the bank says (`producersAtTier2`): "MASS more units" is production buildings
+    // first, because one Barracks is one soldier at a time.
+    const floor = tier >= 2 ? profile.producersAtTier2 : 1;
+    if (main) ask(main, Math.min(profile.factoryMax, Math.max(floor, 1 + Math.floor(ai.gold() / profile.factoryGold))));
   }
   const cap = Math.min(profile.techTier, tier);
   const implied = new Map(mixBuildings(c).map((r) => [r.build, r.tier]));

@@ -394,7 +394,7 @@ Blizzard's unless a comment says otherwise) every value here is ours.
 | animation-cancels | no | no | **yes** |
 | stutter-steps its ranged units | no | no | **yes** |
 | first attack | 7–10 min, rolled per seat | 6–8 min, rolled per seat | 2½–3 min, rolled per seat |
-| army food that makes a wave | 10 | 12 (**30 from 25:00**) | 16 |
+| army food that makes a wave | 10 | 12 (**30 from 25:00**) | 16, **+10 per hall tier** (26 / 36) |
 | quiet time between waves (rolled ±25 % per wave) | 150 s | 120 s (half after a won fight) | 30 s (half after a won fight) |
 | **after falling back, waits for the whole army** | **yes** (`refill`) | no | no |
 | **first creep camp** | 4 min — **two green camps near home, then never** | 5 min, green only until 7 min, a minute at home between camps | 1½ min, camp to camp |
@@ -941,10 +941,16 @@ brought into it is still standing (the same army came out of the human's base wi
 twelve, healthy ones) and what is left holds `WON_HEALTH` (40 %) of its hit points.
 
 What the win is SPENT on is a roll (`rollWin` → `winPlan`), once per fight, at the developer's
-odds: **expand 25 %, attack the loser's base 30 % before 7:30 (`WIN_LATE`) and 60 % after, and
-carry on with what is left** (45 % / 15 %). The attack odds were 10 % and 40 % and were raised on
-the developer's "after a fight is won, the Computer+ Normal doesn't seem very keen on attacking
-its opponent's base … I want there to be more velocity between fights" — and a win that is
+odds: **expand FIRST, 40 % (50 % while it lives off one mine), then attack the loser's base 30 %
+before 7:30 (`WIN_LATE`) and 45 % after, and carry on with what is left** (30 % / 15 %). The
+attack odds were 10 % and 40 %, raised on the developer's "after a fight is won, the Computer+
+Normal doesn't seem very keen on attacking its opponent's base … I want there to be more velocity
+between fights" to 30 % and 60 % with the expansion at 25 % behind them — and then the expansion
+was put first on *"after winning a fight we must also give chance to the winning Computer+ AI to
+expand (take a new gold mine under its control) instead of attacking the enemy base"*. An
+expansion whose mine nobody guards walks the army TO the new town rather than on (`expandOnWin`):
+the wave's own objective was usually the loser's base, so "expand" used to read as "attack" with
+a hall going up behind it. A win that is
 carried on still shortens the next wave's gap (`PlusProfile.wonGap`, half on Normal and Insane,
 measured off `Brain.lastWon`). Winning used to mean
 attacking every time (see the push below), which is exactly what a ladder player does NOT always
@@ -1643,18 +1649,27 @@ difficulty — Easy simply never reaches a second row and Normal never a third:
 | human | Archmage | Mountain King | Paladin |
 | orc | Blademaster | Shadow Hunter | Alchemist, or the Tauren Chieftain |
 | orc | Far Seer | Tauren Chieftain / Shadow Hunter, even odds | Alchemist, or whichever of those two is missing |
+| orc | Tauren Chieftain | Shadow Hunter — **never** the Blademaster | Alchemist / Far Seer |
 | undead | Death Knight | Lich | Dark Ranger (Black Arrow) / Crypt Lord (Impale) |
 | undead | Crypt Lord (**Carrion Beetles first**), Dreadlord | Death Knight | Dark Ranger |
 | night elf | Demon Hunter | Keeper of the Grove / Naga Sea Witch | Alchemist / Priestess of the Moon |
 | night elf | Keeper of the Grove | Demon Hunter / Pit Lord | Alchemist / Fire Lord (Lava Spawn) |
 
-A `third` is a list of OPTIONS, one rolled, and within an option the first hero not already
+A build's own hero list is followed AS WRITTEN where the pairings say nothing — there used to be a
+coin flip swapping its second and third, and that (with `taurens` listing the Blademaster third)
+is how a Tauren Chieftain came to be followed by a Blademaster. A `third` is a list of OPTIONS, one rolled, and within an option the first hero not already
 fielded — which is how "Alchemist, or Tauren/Shadow Hunter depending on what's missing" is
 written. The Shadow Hunter opens on Hex or on Healing Wave (two skill builds, one rolled), and the
 caster aims Hex at HEROES first (plus/casting.ts `HEX_HERO_FIRST`). The Blood Mage beside a
 Paladin is a mana PUMP (`siphonTarget`): Siphon Mana drains whatever on the other side has mana
 and feeds a short allied hero — a healer three times as eagerly — and a Paladin holding over half
-his bar spends it on Holy Light at 90 % rather than at the usual 75 % (`HOLY_LIGHT_TOPUP`).
+his bar spends it on Holy Light at 90 % rather than at the usual 75 % (`HOLY_LIGHT_TOPUP`). The
+channel is HELD against the army's own orders (`HELD_UNLESS_DANGER`, beside the ultimates'
+`HELD_CHANNELS`): no re-issue, attack-move or cohesion stop breaks it while he is above
+`SIPHON_LET_GO_HP` (50 %) and the army is not retreating — exactly the orders that walk him out of
+danger. Every human build that opens on the Paladin masses RIFLEMEN (`knights`' tier-1/2 line is
+the Rifleman, not the Footman), and while the Blacksmith is going up the Footman stopgap is two
+bodies (`FALLBACK_WHILE_TECHING`), not the sixteen-food core army.
 
 **The Tavern is a hero shop.** A hero none of our buildings trains is hired at the nearest Tavern
 (`AiPlayer.hireAtTavern`): a worker walks to its door first — a Tavern's `Ane2` sells only to a
@@ -2235,9 +2250,18 @@ Barracks" says "buy one once you no longer need one". Measured headless
 ([`tools/ai-plus-ladder-test.cjs`](../tools/ai-plus-ladder-test.cjs)): a Normal computer of every
 race at ten minutes with thousands of unspent gold and a handful of soldiers.
 
-The gold threshold is the file's own 800, unchanged; what went is the army clause it was ANDed
-with. Up to `FACTORY_MAX` (3) copies, one more per 800 banked, and only while the army is still
-short of what the difficulty allows.
+The gold threshold is the file's own 800 (`PlusProfile.factoryGold`); what went is the army clause
+it was ANDed with. Up to `factoryMax` copies (3; **4 on Insane**), one more per 800 banked, and only
+while the army is still short of what the difficulty allows. Insane also holds TWO from tier 2
+whatever the bank says (`producersAtTier2`) — *"make the Computer+ AI (Insane) MASS more units"* —
+and its waves grow with the tier (`attackFoodPerTier`), so the army stands at home long enough to
+become big instead of walking out at sixteen food every thirty seconds all game. (A 500-gold
+copy was tried and bought the second Barracks at tier 1, which starved the hero and the hall.)
+
+Insane's belt also keeps more MANA (`PlusProfile.eagerMana`, items.ts `RACE_MANA_EAGER`): two of
+the race's Lesser Clarity Potions and a Potion of Mana per hero — `pman` is on all four race
+shelves from tier 2 — and the instant one is swallowed at half a bar (`MANA_LOW_EAGER`) rather than
+a third.
 
 ### The core army GROWS with the tier
 

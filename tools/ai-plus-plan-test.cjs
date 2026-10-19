@@ -218,6 +218,40 @@ console.log("\n--- no Tavern on the map: the second and third heroes are altar h
     human.heroes.includes(pickHeroOrder(human, pal, () => false, () => 1).third), true);
 }
 
+// THE BUILD'S HERO ORDER IS FOLLOWED STRICTLY. The developer: "it played Orc and got Tauren
+// Chieftain first and Blademaster second which is a very wrong build" — a coin flip swapped the
+// second and third of a build's list, and `taurens` listed the Blademaster third. Every stream,
+// every orc build, Tavern or not.
+console.log("\n--- a Tauren Chieftain is never followed by a Blademaster ---");
+{
+  const { pickHeroOrder } = require(join(REPO, ".sim-build", "src", "ai", "plus", "index.js"));
+  const orc = PLUS_RACES.orc;
+  const streams = [(lo) => lo, (lo, hi) => hi, (lo, hi) => Math.floor((lo + hi) / 2)];
+  let bmSecond = false, shSecond = true;
+  for (const strategy of [...orc.strategies, { ...orc.strategies[0], id: "tc", heroes: ["Otch", "Obla", "Ofar", "Oshd"] }]) {
+    if ((strategy.heroes ?? orc.heroes)[0] !== "Otch") continue;
+    for (const rand of streams) for (const sold of [true, false]) {
+      const h = pickHeroOrder(orc, strategy, () => sold, rand);
+      if (h.second === "Obla") bmSecond = true;
+      if (h.second !== "Oshd") shSecond = false;
+    }
+  }
+  check("no Tauren Chieftain opening fields the Blademaster second", bmSecond, false);
+  check("…it is the Shadow Hunter, every time", shSecond, true);
+}
+
+// PALADIN FIRST IS A RIFLE BUILD. The developer: "when the Human Computer+ AI goes Paladin first,
+// it should get mass riflemen, not footmen!" Every human build that opens on the Paladin names
+// the Rifleman as its tier-1/2 line, and no Footman at all.
+console.log("\n--- a Paladin opening masses Riflemen ---");
+{
+  const human = PLUS_RACES.human;
+  const pal = human.strategies.filter((s) => (s.heroes ?? human.heroes)[0] === "Hpal");
+  check("there are Paladin builds to check", pal.length >= 2, true);
+  check("every one of them names Riflemen and no Footmen",
+    pal.every((s) => (s.mix.hrif ?? 0) >= 2 && !s.mix.hfoo), true);
+}
+
 // The cap is the difficulty's, not the fallback's: an Easy computer never reaches past tier 1
 // and must still open, and an Insane one gets the same opening for the same reason.
 console.log("\n--- every difficulty opens the same way ---");

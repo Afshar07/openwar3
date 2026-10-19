@@ -427,6 +427,23 @@ const RACE_MANA: Partial<Record<PlayableRace, readonly Want[]>> = {
 };
 
 /**
+ * …and INSANE's mana row (`PlusProfile.eagerMana`): two of the race's pour, and a Potion of Mana
+ * for each of up to two heroes on top. The Potion of Mana is on all four shelves
+ * (`[hvlt]`, `[ovln]`, `[eden]`, `[utom] Makeitems` all list `pman`) and waits on the tier-2 hall
+ * by its own `Requires = TWN2`, which `missingForShop` enforces — so until the Keep this row is
+ * simply the two Clarity Potions. The developer: *"the Computer+ AI (Insane) must utilize mana
+ * potions from its shop a bit more (for all races)"*. `ONE_PER_HERO` still holds, so the second
+ * Potion of Mana is the second hero's. The undead has no pour to carry (see above) and keeps
+ * three of the instant one instead.
+ */
+const RACE_MANA_EAGER: Partial<Record<PlayableRace, readonly Want[]>> = {
+  human: [{ id: "plcl", want: 2 }, { id: "pman", want: 2 }],
+  orc: [{ id: "plcl", want: 2 }, { id: "pman", want: 2 }],
+  nightelf: [{ id: "plcl", want: 2 }, { id: "pman", want: 2 }],
+  undead: [{ id: "pman", want: 3 }],
+};
+
+/**
  * ONE OF EACH PER HERO — the Potion of Healing and the Potion of Mana.
  *
  * Reported: a Normal computer's hero was walking about with two and three Potions of Healing
@@ -620,6 +637,9 @@ const ILLUSION_CAP = 2;
  * "the spells the fight is being won with have gone" rather than "the bar is not full".
  */
 const MANA_LOW = 0.35;
+/** …and Insane's (`PlusProfile.eagerMana`): half a bar. Still well below the pour's 75 %, because
+ *  an instant restore is also the one mana a hero can take IN a fight; ours. */
+const MANA_LOW_EAGER = 0.5;
 /**
  * …and the bar a POURING one is drunk at, which is a much higher one — see `regenUse`.
  *
@@ -1520,7 +1540,7 @@ export class PlusItems {
       // bar is already down to a third of itself, where the question is not "will all 150 of it
       // fit" but "can this hero cast anything at all". A player swallows it.
       case "mana":
-        return u.maxMana > 0 && u.mana / u.maxMana < MANA_LOW;
+        return u.maxMana > 0 && u.mana / u.maxMana < (this.profile.eagerMana ? MANA_LOW_EAGER : MANA_LOW);
       // THE POTION THAT FILLS BOTH BARS, and the rung that is not an emergency — see
       // `REPLENISH_HP` / `REPLENISH_MANA` for the two lines and `regenUse` for why it is its
       // own rung rather than a heal. A pour, so it is drunk with nothing hostile in sight and
@@ -2463,7 +2483,7 @@ export class PlusItems {
     // …and the race's MANA, which is bought out of the purse for the same reason but sits one
     // place further down: BEHIND the scroll. A hero with an empty bar has lost its spells; a
     // hero with no Town Portal loses the army, and that is the bigger loss (`PORTAL`).
-    const mana = (RACE_MANA[this.race] ?? []).map((w) => ({ ...w, opening: true }));
+    const mana = ((this.profile.eagerMana ? RACE_MANA_EAGER : RACE_MANA)[this.race] ?? []).map((w) => ({ ...w, opening: true }));
     const fight = FIGHT;
     const seen = new Set([...first, ...fight, ...mana].map((w) => w.id));
     const rest = LIST.filter((w) => !seen.has(w.id));

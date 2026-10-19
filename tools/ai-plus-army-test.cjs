@@ -660,26 +660,31 @@ console.log("\n-- STUTTER-STEP (Insane's ranged micro between shots) -----------
 }
 
 // WHAT A WON FIGHT IS SPENT ON (`winPlan`). The developer: winning used to mean attacking the
-// loser's base every time; now it is a roll — expand 25 %, attack 30 % before 7:30 and 60 %
-// after ("more velocity between fights"), and carrying on is whatever is left over.
+// loser's base every time; now it is a roll — expand FIRST, 40 % (50 % on one mine), then
+// attack 30 % before 7:30 and 45 % after, and carrying on is whatever is left over. The
+// developer: "give chance to the winning Computer+ AI to expand … instead of attacking".
 {
   const { winPlan } = require(join(REPO, ".sim-build", "src", "ai", "plus", "index.js"));
-  const share = (clock, canExpand) => {
+  const share = (clock, canExpand, mines = 2) => {
     const n = { attack: 0, expand: 0, carryOn: 0 };
     const N = 10000;
-    for (let i = 0; i < N; i++) n[winPlan(i / N, clock, canExpand)]++;
+    for (let i = 0; i < N; i++) n[winPlan(i / N, clock, canExpand, mines)]++;
     return { attack: n.attack / N, expand: n.expand / N, carryOn: n.carryOn / N };
   };
+  const r2 = (x) => Math.round(x * 100) / 100;
   const early = share(300, true);
-  check("before 7:30: attack 30 %", Math.round(early.attack * 100) / 100, 0.3);
-  check("before 7:30: expand 25 %", early.expand, 0.25);
-  check("before 7:30: carry on 45 %", Math.round(early.carryOn * 100) / 100, 0.45);
+  check("before 7:30: expand 40 %", r2(early.expand), 0.4);
+  check("before 7:30: attack 30 %", r2(early.attack), 0.3);
+  check("before 7:30: carry on 30 %", r2(early.carryOn), 0.3);
   const late = share(450, true);
-  check("from 7:30: attack 60 %", Math.round(late.attack * 100) / 100, 0.6);
-  check("from 7:30: expand 25 %", late.expand, 0.25);
-  check("from 7:30: carry on 15 %", Math.round(late.carryOn * 100) / 100, 0.15);
+  check("from 7:30: expand 40 %", r2(late.expand), 0.4);
+  check("from 7:30: attack 45 %", r2(late.attack), 0.45);
+  check("from 7:30: carry on 15 %", r2(late.carryOn), 0.15);
+  const oneMine = share(450, true, 1);
+  check("on one mine the win is spent on the next one half the time", r2(oneMine.expand), 0.5);
+  check("…and expanding outranks attacking there", oneMine.expand > oneMine.attack, true);
   const shut = share(600, false);
-  check("an expansion it cannot take is carrying on instead", shut.expand === 0 && Math.round(shut.carryOn * 100) === 40, true);
+  check("an expansion it cannot take is carrying on instead", shut.expand === 0 && Math.round(shut.carryOn * 100) === 55, true);
 }
 
 

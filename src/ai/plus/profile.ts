@@ -224,6 +224,35 @@ export interface PlusProfile {
    * game.
    */
   readonly attackFood: number;
+  /**
+   * …and how much bigger the wave gets per hall tier STANDING above the first: Insane's 16 at
+   * tier 1 is 26 at tier 2 and 36 at tier 3. 0 on Easy and Normal, whose waves stay the size
+   * their army ceilings were set for.
+   *
+   * The developer's *"make the Computer+ AI (Insane) MASS more units, it should go over 50 food
+   * easily and build big armies"*. A flat 16 with a 30-second gap meant the army walked out the
+   * moment it had sixteen food standing, every time, all game — so it never stood anywhere long
+   * enough to BE big: what the barracks made, the next wave spent. A wave that grows with the
+   * tier keeps the early pressure and lets the late army accumulate. Kept a little ABOVE the
+   * core army a tier holds (plus/plan.ts `CORE_ARMY_FOOD` + `CORE_ARMY_PER_TIER`) on purpose:
+   * Insane's own ceiling is the full `armyFood` row at the bottom of the ladder, and the gap
+   * between the two is what the second and third production buildings fill
+   * (`producersAtTier2`). OURS.
+   */
+  readonly attackFoodPerTier: number;
+  /**
+   * The bank, in gold, that buys each further copy of the main production building
+   * (plus/plan.ts `extraCopies`), and how many copies there may ever be. The file's own 800 and
+   * 3 on Easy and Normal; Insane spends sooner and on more, because a production building is
+   * the only thing that turns income into soldiers any faster — one Barracks is one Footman at a
+   * time however rich the player is. OURS.
+   */
+  readonly factoryGold: number;
+  readonly factoryMax: number;
+  /** Copies of the main production building held from TIER 2 whatever the bank says — 2 on
+   *  Insane, the second Barracks every ladder player has up by the time the Keep lands; 1
+   *  elsewhere (no floor). OURS. */
+  readonly producersAtTier2: number;
   /** Group hit-point fraction that sends a wave home. 0 = it never retreats, which is what
    *  makes an easy computer's army feedable one clump at a time. */
   readonly retreatHp: number;
@@ -362,6 +391,15 @@ export interface PlusProfile {
    */
   readonly shopping: number;
   /**
+   * Does the belt keep MORE mana than the race's one Lesser Clarity Potion — a second one, and
+   * a Potion of Mana (every race's shop stocks `pman` from tier 2: `[hvlt]`/`[ovln]`/`[eden]`/
+   * `[utom] Makeitems`, gated by its own `Requires = TWN2`) — and swallow the instant one at
+   * half a bar rather than a third (plus/items.ts `RACE_MANA_EAGER`, `MANA_LOW_EAGER`)?
+   * Insane only: *"the Computer+ AI (Insane) must utilize mana potions from its shop a bit more
+   * (for all races)"* (the developer). OURS.
+   */
+  readonly eagerMana: boolean;
+  /**
    * Gold it will NOT spend on items.
    *
    * The gate docs/computer-plus.md warns about: item gold is gold `OneBuildLoop` was going to
@@ -448,7 +486,8 @@ export const PLUS_EASY: PlusProfile = {
   armyFood: 12, wholeArmyCeiling: false, unlockAt: Infinity, lateAttackFood: 10, towers: 0, siegeUnits: 0, heroes: 1, techTier: 1, upgradeRank: 1,
   // Seven minutes at the EARLIEST, and each seat somewhere in the three after it
   // (`firstAttackSpread`) — so a table of Easy computers does not all leave home on one tick.
-  firstAttack: 420, firstAttackSpread: 180, waveGap: 150, wonGap: 1, attackFood: 10, retreatHp: 0, refill: true,
+  firstAttack: 420, firstAttackSpread: 180, waveGap: 150, wonGap: 1, attackFood: 10, attackFoodPerTier: 0, retreatHp: 0, refill: true,
+  factoryGold: 800, factoryMax: 3, producersAtTier2: 1,
   // It never shops, so the purse below never matters. It DOES creep now, and only a little:
   // from four minutes, with the hero and a soldier or two, at most TWO green camps near its own
   // base and then never again (`creepCamps`) — the developer's "only one to two green camps
@@ -458,7 +497,7 @@ export const PLUS_EASY: PlusProfile = {
   focusFire: false, pullOutHp: 0, stutterStep: false, creeps: true, creepAt: 240, creepFood: 8,
   creepCamps: 2, creepCampMax: CAMP_GREEN_MAX, creepRange: 3000, creepRest: 0, creepGreenUntil: 0,
   harass: false, roam: false, scout: false, sweepEvery: Infinity, expansionFirst: 0.5,
-  shopping: 0, itemReserve: Infinity, keepPortal: false, portalToAttack: false,
+  shopping: 0, eagerMana: false, itemReserve: Infinity, keepPortal: false, portalToAttack: false,
   concedeAfter: 24,
 };
 
@@ -527,7 +566,8 @@ export const PLUS_NORMAL: PlusProfile = {
   // dot, which is both two minutes sooner than Easy and the "every computer leaves on one tick"
   // habit `firstAttackSpread` was added to Easy to cure. A wave of twelve (the hero's five on top)
   // and two minutes between waves rather than a minute and a half.
-  firstAttack: 360, firstAttackSpread: 120, waveGap: 120, wonGap: 0.5, attackFood: 12, retreatHp: 0.35, refill: false,
+  firstAttack: 360, firstAttackSpread: 120, waveGap: 120, wonGap: 0.5, attackFood: 12, attackFoodPerTier: 0, retreatHp: 0.35, refill: false,
+  factoryGold: 800, factoryMax: 3, producersAtTier2: 1,
   // Creeps from FIVE minutes with the hero and ten food behind it — about a hero, a couple of
   // soldiers and whatever else is standing around, which is what clears a green camp. It was two
   // and a half, and that was most of the gap to Easy on its own: a hero creeping from 2:30 met
@@ -551,7 +591,7 @@ export const PLUS_NORMAL: PlusProfile = {
   // not touch is `ESSENTIAL` (plus/items.ts) — the Town Portal, the Potion of Healing and the two
   // fight items are bought past the ceiling — so the belt is thinner, not empty. Insane keeps
   // the full six.
-  shopping: 2, itemReserve: 500, keepPortal: true, portalToAttack: false,
+  shopping: 2, eagerMana: false, itemReserve: 500, keepPortal: true, portalToAttack: false,
   concedeAfter: 14,
 };
 
@@ -578,7 +618,10 @@ export const PLUS_INSANE: PlusProfile = {
   armyFood: UPKEEP_TIER2, wholeArmyCeiling: false, unlockAt: Infinity, lateAttackFood: 16, towers: 2, siegeUnits: 2, heroes: 3, techTier: 3, upgradeRank: 3,
   // Half a minute of `firstAttackSpread` — it was none, so two Insane computers left home on the
   // same tick at 2:30 every game ("attack each other at the same moment").
-  firstAttack: 150, firstAttackSpread: 30, waveGap: 30, wonGap: 0.5, attackFood: 16, retreatHp: 0.4, refill: false,
+  firstAttack: 150, firstAttackSpread: 30, waveGap: 30, wonGap: 0.5, attackFood: 16, attackFoodPerTier: 10, retreatHp: 0.4, refill: false,
+  // Two Barracks from the Keep whatever the bank, and up to FOUR off it — see `factoryGold`. (A
+  // cheaper copy, 500, bought the second one at TIER 1 and starved the hero and the Stronghold.)
+  factoryGold: 800, factoryMax: 4, producersAtTier2: 2,
   // Creeping starts at ninety seconds with the hero and eight food — the ladder's own answer,
   // which is "as soon as the hero walks out of the altar".
   focusFire: true, pullOutHp: 0.25, stutterStep: true, creeps: true, creepAt: 90, creepFood: 8,
@@ -586,7 +629,7 @@ export const PLUS_INSANE: PlusProfile = {
   harass: true, roam: true, scout: true, sweepEvery: 75, expansionFirst: 0.85,
   // A full belt and a Town Portal on the hero. Both are what separates a player who has been
   // here before from one who has not.
-  shopping: 6, itemReserve: 200, keepPortal: true, portalToAttack: true,
+  shopping: 6, eagerMana: true, itemReserve: 200, keepPortal: true, portalToAttack: true,
   concedeAfter: 8,
 };
 
