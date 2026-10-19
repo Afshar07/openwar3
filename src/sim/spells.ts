@@ -1179,22 +1179,7 @@ export const NO_SUMMON_TARGET: Record<string, string> = {
   ANtm: "Notsummoned",
 };
 
-/**
- * LIGHTNING SHIELD may not be put on a MECHANICAL unit — the developer's ruling: *"fix Lightning
- * Shield being able to be casted on mechanical units like demolishers! it shouldnt be able to"*.
- * NOT stated by the data: `[Alsh] targs1` is "ground,friend,enemy,neutral" with no `organic`,
- * so the flags alone let a Shaman shield a Demolisher and walk it into the enemy line as a
- * 20-a-second bomb nothing can heal. The refusal is the game's own line for it,
- * `Units\CommandStrings.txt` [Errors] **`Notmechanical` = "Must target organic units."**.
- *
- * Keyed on the base `code`, so the creep row (`ACls`) and the Wand of Lightning Shield's
- * (`AIls`), which both carry code `Alsh`, refuse the same body.
- */
-export const NO_MECHANICAL_TARGET: Record<string, string> = {
-  Alsh: "Notmechanical", // Shaman — Lightning Shield (and ACls, AIls)
-};
-
-/** Devour's shape, shared by the Kodo Beast/** Devour's shape, shared by the Kodo Beast (`Adev`) and the creeps (`ACdv`). The MAX CREEP
+/** Devour's shape, shared by the Kodo Beast (`Adev`) and the creeps (`ACdv`). The MAX CREEP
  *  LEVEL both rows carry is enforced at the button (`SimWorld.castError`), not here. */
 const devourSpell: Handler = (api, caster, def, _rank, ctx) => {
   const t = api.getUnit(ctx.targetId);

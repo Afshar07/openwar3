@@ -47,7 +47,7 @@ import {
 import { perfNow, simProfile } from "./profile";
 import { flyHeight, type MissileFlight } from "./missile";
 import { HERO_KILL_VALUE, MatchStats } from "./matchStats";
-import { SPELL_HANDLERS, ITEM_INVULN_GROUP, AURA_BUFFS, SELF_INVIS_GROUP, BLADESTORM_GROUP, FIELD_PIERCES_SPELL_IMMUNITY, POLARITY_SPELLS, HEAL_SPELLS, FIGHTER_BUFFS, MANA_TARGET_SPELLS, NO_SUMMON_TARGET, NO_MECHANICAL_TARGET, UNDEAD_TARGET_SPELLS, DISPEL_CODES, REPLENISH_BAR, replenishRefusal, survivesDispel, clockedBuff, worthDispelling, invisTransition, waveSchedule, WAVE_FIELDS, fx, buffIdOf, spellShieldBuff, drainTag, DRAIN_GROUP, CANNIBALIZE_GROUP, POSSESSION_GROUP, type SpellApi, type SimBuffInit, type SpellFieldInit, type CastContext, type WaveOptions, type RaiseOptions } from "./spells";
+import { SPELL_HANDLERS, ITEM_INVULN_GROUP, AURA_BUFFS, SELF_INVIS_GROUP, BLADESTORM_GROUP, FIELD_PIERCES_SPELL_IMMUNITY, POLARITY_SPELLS, HEAL_SPELLS, FIGHTER_BUFFS, MANA_TARGET_SPELLS, NO_SUMMON_TARGET, UNDEAD_TARGET_SPELLS, DISPEL_CODES, REPLENISH_BAR, replenishRefusal, survivesDispel, clockedBuff, worthDispelling, invisTransition, waveSchedule, WAVE_FIELDS, fx, buffIdOf, spellShieldBuff, drainTag, DRAIN_GROUP, CANNIBALIZE_GROUP, POSSESSION_GROUP, type SpellApi, type SimBuffInit, type SpellFieldInit, type CastContext, type WaveOptions, type RaiseOptions } from "./spells";
 /** The buff group a Tornado's toss is applied under — both halves, so the invulnerability's wipe
  *  spares the stun it came with (clearStatusForInvulnerable). See tickTornado. */
 const TORNADO_SPIN_GROUP = "tornadoSpin";
@@ -14861,10 +14861,6 @@ export class SimWorld {
     // Image.
     const noSummon = NO_SUMMON_TARGET[code];
     if (noSummon && (target.isSummon || target.isIllusion)) return noSummon;
-    // …and LIGHTNING SHIELD, which refuses a MECHANICAL body (see NO_MECHANICAL_TARGET) — the
-    // unit's classification, so a Demolisher, a Siege Engine and a Meat Wagon are all refused.
-    const noMech = NO_MECHANICAL_TARGET[code];
-    if (noMech && target.mechanical) return noMech;
     // …and the ones that refuse a target for being too big (CREEP_LEVEL_CAP). Read off the
     // caster's own rank rather than a constant, because the cap is a data column: a map that
     // retunes `DataC` retunes what its Alchemist may melt down.

@@ -73,7 +73,7 @@ function spawn(w, typeId, x, y, owner, team) {
       worker: null, depotGold: false, depotLumber: false,
     },
     null,
-    { abilities, level: def.level, isPeon: def.classification.includes("peon"), mechanical: def.classification.includes("mechanical") },
+    { abilities, level: def.level, isPeon: def.classification.includes("peon") },
   );
 }
 /** A caster with `id` on its card at rank 1 and a pool deep enough to press it. */
@@ -187,20 +187,6 @@ console.log("\na SUMMONED unit may not be hexed or polymorphed at all");
   check("…so nothing was transformed", wolf.hexed, false);
   const f = spawn(w, "hfoo", 1200, 1400, 1, 1);
   check("an ordinary enemy is still a legal target", w.castError(sorc.id, "Aply", f.id, 0, 0), null);
-}
-
-console.log("\nLightning Shield may not be put on a mechanical unit");
-{
-  // The developer's ruling (sim/spells.ts NO_MECHANICAL_TARGET); the refusal is the game's own
-  // line, Units\CommandStrings.txt [Errors] Notmechanical = "Must target organic units."
-  const w = world();
-  const shaman = caster(w, "oshm", "Alsh", 1000, 1000);
-  const demo = spawn(w, "ocat", 1200, 1000, 0, 0); // Demolisher, classification mechanical
-  const grunt = spawn(w, "ogru", 1200, 1200, 0, 0);
-  check("the Demolisher is mechanical", demo.mechanical, true);
-  check("Lightning Shield refuses it at the button", w.castError(shaman.id, "Alsh", demo.id, 0, 0), "Notmechanical");
-  check("…and the order itself is refused", w.issueCast(shaman.id, "Alsh", demo.id, 0, 0), false);
-  check("a Grunt is still a legal target", w.castError(shaman.id, "Alsh", grunt.id, 0, 0), null);
 }
 
 console.log("\na hexed hero banks no experience from a kill beside it");
