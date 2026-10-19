@@ -27,14 +27,24 @@ const TIP_DOWNLOAD = `${TIP_CHECKBOX}|n|nNeeds a one-time |cffffcc0041 MB|r spee
 
 /** The screen this row was last bound on, and its rebuilder — so the model arriving mid-visit
  *  swaps the face without the player having to leave the screen. */
-let bound: { screen: FdfScreen; sync: () => void } | null = null;
-onVoiceModelInstalled(() => bound?.sync());
+let bound: { screen: FdfScreen; sync: () => void; enabled?: () => void } | null = null;
+// The model arriving turns Voice Control ON (ui/voiceDownload.ts saves that): the row swaps to
+// its checkbox, TICKED, and the screen's own working and committed copies are told, so neither
+// its OK nor its Cancel puts the old "off" back.
+onVoiceModelInstalled((installed) => {
+  if (!bound) return;
+  bound.sync();
+  if (!installed || !bound.screen.element.isConnected) return;
+  const box = bound.screen.checkBox("VoiceControlCheckBox");
+  if (box) box.checked = true;
+  bound.enabled?.();
+});
 
 /**
  * Show the face the install calls for, and wire the button. Called from each Options panel's
  * bind (a screen rebuilds its whole tree on resize, so this runs again with it).
  */
-export function bindVoiceRow(screen: FdfScreen): void {
+export function bindVoiceRow(screen: FdfScreen, enabled?: () => void): void {
   const sync = (): void => {
     if (!screen.element.isConnected) return;
     const installed = voiceModelInstalledNow() === true;
@@ -55,7 +65,7 @@ export function bindVoiceRow(screen: FdfScreen): void {
     const btn = screen.frame("VoiceDownloadButton");
     if (btn) setGameTip(btn, TIP_DOWNLOAD);
   };
-  bound = { screen, sync };
+  bound = { screen, sync, enabled };
   sync();
   // The first visit asks IndexedDB; every later one already knows.
   if (voiceModelInstalledNow() === null) void voiceModelInstalled().then(sync);

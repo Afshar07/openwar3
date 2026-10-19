@@ -202,7 +202,9 @@ export class EscOptions {
       detect: lib?.string("DETECT_GAMEPAD") ?? "Detect Gamepad",
       unpair: lib?.string("UNPAIR_GAMEPAD") ?? "Unpair Gamepad",
     });
-    bindVoiceRow(screen); // Voice Control: download button or checkbox (src/voice/)
+    // Voice Control: download button or checkbox (src/voice/) — ticked for both copies the
+    // moment the model arrives.
+    bindVoiceRow(screen, () => { this.committed.voiceControl = true; this.working.voiceControl = true; });
     const { locked } = this.host.gameSpeed();
     if (locked) this.workingSpeed = this.host.gameSpeed().speed;
     const speed = screen.slider("GameSpeedSlider");

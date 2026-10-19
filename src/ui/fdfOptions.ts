@@ -231,7 +231,7 @@ export async function mountOptions(
       detect: lib?.string("DETECT_GAMEPAD") ?? "Detect Gamepad",
       unpair: lib?.string("UNPAIR_GAMEPAD") ?? "Unpair Gamepad",
     });
-    bindVoiceRow(s);
+    bindVoiceRow(s, () => { committed.voiceControl = true; working.voiceControl = true; });
     syncVideoRows(s);
   }
 
