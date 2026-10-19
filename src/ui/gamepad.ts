@@ -1091,6 +1091,36 @@ function refreshPrompt(): void {
   }
 }
 
+// --- Voice Control's pointer (src/voice/menu.ts) ------------------------------------------
+
+/**
+ * "Move the cursor to Single Player": the pad's own pointer — the drawn cursor and the gold box
+ * around the control — put on `el`, so it glows and raises its tooltip exactly as it does for
+ * the D-pad. Moving the real mouse takes it away again, as it does for the pad.
+ */
+export function voicePoint(el: HTMLElement): void {
+  if (el.classList.contains("fdf-list-row")) el.scrollIntoView({ block: "nearest" });
+  enterFocus(el);
+}
+
+/** "Click Single Player": point at `el`, then press and release on it — the pad's own A-button
+ *  click, so the control hears the pointer events a mouse would send. */
+export function voiceClick(el: HTMLElement): void {
+  voicePoint(el);
+  const VOICE_BUTTON = -100;
+  holdMouse(VOICE_BUTTON, 0);
+  holds.get(VOICE_BUTTON)?.();
+  holds.delete(VOICE_BUTTON);
+  // A pressed BUTTON usually takes its screen away: the box goes with the press, as it does for
+  // the pad (`focusPressed`), rather than staying framed round where the button used to be.
+  if (el.matches(".fdf-button, .ow3-glue-btn") && !el.matches(".fdf-checkbox, .fdf-popup")) hideCursor();
+}
+
+/** What Voice Control last pointed at, while its box is still up (null once the mouse moved). */
+export function voicePointed(): HTMLElement | null {
+  return focusOn ? focusEl : null;
+}
+
 // --- Options → Gameplay → "Detect Gamepad" / "Unpair Gamepad" ---------------------------
 
 /** The Options panel on screen now, and the two labels its button wears. Replaced on every build

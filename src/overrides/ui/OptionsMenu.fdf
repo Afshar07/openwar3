@@ -226,10 +226,59 @@ Frame "TEXT" "VsyncLabel" INHERITS "StandardInfoTextTemplate" {
 // checkbox's left edge a checkbox-row step down.
 Frame "GLUETEXTBUTTON" "GamepadButton" INHERITS WITHCHILDREN "StandardButtonTemplate" {
     Width 0.16,
-    SetPoint TOPLEFT, "ShowHotkeysCheckBox", BOTTOMLEFT, 0.0, -0.008,
+    // Under the Voice Control row (below), which is where "Show hotkeys on command buttons" used
+    // to hand it on — the row is a button-tall band whichever of its two faces is up, so this
+    // hangs off the band rather than off the checkbox.
+    SetPoint TOPLEFT, "VoiceControlBand", BOTTOMLEFT, 0.0, -0.004,
 
     ButtonText "GamepadButtonText",
     Frame "TEXT" "GamepadButtonText" INHERITS "StandardButtonTextTemplate" {
         Text "DETECT_GAMEPAD",
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Gameplay panel: "Voice Control", between "Show hotkeys on command buttons" and "Detect
+// Gamepad". Push-to-talk on the "." key: hold it, say a command ("train three footmen",
+// "attack move here", "group one"), let go. Nothing in 1.30.4 listens, so the row is ours, and
+// so is everything behind it (src/voice/, docs/voice-control.md).
+//
+// ONE ROW, TWO FACES. The recogniser needs a speech model that is not on the machine until the
+// player asks for it (src/voice/model.ts), and a checkbox that cannot do anything is a lie — so
+// until the model is here the row is worded as the pulldown rows above it are: a "Voice Control:"
+// label in the label column and a "Download voice control dependencies" button in the control
+// column, which asks and then downloads (src/ui/voiceDownload.ts). Once the model is here the row
+// is the checkbox. src/ui/voiceOptions.ts shows one face or the other.
+//
+// `VoiceControlBand` is the row's own box — the button's height (`StandardButtonTemplate`'s
+// 0.031), hung off the hotkeys box where "Detect Gamepad" used to hang (-0.008) — and both faces
+// sit on it, so "Detect Gamepad" under it never moves when the model arrives.
+Frame "FRAME" "VoiceControlBand" {
+    Width 0.25,
+    Height 0.031,
+    SetPoint TOPLEFT, "ShowHotkeysCheckBox", BOTTOMLEFT, 0.0, -0.008,
+}
+
+Frame "TEXT" "VoiceControlRowLabel" INHERITS "StandardInfoTextTemplate" {
+    SetPoint LEFT, "VoiceControlBand", LEFT, 0.0, 0.0,
+    Text "COLON_VOICE_CONTROL",
+}
+
+Frame "GLUETEXTBUTTON" "VoiceDownloadButton" INHERITS WITHCHILDREN "StandardButtonTemplate" {
+    Width 0.25,
+    SetPoint LEFT, "VoiceControlRowLabel", RIGHT, 0.012, 0.0,
+
+    ButtonText "VoiceDownloadButtonText",
+    Frame "TEXT" "VoiceDownloadButtonText" INHERITS "StandardButtonTextTemplate" {
+        Text "DOWNLOAD_VOICE_CONTROL",
+    }
+}
+
+Frame "GLUECHECKBOX" "VoiceControlCheckBox" INHERITS WITHCHILDREN "StandardCheckBoxTemplate" {
+    SetPoint LEFT, "VoiceControlBand", LEFT, 0.0, 0.0,
+}
+
+Frame "TEXT" "VoiceControlLabel" INHERITS "StandardInfoTextTemplate" {
+    SetPoint LEFT, "VoiceControlCheckBox", RIGHT, 0.01, 0.0,
+    Text "VOICE_CONTROL",
 }

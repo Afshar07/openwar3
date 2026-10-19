@@ -14,6 +14,7 @@
 
 import { isHovered } from "./gamepad";
 import { dressAsGameTip, onGameTipSkinChange } from "./gameTipSkin";
+import { wc3ToHtml } from "./wc3Text";
 
 export { setGameTipSkin } from "./gameTipSkin";
 
@@ -64,7 +65,14 @@ function show(el: HTMLElement): void {
     document.body.appendChild(slab);
   }
   anchor = el;
-  if (slab.textContent !== text) slab.textContent = text;
+  // A hint may be written in the game's own markup — `|cffffcc00…|r` gold, `|n` a line break —
+  // as a tooltip's Ubertip is (Voice Control's row golds its key and breaks its lines). Plain text
+  // is set as text, so a hint that happens to hold a "<" stays a "<".
+  if (slab.dataset.raw !== text) {
+    slab.dataset.raw = text;
+    if (/\|c[0-9a-f]{8}|\|n/i.test(text)) slab.innerHTML = wc3ToHtml(text);
+    else slab.textContent = text;
+  }
   slab.hidden = false;
   place();
   if (!watching) {

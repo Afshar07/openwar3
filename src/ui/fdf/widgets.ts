@@ -59,6 +59,14 @@ export interface EditBoxControl extends Control {
   onSubmit?: (value: string) => void;
 }
 
+/** Every live dropdown's options and current value, by its element — what Voice Control reads to
+ *  hear "change my race to orc" as a pick from THIS menu (src/voice/menu.ts). A WeakMap, so a
+ *  screen rebuilt or disposed takes its entries with it. */
+const popupState = new WeakMap<HTMLElement, () => { options: readonly Option[]; value: string }>();
+export function popupOptions(el: HTMLElement): { options: readonly Option[]; value: string } | null {
+  return popupState.get(el)?.() ?? null;
+}
+
 export interface PopupControl extends Control {
   setOptions(options: Option[]): void;
   get value(): string;
@@ -486,6 +494,7 @@ export function buildPopup(
     if (menu.hidden) open();
     else close();
   });
+  popupState.set(el, () => ({ options, value }));
   // Any click elsewhere dismisses it, as it does in the game.
   document.addEventListener("click", close);
   disposers.push(() => document.removeEventListener("click", close));

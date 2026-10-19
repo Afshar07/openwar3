@@ -16,11 +16,13 @@ import { applyVideoOptions, LOW_PERF_FORCED } from "../render/videoQuality";
 import { applyHealthBarOptions } from "../render/worldOverlays";
 import { applyHotkeyOptions } from "../data/hotkeys";
 import { applyScrollOptions } from "../render/scrollOptions";
+import { applyVoiceOptions } from "../voice/control";
 import { nativeVsync, relaunchNative, setNativeVsync } from "../assets/nativeInstall";
 import { showGlueDialog } from "./glueDialog";
 import { showHotkeyEditor } from "./hotkeyEditor";
 import { setGameTip } from "./gameTip";
 import { bindGamepadButton, gamepadButtonPressed } from "./gamepad";
+import { bindVoiceRow, voiceDownloadPressed } from "./voiceOptions";
 
 // The Options screen (issue #81), built from the game's own UI\FrameDef\Glue\OptionsMenu.fdf:
 // the three category buttons (Gameplay / Video / Sound) down the right, the settings for the
@@ -111,7 +113,7 @@ export async function mountOptions(
   // per frame by the world overlays, so a bar changes colour as the pulldown is used — the
   // "Hotkeys:" row (issue #142), which the HUD's key handler asks before every keystroke — and
   // the two scroll sliders, which the camera asks every frame (render/scrollOptions.ts).
-  const applyGameplay = (opts: Options): void => { applyHealthBarOptions(opts); applyHotkeyOptions(opts); applyScrollOptions(opts); };
+  const applyGameplay = (opts: Options): void => { applyHealthBarOptions(opts); applyHotkeyOptions(opts); applyScrollOptions(opts); applyVoiceOptions(opts); };
 
   const num = (v: unknown, fallback: number): number => (typeof v === "number" ? v : fallback);
   const str = (v: unknown, fallback: string): string => (typeof v === "string" ? v : fallback);
@@ -148,6 +150,8 @@ export async function mountOptions(
       HotkeyEditorButton: () => void openHotkeyEditor(),
       // Detect a gamepad to pair, or unpair the one that is (issue #162) — ui/gamepad.ts.
       GamepadButton: () => gamepadButtonPressed(),
+      // Fetch Voice Control's speech model (src/voice/) — the row's face until it is here.
+      VoiceDownloadButton: () => voiceDownloadPressed(container, vfs),
       // Undo everything this visit changed — including the audio applied live along the way.
       CancelButton: () => { Object.assign(working, committed); applyAudio(committed); applyVideo(committed); applyGameplay(committed); h.onClose(); },
     },
@@ -227,6 +231,7 @@ export async function mountOptions(
       detect: lib?.string("DETECT_GAMEPAD") ?? "Detect Gamepad",
       unpair: lib?.string("UNPAIR_GAMEPAD") ?? "Unpair Gamepad",
     });
+    bindVoiceRow(s, () => { committed.voiceControl = true; working.voiceControl = true; });
     syncVideoRows(s);
   }
 

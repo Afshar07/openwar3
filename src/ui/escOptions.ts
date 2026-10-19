@@ -15,6 +15,8 @@ import { applyHealthBarOptions } from "../render/worldOverlays";
 import { applyHotkeyOptions } from "../data/hotkeys";
 import { applyScrollOptions } from "../render/scrollOptions";
 import { bindGamepadButton } from "./gamepad";
+import { bindVoiceRow } from "./voiceOptions";
+import { applyVoiceOptions } from "../voice/control";
 import {
   GAME_SPEED_MAX,
   GAME_SPEED_MIN,
@@ -149,6 +151,7 @@ export class EscOptions {
     applyHealthBarOptions(opts);
     applyHotkeyOptions(opts);
     applyScrollOptions(opts);
+    applyVoiceOptions(opts);
   }
 
   private bindOne(screen: FdfScreen, d: OptionDef, lib: FdfLibrary | null): void {
@@ -166,6 +169,7 @@ export class EscOptions {
         applyHealthBarOptions(this.working);
         applyHotkeyOptions(this.working);
         applyScrollOptions(this.working);
+        applyVoiceOptions(this.working);
       }
     };
     if (d.kind === "bool") {
@@ -198,6 +202,9 @@ export class EscOptions {
       detect: lib?.string("DETECT_GAMEPAD") ?? "Detect Gamepad",
       unpair: lib?.string("UNPAIR_GAMEPAD") ?? "Unpair Gamepad",
     });
+    // Voice Control: download button or checkbox (src/voice/) — ticked for both copies the
+    // moment the model arrives.
+    bindVoiceRow(screen, () => { this.committed.voiceControl = true; this.working.voiceControl = true; });
     const { locked } = this.host.gameSpeed();
     if (locked) this.workingSpeed = this.host.gameSpeed().speed;
     const speed = screen.slider("GameSpeedSlider");

@@ -99,7 +99,7 @@ const HOLD_AT_END = 1;
  * covers nothing — `ZERO, ONE`, which composites the glow additively over the scrim, exactly as it
  * adds onto the black of a real loading screen.
  */
-function separateAlphaBlend(gl: WebGLRenderingContext): void {
+export function separateAlphaBlend(gl: WebGLRenderingContext): void {
   gl.blendFunc = (src: number, dst: number): void => {
     if (dst === gl.ONE_MINUS_SRC_ALPHA) gl.blendFuncSeparate(src, dst, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     else gl.blendFuncSeparate(src, dst, gl.ZERO, gl.ONE);
