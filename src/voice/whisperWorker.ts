@@ -88,7 +88,7 @@ async function transcribe(id: WhisperModelId, audio: Float32Array, prompt: strin
   if (prompt && gen.prev_sot_token_id) {
     // Whisper takes at most half its 448-token context as a prompt; names are short, so this is
     // a ceiling and not a budget.
-    const ids = tokenizer.encode(` ${prompt}`, { add_special_tokens: false }).slice(-180);
+    const ids = tokenizer.encode(` ${prompt}`, { add_special_tokens: false }).slice(-220);
     init = [gen.prev_sot_token_id, ...ids, ...start];
   }
   const out = (await model.generate({

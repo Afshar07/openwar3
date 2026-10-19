@@ -97,9 +97,25 @@ export function applyVoiceOptions(opts: Options): void {
   const changed = model !== picked;
   picked = model;
   if (on === enabled && !changed) return;
+  const flipped = on !== enabled;
   enabled = on;
   if (!on) closeMic();
   else warm();
+  if (flipped) for (const fn of onOff) fn(on);
+}
+
+const onOff = new Set<(on: boolean) => void>();
+
+/** Whether Voice Control is switched on (Options → Gameplay) — what the match's name tags and
+ *  its hint box are shown by. */
+export function voiceControlOn(): boolean {
+  return enabled;
+}
+
+/** Be told when it is switched on or off. */
+export function onVoiceControlChange(fn: (on: boolean) => void): () => void {
+  onOff.add(fn);
+  return () => onOff.delete(fn);
 }
 
 /** The model a press will use: the one picked, or — while it is not on this machine yet — the
@@ -264,7 +280,7 @@ function promptFor(h: VoiceHost, lexicon: Lexicon): string {
     seen.add(k);
     names.push(p);
   };
-  for (const { entry } of lexicon.entries) add(entry.phrase);
+  for (const { entry } of lexicon.entries) if (!entry.misheard) add(entry.phrase);
   for (const w of h.vocabulary()) add(w);
   const likely = names.slice(0, 80).reverse();
   // The sentences a player SAYS, beside the names: Whisper is primed by context, and words like
@@ -278,7 +294,9 @@ function promptFor(h: VoiceHost, lexicon: Lexicon): string {
 const COMMAND_EXAMPLES =
   "Move the camera to a green camp. Pan the camera back to my base. Move the camera to the tavern. " +
   "Camera to an orange creep camp, a red camp, the goblin merchant. Place a farm here. Fall back. " +
-  "Train three footmen. Attack move here. Select army. Group one.";
+  "Train three footmen. Attack move here. Select army. Group one. Select worker. Select my main building. " +
+  "Build a farm. Build a ziggurat. Build an orc burrow. Build a moon well. Select the altar. Ghouls gather lumber. " +
+  "TP out. Teleport back to the base. Select fiend 4.";
 
 async function finish(u: Utterance): Promise<void> {
   if (current !== u) return;

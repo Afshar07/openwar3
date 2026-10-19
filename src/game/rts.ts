@@ -67,7 +67,8 @@ import { WarChasersAi } from "../ai/plus/warchasers";
 import { type TechRegistry } from "../data/techtree";
 import { type UpgradeRegistry } from "../data/upgrades";
 import type { SoundBoard, SoundCategory } from "../audio/sounds";
-import { WorldOverlays, healthBarsAlways, type HoverLine, type BarAbility, type BarSpec, type CrewLabelSpec } from "../render/worldOverlays";
+import { WorldOverlays, healthBarsAlways, type HoverLine, type BarAbility, type BarSpec, type CrewLabelSpec, type VoiceLabelSpec } from "../render/worldOverlays";
+import type { VoiceLabels } from "./voiceLabels";
 import { INSANE_HARVEST_FACTOR, MELEE_INSANE } from "../ai/ids";
 
 /** What the single-player dev tools can do to the local player's side (RtsController.cheat). */
@@ -888,6 +889,8 @@ export class RtsController {
    *  See game/authority.ts; it imports no renderer, no DOM and no transport. */
   private authority: Authority;
   private overlays: WorldOverlays; // floating HP bars + the hover slab (DOM, client-only)
+  /** Voice Control's name tags, while it is on (`setVoiceLabels`); null draws none. */
+  private voiceLabels: VoiceLabels | null = null;
   private iconUrl: ((path: string) => string | null) | null = null; // BLP path → drawable URL (setIconResolver)
   // The single floating name/owner slab shown above the unit (or gold mine / ground
   // item) under the cursor. Built lazily into the world layer so it tracks its target
@@ -5298,6 +5301,7 @@ export class RtsController {
     perfLog.end("sim.entries");
     perfLog.begin("sim.overlays");
     this.updateHealthBars();
+    this.updateVoiceLabels();
     this.updateMineCrews();
     this.overlays.syncHoverTip(this.computeHoverTip());
     perfLog.end("sim.overlays");
@@ -10429,6 +10433,44 @@ export class RtsController {
     const planeZ = this.heightAt(g[0], g[1]) + TREE_COLLIDER_HEIGHT;
     const t = (planeZ - r[2]) / dz;
     return [r[0] + (r[3] - r[0]) * t, r[1] + (r[4] - r[1]) * t];
+  }
+
+  /** Voice Control on (its numbering) or off (null): the name tags over our own units. */
+  setVoiceLabels(labels: VoiceLabels | null): void {
+    this.voiceLabels = labels;
+    if (!labels) this.overlays.syncVoiceLabels([]);
+  }
+
+  /**
+   * Voice Control's name tags — "Fiend 4" over each unit and building of OURS that is drawn, so
+   * it can be said (game/voiceLabels.ts). Only ours: a tag is a handle for selecting, and only
+   * our own bodies can be selected by name. Hidden with the rest of the interface in a cinematic.
+   */
+  private updateVoiceLabels(): void {
+    const labels = this.voiceLabels;
+    if (!labels) return;
+    const own: SimUnit[] = [];
+    for (const u of this.simView.units.values()) if (u.owner === this.localPlayer && u.hp > 0) own.push(u);
+    labels.update(own);
+    const specs: VoiceLabelSpec[] = [];
+    if (this.interfaceShown) {
+      for (const e of this.entries) {
+        const u = this.frameUnit(e.simId);
+        if (!u || e.hidden || u.owner !== this.localPlayer || u.hp <= 0) continue;
+        const name = this.registry.get(e.typeId)?.name;
+        if (!name) continue;
+        specs.push({
+          x: u.x,
+          y: u.y,
+          z: this.standZ(e, u.x, u.y) + e.moveHeight + (e.ride ? e.ride.off[2] : 0),
+          selRadius: e.selRadius,
+          name,
+          n: labels.shown(e.simId),
+          selected: this.selected.has(e.simId),
+        });
+      }
+    }
+    this.overlays.syncVoiceLabels(specs);
   }
 
   /** Draw a floating HP bar above every visible unit each frame (always-on),

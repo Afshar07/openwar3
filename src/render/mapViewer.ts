@@ -44,7 +44,9 @@ import type { ScoreRow, ScoreTable } from "../game/scoreTable";
 import { unitSnapshot, unitSnapshots } from "../game/jassHooks";
 import { SoundBoard } from "../audio/sounds";
 import { VoiceChat } from "../audio/voiceChat";
-import { setVoiceHost } from "../voice/control";
+import { onVoiceControlChange, setVoiceHost, voiceControlOn } from "../voice/control";
+import { VoiceLabels } from "../game/voiceLabels";
+import { mountVoiceHints } from "../ui/voiceHints";
 import { dressAsGameTip } from "../ui/gameTipSkin";
 import { makeVoiceHost } from "../game/voiceActions";
 import { Talkers, VOICE_HUD_MAX, VOICE_KEY_CODE, voiceFromBase64, voiceRecipients, voiceToBase64 } from "../game/voice";
@@ -1612,6 +1614,11 @@ export class MapViewerScene {
    *  two follows above this one is a TOGGLE and rides a UNIT rather than the selection — see
    *  `rideLocked` for what ends it. */
   private cameraRide: number | null = null;
+  /** Voice Control's ride (`rideCamera`): the units to ride after `cameraRide`, in order — an
+   *  army's second hero once the first has fallen. Empty for Ctrl+C's lock. */
+  private voiceRide: number[] = [];
+  /** Voice Control's name-tag numbering ("Fiend 4"), drawn while it is on. */
+  private readonly voiceTags = new VoiceLabels();
   private followVel: [number, number] = [0, 0]; // that follow's spring velocity, world units/s
   /** GAME milliseconds the PREVIOUS frame's `advanceSim` actually retired (0, one or two
    *  SIM_DT steps, and 0 while paused). The follow moves on this clock rather than the render
@@ -2131,6 +2138,7 @@ export class MapViewerScene {
       this.heightSampler = makeHeightSampler(terrain);
       this.footMaxHeight = makeFootprintMaxSampler(terrain);
       this.rts = new RtsController(grid, this.heightSampler, host, this.registry, this.abilities, this.items, this.tech, this.upgrades, this.footMaxHeight, neutralTeamColor(this.vfs));
+      this.syncVoiceTags();
       // Ships ride the water the viewer draws, at the viewer's own tileset offset (read lazily —
       // see makeWaterSampler).
       this.rts.setWaterSampler(makeWaterSampler(terrain, () => map.waterHeightOffset));
@@ -8883,8 +8891,62 @@ export class MapViewerScene {
         line.hidden = text === null;
         if (text !== null) line.textContent = text;
       },
+      rideCamera: (ids) => {
+        if (!ids.length) return;
+        this.cameraRide = ids[0];
+        this.voiceRide = ids.slice(1);
+        this.cameraLock = false; // one follow at a time, as Ctrl+C's lock
+        this.groupFollow = false;
+        this.followVel[0] = this.followVel[1] = 0;
+      },
+      labelNumber: (id) => this.voiceTags.numberOf(id),
     }));
     this.detachers.push(() => setVoiceHost(null));
+    // The name tags and the hint box, while Voice Control is on.
+    const hints = mountVoiceHints(ui, () => this.voiceHintNames());
+    const show = (on: boolean): void => {
+      this.syncVoiceTags();
+      hints.setEnabled(on);
+    };
+    show(voiceControlOn());
+    this.detachers.push(onVoiceControlChange(show), () => hints.dispose(), () => this.rts?.setVoiceLabels(null));
+  }
+
+  /** Hand the controller Voice Control's tag numbering while it is on (and nothing while off). */
+  private syncVoiceTags(): void {
+    if (!voiceControlOn()) this.voiceTags.clear();
+    this.rts?.setVoiceLabels(voiceControlOn() ? this.voiceTags : null);
+  }
+
+  /** The names the hint box's examples are worded with: this race's worker, soldier and farm. */
+  private voiceHintNames(): { worker: string; soldier: string; farm: string } {
+    const rts = this.rts;
+    const fallback = { worker: "worker", soldier: "footmen", farm: "farm" };
+    if (!rts) return fallback;
+    const types = new Set<string>();
+    for (const u of rts.simView.units.values()) if (u.owner === this.localPlayer) types.add(u.typeId);
+    const name = (id: string | undefined): string | undefined => (id ? this.registry.get(id)?.name : undefined);
+    let worker: string | undefined;
+    let soldier: string | undefined;
+    let farm: string | undefined;
+    for (const t of types) {
+      const def = this.registry.get(t);
+      if (!def) continue;
+      if (!worker && def.classification.includes("peon")) worker = def.name;
+      const tech = this.tech.get(t);
+      for (const b of tech.builds) if (!farm && (this.registry.get(b)?.foodMade ?? 0) > 0 && this.registry.get(b)?.buffType !== "townhall") farm = name(b);
+    }
+    // The soldier is the race's barracks', whether or not it stands yet: the first building any
+    // of ours can BUILD that trains somebody who is neither a hero nor a worker (Ghoul, Grunt).
+    const fighter = (u: string): boolean => { const d = this.registry.get(u); return !!d && !d.isHero && !d.classification.includes("peon") && (d.attackDamage ?? 0) > 0; };
+    for (const t of types) {
+      for (const b of this.tech.get(t).builds) {
+        if (soldier) break;
+        if (this.registry.get(b)?.buffType === "townhall") continue;
+        soldier = name(this.tech.get(b).trains.find(fighter));
+      }
+    }
+    return { worker: worker ?? fallback.worker, soldier: soldier ?? fallback.soldier, farm: farm ?? fallback.farm };
   }
 
   /**
@@ -9089,8 +9151,13 @@ export class MapViewerScene {
    */
   private rideLocked(): void {
     if (this.cameraRide === null) return;
-    const u = this.rts?.simWorld.units.get(this.cameraRide);
-    if (!u) {
+    let u = this.rts?.simWorld.units.get(this.cameraRide);
+    // A voice ride goes on to the next of the army that still stands.
+    while ((!u || u.hp <= 0) && this.voiceRide.length) {
+      this.cameraRide = this.voiceRide.shift()!;
+      u = this.rts?.simWorld.units.get(this.cameraRide);
+    }
+    if (!u || u.hp <= 0) {
       this.cameraRide = null; // it died, or was consumed/loaded away — there is nothing to ride
       return;
     }
@@ -9101,6 +9168,7 @@ export class MapViewerScene {
    *  Silent when there is no lock on, so every hand-on-the-camera path can just call it. */
   private releaseCameraRide(): void {
     this.cameraRide = null;
+    this.voiceRide = [];
   }
 
   /** Command-card icon (BLP path) of the local race's worker, for the idle button. */
@@ -9690,6 +9758,7 @@ export class MapViewerScene {
         const id = this.rts?.cameraLockTarget() ?? null;
         if (id === null) return false; // nothing selected, or what is selected is an enemy's
         this.cameraRide = id;
+        this.voiceRide = [];
         this.cameraLock = false; // one follow at a time — this replaces the portrait's…
         this.groupFollow = false; // …and the held hotkey's
         this.followVel[0] = this.followVel[1] = 0; // start at rest, wherever the camera is now

@@ -83,6 +83,11 @@ export interface VoiceDriver {
   error(text: string): void;
   /** Voice Control's "Listening…" line. */
   status(text: string | null): void;
+  /** Ride the camera on the first of these units still alive, then the next (Ctrl+C's lock,
+   *  handed a list) — an army sent somewhere is followed there. */
+  rideCamera(ids: number[]): void;
+  /** The number on a unit's voice label ("Fiend 4"), null when it shows none. */
+  labelNumber(id: number): number | null;
 }
 
 /** A card name as a sayable phrase: "+ Storm Bolt [0/3]" → "Storm Bolt". */
@@ -419,6 +424,18 @@ export function makeVoiceHost(d: VoiceDriver): VoiceHost {
     // Walking a load home is still working that resource (`resKind` outlives the trip).
     (u.order === "harvest" || u.order === "return") && !!u.resKind && (!res || u.resKind === res);
   const isWorker = (u: SimUnit): boolean => u.isPeon || gathering(u);
+  /** Whether a unit of ours CAN gather `res` — any harvest ability at all, read off the sim's
+   *  own worker profile. A Ghoul is no "worker" (it is never the idle-worker button's) and an
+   *  Acolyte is a worker that never touches a tree; asking the profile is what tells them apart. */
+  const canGather = (u: SimUnit, res?: "gold" | "lumber"): boolean =>
+    !!u.worker && (res ? u.worker[res] : u.worker.gold || u.worker.lumber);
+  /** A building TYPE and everything it upgrades into: "the town hall" is still the Keep it became,
+   *  and "the farm" the Spirit Tower a Ziggurat turned into. */
+  const family = (id: string): Set<string> => {
+    const out = new Set<string>([id]);
+    for (const k of out) for (const up of d.tech.get(k).upgrade) out.add(up);
+    return out;
+  };
   /** A worker that is BUILDING — standing over a structure going up, or walking to found one.
    *  It finishes what it is building: no spoken order takes it off the job (`shield`). */
   const busyBuilding = (u: SimUnit): boolean => u.constructing !== 0 || !!u.buildPending;
@@ -431,14 +448,25 @@ export function makeVoiceHost(d: VoiceDriver): VoiceHost {
    * that resource; "all" is every one of them, map-wide.
    */
   const pickSubject = (sub: Subject): SimUnit[] => {
+    const centre = d.screenCentre() ?? anchor();
+    const near = (a: SimUnit, b: SimUnit): number => Math.hypot(a.x - centre[0], a.y - centre[1]) - Math.hypot(b.x - centre[0], b.y - centre[1]);
+    // "Select altar", "select my main building": a BUILDING of ours, of that type or anything it
+    // has become. The MAIN one is the oldest (the lowest id — the hall the match started with),
+    // otherwise the nearest the middle of the screen.
+    if (sub.entry?.kind === "building") {
+      const types = family(sub.entry.id);
+      const blds = mine().filter((u) => !!u.building && types.has(u.typeId));
+      if (sub.index !== undefined) return blds.filter((u) => d.labelNumber(u.id) === sub.index).slice(0, 1);
+      blds.sort(/\bmain\b/i.test(sub.entry.phrase) ? (a, b) => a.id - b.id : near);
+      return sub.count === "all" ? blds : blds.slice(0, sub.count);
+    }
     const matches = mine().filter((u) =>
       !u.building && !busyBuilding(u) && (sub.worker ? isWorker(u) : u.typeId === sub.entry?.id) &&
       (!sub.from || gathering(u, sub.from)) &&
       (!sub.idle || idleWorker(u)));
-    const centre = d.screenCentre() ?? anchor();
-    matches.sort((a, b) =>
-      Number(idleWorker(b)) - Number(idleWorker(a)) ||
-      Math.hypot(a.x - centre[0], a.y - centre[1]) - Math.hypot(b.x - centre[0], b.y - centre[1]));
+    // "Fiend 4": the one wearing that label.
+    if (sub.index !== undefined) return matches.filter((u) => d.labelNumber(u.id) === sub.index).sort((a, b) => Number(b.isPeon) - Number(a.isPeon)).slice(0, 1);
+    matches.sort((a, b) => Number(idleWorker(b)) - Number(idleWorker(a)) || near(a, b));
     // "select peasant" / "select worker" — no number said — is the idle-worker button's job.
     if (sub.worker && !sub.counted && sub.count === 1 && !sub.from) return matches.filter(idleWorker).slice(0, 1);
     return sub.count === "all" ? matches : matches.slice(0, sub.count);
@@ -446,7 +474,7 @@ export function makeVoiceHost(d: VoiceDriver): VoiceHost {
 
   /** What to call a subject in an error ("No idle worker.", "No Footman."). */
   const subjectName = (sub: Subject): string =>
-    `${sub.idle || (sub.worker && !sub.counted && sub.count === 1 && !sub.from) ? "idle " : ""}${sub.worker ? "worker" : sub.entry?.phrase ?? "unit"}${sub.from ? ` on ${sub.from}` : ""}`;
+    `${sub.idle || (sub.worker && !sub.counted && sub.count === 1 && !sub.from) ? "idle " : ""}${sub.worker ? "worker" : sub.entry?.phrase ?? "unit"}${sub.index !== undefined ? ` ${sub.index}` : ""}${sub.from ? ` on ${sub.from}` : ""}`;
 
   /** Select a subject's units (a selection holds 12); false, with the reason said, if none. */
   const selectSubject = (sub: Subject): SimUnit[] | null => {
@@ -459,6 +487,21 @@ export function makeVoiceHost(d: VoiceDriver): VoiceHost {
     r.clearSelection();
     for (const u of units.slice(0, 12)) r.scriptSelect(u.id, true);
     return units;
+  };
+
+  /**
+   * An army ordered somewhere by voice is FOLLOWED there: the camera rides the first hero of the
+   * selection in the hero bar's order, the next one when that one falls, and only then the rest
+   * of the group — the player has no hand on a mouse to chase it with. Taking the camera by hand
+   * lets go, as it does Ctrl+C's lock.
+   */
+  const ride = (): void => {
+    const r = rts();
+    if (!r) return;
+    const sel = new Set(r.selectedUnitIds());
+    const heroes = r.heroBar().map((h) => h.simId).filter((id) => sel.has(id));
+    const rest = [...sel].filter((id) => !heroes.includes(id));
+    if (heroes.length + rest.length) d.rideCamera([...heroes, ...rest]);
   };
 
   const needSelection = (): boolean => {
@@ -572,7 +615,7 @@ export function makeVoiceHost(d: VoiceDriver): VoiceHost {
         // same button; an attack aimed at a unit is an attack on that unit.
         const button = i.order === "attackmove" ? "attack" : i.order;
         d.press(button);
-        aim(i.target, i.order === "move" || i.order === "rally" ? "mine" : "enemy");
+        if (aim(i.target, i.order === "move" || i.order === "rally" ? "mine" : "enemy") && i.target && i.order !== "rally") ride();
         return;
       }
       case "retreat": {
@@ -580,7 +623,7 @@ export function makeVoiceHost(d: VoiceDriver): VoiceHost {
         // to the place said. A MOVE, not an attack-move: falling back is not stopping to fight.
         if (!d.selectAllArmy()) { d.error("You have no army."); return; }
         d.press("move");
-        aim(i.target ?? { kind: "base", side: "mine" }, "mine");
+        if (aim(i.target ?? { kind: "base", side: "mine" }, "mine")) ride();
         return;
       }
       case "stop": if (needSelection()) r.stopSelected(); return;
@@ -594,15 +637,23 @@ export function makeVoiceHost(d: VoiceDriver): VoiceHost {
           units = pickSubject(i.subject);
           if (!units.length) { d.error(`No ${subjectName(i.subject)}.`); return; }
         } else {
-          const sel = r.selectedUnitIds().map((id) => r.simView.units.get(id)).filter((u): u is SimUnit => !!u && isWorker(u) && !busyBuilding(u));
-          units = sel.length ? sel : pickSubject({ worker: true, count: 1, counted: false, idle: true });
+          // Whoever is selected that can gather it — a Ghoul in the trees as much as a Peasant.
+          const sel = r.selectedUnitIds().map((id) => r.simView.units.get(id)).filter((u): u is SimUnit => !!u && !u.building && canGather(u, i.res) && !busyBuilding(u));
+          units = sel.length ? sel : pickSubject({ worker: true, count: 1, counted: false, idle: true }).filter((u) => canGather(u, i.res));
           if (!units.length) { d.error("Select a worker first."); return; }
         }
+        // A subject that cannot work the resource is told so rather than walked to it (an
+        // Acolyte to the trees).
+        const able = units.filter((u) => canGather(u, i.res));
+        if (!able.length) { d.error(`They cannot gather ${i.res ?? "that"}.`); return; }
+        units = able;
+        // Nothing said: gold for whoever can mine, the trees for a lumber-only gatherer (Ghoul).
+        const res = i.res ?? (units.every((u) => !u.worker?.gold) ? "lumber" : undefined);
         for (let k = 0; k < units.length; k += 12) {
           const batch = units.slice(k, k + 12);
           r.clearSelection();
           for (const u of batch) r.scriptSelect(u.id, true);
-          const t: VoiceTarget = i.target ?? (i.res === "lumber" ? { kind: "trees" } : { kind: "mine" });
+          const t: VoiceTarget = i.target ?? (res === "lumber" ? { kind: "trees" } : { kind: "mine" });
           const spot = resolve(t, "mine");
           if ("fail" in spot) { d.error(spot.fail); return; }
           const at = screenOf(spot);
@@ -742,7 +793,10 @@ export function makeVoiceHost(d: VoiceDriver): VoiceHost {
           r.selectSingle(hero.id);
         }
         d.useInventory(holds(hero));
-        if (r.aimingTarget()) aim(i.target, "mine");
+        // A Town Portal said with nowhere ("tp out") goes HOME — to our main hall — rather than
+        // being assisted like a heal onto whichever friend is most hurt.
+        const portal = !!i.entry && (d.items.get(i.entry.id)?.abilities ?? []).some((a) => d.abilities.get(a)?.code === "AItp");
+        if (r.aimingTarget()) aim(i.target ?? (portal ? { kind: "base", side: "mine" } : undefined), "mine");
         return;
       }
       case "panel": {
@@ -849,11 +903,11 @@ function lexicon(d: VoiceDriver, own: SimUnit[]): LexEntry[] {
     const tech = d.tech.get(t);
     for (const id of tech.trains) {
       const u = d.units.get(id);
-      if (u?.name) out.push({ kind: u.isHero ? "hero" : "unit", id, phrase: u.name });
+      if (u?.name) out.push({ kind: u.isHero ? "hero" : "unit", id, phrase: u.name }, ...shortNames(u.isHero ? "hero" : "unit", id, u.name));
     }
     for (const id of tech.builds) {
       const u = d.units.get(id);
-      if (u?.name) out.push({ kind: "building", id, phrase: u.name });
+      if (u?.name) out.push({ kind: "building", id, phrase: u.name }, ...shortNames("building", id, u.name));
     }
     for (const id of tech.researches) {
       const up = d.upgrades.get(id);
@@ -863,6 +917,7 @@ function lexicon(d: VoiceDriver, own: SimUnit[]): LexEntry[] {
     const def = d.units.get(t);
     if (def) {
       out.push({ kind: def.isBuilding ? "building" : def.isHero ? "hero" : "unit", id: t, phrase: def.name });
+      out.push(...shortNames(def.isBuilding ? "building" : def.isHero ? "hero" : "unit", t, def.name));
       for (const a of def.heroAbilities) {
         const ab = d.abilities.get(a);
         if (ab?.name) out.push({ kind: "ability", id: a, phrase: ab.name });
@@ -924,6 +979,32 @@ function lexicon(d: VoiceDriver, own: SimUnit[]): LexEntry[] {
 }
 
 /**
+ * The short ways a name is SAID, beside the name itself: "Crypt Fiend" is a "fiend" (and wears
+ * "Fiend 4" on its label), "Orc Burrow" a "burrow", "Moon Well" a "moonwell". The last word, when
+ * it is a word nobody says for anything else; and two short words run together, the way the
+ * recogniser often writes them.
+ */
+const NOT_SHORT = new Set(["well", "hall", "tower", "keep", "mage", "rider", "golem", "lord", "master", "hunter"]);
+function shortNames(kind: LexEntry["kind"], id: string, name: string): LexEntry[] {
+  const ws = name.split(/\s+/).filter(Boolean);
+  const out: LexEntry[] = [];
+  // What the recogniser writes for the names it has never heard spoken: an Orc Burrow comes out
+  // a "borough" or a "barrow" (the parser's own sound-alike test is for SHORT misses).
+  for (const [re, also] of SOUNDS_LIKE) if (re.test(name)) for (const phrase of also) out.push({ kind, id, phrase, misheard: true });
+  if (ws.length < 2) return out;
+  const last = ws[ws.length - 1];
+  if (last.length >= 5 && !NOT_SHORT.has(last.toLowerCase())) out.push({ kind, id, phrase: last });
+  if (ws.length === 2 && ws.every((w) => w.length <= 5)) out.push({ kind, id, phrase: ws.join("") });
+  return out;
+}
+const SOUNDS_LIKE: Array<[RegExp, string[]]> = [
+  [/^orc burrow$/i, ["burrow", "borough", "barrow", "burro", "burrows"]],
+  [/^ziggurat$/i, ["ziggarat", "zigurat", "ziggurate", "zigarat", "sigurat"]],
+  [/^moon well$/i, ["moon wall", "moon whale"]],
+  [/^farm$/i, ["farms"]],
+];
+
+/**
  * The race-neutral words for a KIND of building, each meaning the one THIS player's workers
  * build — read off the data rather than listed per race, so a custom race gets them too:
  *
@@ -957,7 +1038,10 @@ function raceTerms(d: VoiceDriver, builds: string[]): LexEntry[] {
     ...builds.filter((id) => d.tech.get(id).upgrade.some((u) => named(u, /tower/i) || defends(u))),
   ], ["tower", "defense", "defence"]);
   add(builds.filter((id) => (def(id)?.foodMade ?? 0) > 0 && def(id)?.buffType !== "townhall"), ["farm", "supply", "house", "food"]);
-  add(builds.filter((id) => def(id)?.buffType === "townhall"), ["hall", "town hall", "main building", "base"]);
+  add(builds.filter((id) => def(id)?.buffType === "townhall"), [
+    "hall", "town hall", "main building", "main hall", "main base", "main", "base", "home base",
+    "headquarters", "hq", "town center", "town centre", "home",
+  ]);
   add(builds.filter((id) => d.tech.get(id).trains.some((t) => def(t)?.isHero)), ["altar"]);
   const soldier = (t: string): boolean => !!def(t) && !def(t)!.isHero && !def(t)!.classification.includes("peon") && attacks(t);
   const reqs = (id: string): number => d.tech.get(id).requiresTiers[0]?.length ?? 0;

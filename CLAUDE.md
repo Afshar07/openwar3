@@ -942,7 +942,10 @@ data, or asset behaviour, **consult our sources** and cite what you used.
   alike spellings — onto the click/hotkey paths, so it cannot cheat. The ONNX runtime is bundled,
   never fetched from a CDN, and only runs multithreaded on a cross-origin-ISOLATED page (the dev
   server and `electron/server.mjs` send COOP/COEP): one thread is 4.7 s a command, eight 1.4 s.
-  "Here" is the middle of the SCREEN (the mouse only when said).
+  "Here" is the middle of the SCREEN (the mouse only when said). While it is on, our units wear
+  NAME TAGS ("Fiend 4", a number per unit for life, shown only with two or more of a kind) so a
+  body can be said, and "," toggles a hint box; an order spoken to an army rides the camera on
+  its first hero. "Gather" asks the sim's worker profile, never "is it a worker" (the Ghoul).
 - **Never edit the install's UI files.** `UI\FrameDef\` is the player's. A control OpenWar3 needs
   that the 2003 UI has no frame for goes in [`src/overrides/`](src/overrides/) — our own FrameDef
   files, layered onto the screen at mount through `mountFdfScreen`'s `overrides` option — and its

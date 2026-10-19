@@ -127,6 +127,33 @@ files (`onnx-community/whisper-*.en`), run by transformers.js in a worker:
 - **The prompt carries example SENTENCES** (`COMMAND_EXAMPLES` in control.ts) after the names: the
   words the developer named as hard — pan, move, place, camp, goblin, tavern, the camp colours,
   fall back — are spelled right far more often after an example of them than after a name list.
+- **Anything that can gather is a gatherer when told to.** "Send a ghoul to gather lumber" asks
+  the sim's own worker profile (`SimUnit.worker` — which resources this unit's harvest ability
+  works), never "is it a worker": a Ghoul is nobody's idle worker and an Acolyte never touches a
+  tree. Gather / harvest / collect / mine, and wood / lumber / trees, are one each. A gatherer
+  that can only cut wood, told to gather with nothing said, goes to the trees.
+- **Buildings are selectable by name and by kind**: "select altar", "select my main building"
+  (also main hall, main base, base, hq, headquarters, town center, home). A kind means the type
+  AND what it has become (`family`: "the town hall" is still the Keep, "the farm" the Spirit
+  Tower). With a "main", the OLDEST hall — the one the match started with — not the nearest.
+- **Name tags** (`game/voiceLabels.ts`, drawn by `WorldOverlays.syncVoiceLabels`): while Voice
+  Control is on, every unit and building of ours wears a tiny "Fiend 4" pill, so one of several
+  can be SAID — "select fiend 4", "select crypt fiend number four". A number belongs to the
+  unit for life (the lowest free one of its type, given back when it dies) and is SHOWN only
+  while there are two or more; a tag that renumbered would point the next sentence at a
+  different body than the one the player read. Short names are heard too: the last word of a
+  name ("fiend", "burrow"), two short words run together ("moonwell"), and a few deliberate
+  MISHEARINGS ("borough" for Burrow) that are matched but kept out of the prompt (`misheard`).
+- **"TP out"** ("teleport out", "tp out of there", "tp back to the base"): the Scroll of Town
+  Portal, aimed at our main hall unless a place is named — "out of THERE" is where the army is
+  leaving, so "there" never aims it.
+- **The camera follows an army it sent.** A move, attack, attack-move, patrol or fall-back given
+  by voice rides the camera on the first hero of the group in the hero bar's order, the next when
+  that one falls, then the rest (Ctrl+C's lock, given a list — `rideCamera`). Taking the camera
+  by hand lets go, as it does that lock.
+- **The hint box** (`ui/voiceHints.ts`): a short list of things worth saying on the right of the
+  screen, worded with this race's own worker, soldier and farm, while Voice Control is on.
+  **","** hides and shows it (remembered for the browser). The developer's pick of three looks.
 - Everything is fog-honest: "the enemy hero" is the nearest one this player can SEE.
 
 `window.openwar3.voiceSay("train three footmen")` runs a sentence through the same path with no

@@ -216,6 +216,39 @@ check("place a farm here", i?.kind === "build" && i.entry.id === "hhou", JSON.st
 i = one("camera to the goblin merchant");
 check("camera to the goblin merchant (lexicon has it when seen)", i === null || i.kind === "camera", JSON.stringify(i));
 
+console.log("buildings, labels, teleport, gatherers");
+const lex2 = new Lexicon([
+  { kind: "unit", id: "ugho", phrase: "Ghoul" },
+  { kind: "unit", id: "ucry", phrase: "Crypt Fiend" },
+  { kind: "unit", id: "ucry", phrase: "Fiend" },
+  { kind: "building", id: "uaod", phrase: "Altar of Darkness" },
+  { kind: "building", id: "uaod", phrase: "altar" },
+  { kind: "building", id: "unpl", phrase: "main building" },
+  { kind: "building", id: "uzig", phrase: "Ziggurat" },
+  { kind: "item", id: "stwp", phrase: "tp" },
+]);
+const one2 = (t) => { const r = parse(t, { lexicon: lex2 }); return r.length === 1 ? r[0] : null; };
+i = one2("select altar");
+check("select altar = a building", i?.kind === "select" && i.subject?.entry?.id === "uaod", JSON.stringify(i));
+i = one2("select my main building");
+check("select my main building", i?.kind === "select" && i.subject?.entry?.id === "unpl", JSON.stringify(i));
+i = one2("select fiend 4");
+check("select fiend 4 = the label", i?.kind === "select" && i.subject?.entry?.id === "ucry" && i.subject.index === 4, JSON.stringify(i));
+i = one2("select crypt fiend number for");
+check("…number for (a homophone, at the end)", i?.subject?.index === 4, JSON.stringify(i));
+i = one2("send a ghoul to gather lumber");
+check("ghoul to gather lumber", i?.kind === "harvest" && i.res === "lumber" && i.subject?.entry?.id === "ugho", JSON.stringify(i));
+i = one2("ghouls go collect wood");
+check("ghouls collect wood", i?.kind === "harvest" && i.res === "lumber" && i.subject?.count === "all", JSON.stringify(i));
+i = one2("tp out");
+check("tp out = Town Portal home", i?.kind === "useitem" && i.entry?.id === "stwp" && !i.target, JSON.stringify(i));
+i = one2("teleport out of there");
+check("teleport out of there (not 'there')", i?.kind === "useitem" && i.entry?.id === "stwp" && !i.target, JSON.stringify(i));
+i = one2("tp back to the base");
+check("tp back to the base", i?.kind === "useitem" && i.target?.kind === "base", JSON.stringify(i));
+i = one2("build a ziggurat");
+check("build a ziggurat", i?.kind === "build" && i.entry.id === "uzig", JSON.stringify(i));
+
 console.log("not commands");
 check("small talk is nothing", p("hello how are you").length === 0, JSON.stringify(p("hello how are you")));
 check("describe() names every intent", p("train three footmen and group two").map(describe).join(" · ") === "Train 3 × Footman · Group 2", p("train three footmen and group two").map(describe).join(" · "));

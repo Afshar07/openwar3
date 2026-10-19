@@ -31,6 +31,9 @@ export interface LexEntry {
   id: string;
   /** The phrase as the game spells it ("Storm Bolt", "Footman"). */
   phrase: string;
+  /** A MISHEARING matched on purpose ("borough" for Burrow) — read, but never put in the
+   *  recogniser's prompt, which would teach it the wrong spelling. */
+  misheard?: boolean;
 }
 
 export type Side = "mine" | "enemy" | "ally" | "any";
@@ -77,6 +80,9 @@ export interface Subject {
   counted: boolean;
   idle: boolean;
   from?: "gold" | "lumber";
+  /** The NUMBER on a unit's voice label ("select fiend 4" — the "Fiend 4" floated over it while
+   *  Voice Control is on, game/voiceLabels.ts). */
+  index?: number;
 }
 
 export type OrderVerb = "move" | "attack" | "attackmove" | "patrol" | "attackground" | "rally" | "smart";
@@ -169,6 +175,8 @@ const VERBS2: Array<[string, string]> = [
   ["select army", "army"], ["rally point", "rally"],
   ["fall back", "retreat"], ["pull back", "retreat"], ["go home", "retreat"], ["run home", "retreat"],
   ["back off", "retreat"], ["head home", "retreat"], ["come home", "retreat"], ["get out", "retreat"],
+  ["town portal", "teleport"], ["port out", "teleport"], ["port home", "teleport"], ["port back", "teleport"],
+  ["go collect", "harvest"], ["go gather", "harvest"], ["go harvest", "harvest"], ["go mine", "harvest"],
 ];
 const VERBS1: Record<string, string> = {
   move: "move", walk: "move", run: "move", retreat: "retreat", withdraw: "retreat", regroup: "retreat", come: "move",
@@ -179,6 +187,9 @@ const VERBS1: Record<string, string> = {
   put: "put", send: "put", set: "put", assign: "put", order: "put", tell: "put", have: "put",
   stop: "stop", halt: "stop", hold: "hold", cancel: "cancel", escape: "cancel", back: "cancel",
   gather: "harvest", harvest: "harvest", mine: "harvest", collect: "harvest", chop: "lumber",
+  gathering: "harvest", harvesting: "harvest", collecting: "harvest", mining: "harvest",
+  // The Scroll of Town Portal is "tp" to everyone who has played: "tp out", "teleport home".
+  teleport: "teleport", tp: "teleport", tpe: "teleport", portal: "teleport",
   train: "train", make: "train", recruit: "train", hire: "train", produce: "train", summon: "train", create: "train",
   build: "build", construct: "build", place: "build",
   research: "research", upgrade: "research", improve: "research",
@@ -523,6 +534,16 @@ function parseClause(ws: string[], ctx: ParseContext, inherited: string | null):
       return t || sub ? done({ kind: "order", order: "move", target: t, subject: sub?.subject }, "move") : null;
     }
     case "retreat": return done({ kind: "retreat", target: rest() });
+    case "teleport": {
+      // "tp out", "teleport back to the base", "tp out of there": the Town Portal, aimed at a
+      // town hall of ours — the one said, else the main one (game/voiceActions.ts).
+      const tp = lex.match(["tp"], 0, ["item"]) ?? lex.match(["town", "portal"], 0, ["item"]);
+      // "Out of THERE" is where the army is leaving, not where it is going: only a named place
+      // (a base, a unit) aims it.
+      const t = rest();
+      const to = t && t.kind !== "screen" && t.kind !== "cursor" ? t : undefined;
+      return done({ kind: "useitem", entry: tp?.entry ?? { kind: "item", id: "stwp", phrase: "Scroll of Town Portal" }, target: to }, "press");
+    }
     case "stop": return done({ kind: "stop" });
     case "hold": return done({ kind: "hold" });
     case "cancel": return done({ kind: "cancel" });
@@ -684,12 +705,24 @@ export function readSubject(
     plural = stem(w) !== w;
     i++;
   } else {
-    const m = lex.match(ws, i, ["unit", "hero"]);
+    // SELECTING may name a building ("select altar", "select my main building"); an order's
+    // subject is somebody who walks.
+    const m = lex.match(ws, i, allowFrom ? ["unit", "hero", "building"] : ["unit", "hero"]);
     if (!m) return null;
     entry = m.entry;
     const last = ws[m.end - 1];
     plural = stem(last) !== last;
     i = m.end;
+  }
+  // "fiend 4", "fiend number four", "footman #2": the number on its voice label. The homophones a
+  // count refuses ("to", "for") are numbers here only at the end of the sentence, where no
+  // preposition can follow.
+  let index: number | undefined;
+  {
+    let j = i;
+    if (ws[j] === "number" || ws[j] === "no" || ws[j] === "num") j++;
+    const n = ws[j] !== undefined && ws[j] !== "a" && ws[j] !== "an" && (!NOT_COUNTS.has(ws[j]) || j === ws.length - 1) ? NUMBERS[ws[j]] : undefined;
+    if (n !== undefined && n >= 1) { index = n; i = j + 1; plural = false; }
   }
   let from: "gold" | "lumber" | undefined;
   if (allowFrom) {
@@ -702,7 +735,7 @@ export function readSubject(
     }
   }
   return {
-    subject: { entry, worker, count: count ?? (plural ? "all" : 1), counted: count !== undefined, idle, from },
+    subject: { entry, worker, count: count ?? (plural ? "all" : 1), counted: count !== undefined, idle, from, index },
     end: i,
     plural,
   };
@@ -793,6 +826,7 @@ function regionWords(r: Region): string {
 function who(sub?: Subject): string {
   if (!sub) return "";
   const name = sub.worker ? "worker" : sub.entry?.phrase ?? "unit";
+  if (sub.index !== undefined) return `${name} ${sub.index}`;
   const n = sub.count === "all" ? "all" : String(sub.count);
   return `${n}${sub.idle || (!sub.counted && sub.worker && sub.count === 1) ? " idle" : ""} ${name}${sub.from ? ` from ${sub.from}` : ""}`;
 }

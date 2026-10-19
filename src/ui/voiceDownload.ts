@@ -59,7 +59,7 @@ const TEXT = {
   fetching: (id: WhisperModelId, ids: WhisperModelId[]) =>
     ids.length > 1
       ? `${WHISPER_MODELS[id].label} speech model (${ids.indexOf(id) + 1} of ${ids.length}), ${mb(id)} MB.`
-      : `${WHISPER_MODELS[id].label} speech model, ${mb(id)} MB — kept on this computer.`,
+      : `${WHISPER_MODELS[id].label} speech model, ${mb(id)} MB.`,
   done: "Hold |cffffcc00Period (.)|r and speak a command.",
   failed: (why: string) => `The speech model could not be downloaded.|n${why}`,
 };
@@ -144,6 +144,11 @@ async function download(opts: VoiceDownloadOptions): Promise<boolean> {
   // The FDF's own `PatchProgressText` is anchored off a zero-sized sprite frame and has nowhere
   // sensible to be; the percentage is printed in the bar's middle instead, as the update overlay
   // prints its own.
+  // The info line sits directly over the bar, so while it runs it is ONE line: a second line
+  // wrapped under the bar ("…252 MB — kept on this computer." did). A failure hides the bar and
+  // may wrap again, since its reason is the browser's words and of any length.
+  const info = s.frame("PatchInfoText");
+  if (info) Object.assign(info.style, { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" });
   const own = s.frame("PatchProgressText");
   if (own) own.hidden = true;
 
@@ -205,6 +210,7 @@ async function download(opts: VoiceDownloadOptions): Promise<boolean> {
     s.setText("PatchButtonText", "OK");
   } catch (err) {
     if (!abort.signal.aborted) {
+      if (info) info.style.whiteSpace = "normal";
       s.setText("PatchTitleText", TEXT.titleFailed);
       s.setText("PatchInfoText", TEXT.failed(err instanceof Error ? err.message : String(err)));
       s.setText("PatchButtonText", "OK");

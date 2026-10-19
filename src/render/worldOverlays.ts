@@ -97,6 +97,23 @@ export interface CrewLabelSpec {
   full: boolean;
 }
 
+/**
+ * Voice Control's name tag over a unit or building of ours — "Fiend 4", "Farm 2", "Altar of
+ * Darkness" — so a body can be SAID ("select fiend 4"). Ours: the game names nothing over a unit.
+ * The numbering is game/voiceLabels.ts's; this is only where the tag floats.
+ */
+export interface VoiceLabelSpec {
+  x: number;
+  y: number;
+  z: number;
+  selRadius: number; // as a bar's: the tag rides just above where the unit's bar floats
+  name: string;
+  /** The label number, or null when it is the only one of its kind. */
+  n: number | null;
+  /** Is it selected — drawn brighter, so the player sees which "Fiend 4" they now hold. */
+  selected: boolean;
+}
+
 /** Where the hover slab floats and what it says. */
 export interface HoverTip {
   x: number;
@@ -323,6 +340,29 @@ interface CrewLabel {
   last: { text: string; full: boolean; left: number; top: number; hidden: boolean };
 }
 
+/** CSS pixels between the top of a unit's status bar and the bottom of its voice tag. */
+const VOICE_TAG_LIFT = 6;
+
+interface VoiceTag {
+  root: HTMLDivElement;
+  name: HTMLSpanElement;
+  num: HTMLSpanElement;
+  last: { name: string; n: number | null; selected: boolean; left: number; top: number; hidden: boolean };
+}
+
+function makeVoiceTag(layer: HTMLElement): VoiceTag {
+  const root = document.createElement("div");
+  root.className = "voice-tag";
+  root.hidden = true;
+  const name = document.createElement("span");
+  name.className = "voice-tag-name";
+  const num = document.createElement("span");
+  num.className = "voice-tag-num";
+  root.append(name, num);
+  layer.appendChild(root);
+  return { root, name, num, last: { name: "\0", n: -1, selected: false, left: NaN, top: NaN, hidden: true } };
+}
+
 function makeCrewLabel(layer: HTMLElement): CrewLabel {
   const root = document.createElement("div");
   root.className = "unit-crew-count";
@@ -346,6 +386,7 @@ function makeHoverTip(layer: HTMLElement): HTMLDivElement {
 export class WorldOverlays {
   private hpBars: HpBar[] = []; // pool, one shown per visible unit each frame
   private crewLabels: CrewLabel[] = []; // pool, one shown per worked gold mine on screen
+  private voiceTags: VoiceTag[] = []; // pool, one per unit of ours on screen while Voice Control is on
   private hoverTip: HTMLDivElement | null = null;
   private hoverTipSig = ""; // caches the last rendered line set (rebuild the DOM only on change)
 
@@ -787,6 +828,55 @@ export class WorldOverlays {
   }
 
   /**
+   * Float Voice Control's name tags (`VoiceLabelSpec`), and hide the rest of the pool. The bars'
+   * pooling and dirty cache; the tag sits just above where a unit's status bar floats, whether
+   * or not that bar is shown, so the two never overlap.
+   */
+  syncVoiceLabels(specs: readonly VoiceLabelSpec[]): void {
+    this.sampleGeom();
+    const g = this.frameGeom;
+    let n = 0;
+    for (const s of specs) {
+      if (!this.project(s.x, s.y, s.z, s.selRadius)) continue;
+      const p = this.proj;
+      const tag = this.voiceTags[n] ?? (this.voiceTags[n] = makeVoiceTag(worldLayer()));
+      n++;
+      const last = tag.last;
+      if (last.name !== s.name) {
+        last.name = s.name;
+        tag.name.textContent = s.name;
+      }
+      if (last.n !== s.n) {
+        last.n = s.n;
+        tag.num.textContent = s.n === null ? "" : String(s.n);
+        tag.num.hidden = s.n === null;
+      }
+      if (last.selected !== s.selected) {
+        last.selected = s.selected;
+        tag.root.classList.toggle("selected", s.selected);
+      }
+      if (last.hidden) {
+        last.hidden = false;
+        tag.root.hidden = false;
+      }
+      const left = Math.round(p.sx / g.dpr);
+      const top = Math.round((g.h - p.sy) / g.dpr - (p.ry + 24) - VOICE_TAG_LIFT);
+      if (last.left !== left || last.top !== top) {
+        last.left = left;
+        last.top = top;
+        tag.root.style.transform = `translate(${left}px, ${top}px) translate(-50%, -100%)`;
+      }
+    }
+    for (let k = n; k < this.voiceTags.length; k++) {
+      const tag = this.voiceTags[k];
+      if (!tag.last.hidden) {
+        tag.last.hidden = true;
+        tag.root.hidden = true;
+      }
+    }
+  }
+
+  /**
    * Float the hover slab above whatever the cursor is over, tracking it in canvas
    * space like the HP bars. Rebuilds the DOM only when the lines change (cached by
    * `hoverTipSig`); repositions every frame. Anchored bottom-centre a small gap above
@@ -847,6 +937,8 @@ export class WorldOverlays {
     this.hpBars = [];
     for (const l of this.crewLabels) l.root.remove();
     this.crewLabels = [];
+    for (const t of this.voiceTags) t.root.remove();
+    this.voiceTags = [];
     this.hoverTip?.remove();
     this.hoverTip = null;
   }
