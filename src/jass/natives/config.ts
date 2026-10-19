@@ -14,6 +14,8 @@ import { asInt, asNum, asStr, jBool, jInt, JNULL, truthy, type JassValue } from 
 type NativeFn = (ctx: NativeCtx, args: JassValue[]) => JassValue;
 const def = (rt: Runtime, name: string, fn: NativeFn): void => void rt.natives.set(name, fn);
 const player = (ctx: NativeCtx, v: JassValue): JassPlayer | undefined => ctx.rt.data<JassPlayer>(v);
+/** common.j `PLAYER_STATE_ALLIED_VICTORY = ConvertPlayerState(8)` — see JassPlayer.alliedVictory. */
+const PLAYER_STATE_ALLIED_VICTORY = 8;
 
 export function registerConfigNatives(rt: Runtime): void {
   // --- map identity + counts ---
@@ -172,12 +174,18 @@ export function registerConfigNatives(rt: Runtime): void {
   //     1 = gold, 2 = lumber, 4/5 = food cap/used (see the bridge in mapViewer). ---
   def(rt, "SetPlayerState", (c, a) => {
     const p = player(c, a[0]);
-    if (p) c.rt.hooks?.setPlayerState?.(p.index, c.rt.enumIndex(a[1]), asInt(a[2]));
+    if (!p) return JNULL;
+    // ALLIED_VICTORY (8) is a fact about the SCRIPT's teams, not a sim resource: kept on the
+    // player record (JassPlayer.alliedVictory), which is what the victory check reads back.
+    if (c.rt.enumIndex(a[1]) === PLAYER_STATE_ALLIED_VICTORY) p.alliedVictory = asInt(a[2]) ? 1 : 0;
+    else c.rt.hooks?.setPlayerState?.(p.index, c.rt.enumIndex(a[1]), asInt(a[2]));
     return JNULL;
   });
   def(rt, "GetPlayerState", (c, a) => {
     const p = player(c, a[0]);
-    return jInt(p ? c.rt.hooks?.getPlayerState?.(p.index, c.rt.enumIndex(a[1])) ?? 0 : 0);
+    if (!p) return jInt(0);
+    if (c.rt.enumIndex(a[1]) === PLAYER_STATE_ALLIED_VICTORY) return jInt(p.alliedVictory);
+    return jInt(c.rt.hooks?.getPlayerState?.(p.index, c.rt.enumIndex(a[1])) ?? 0);
   });
   // SetPlayerAlliance + GetPlayerAlliance + CripplePlayer live in natives/vision.ts (7.22).
   // They used to be no-ops HERE — and `SetPlayerAllianceStateBJ` was registered as a no-op

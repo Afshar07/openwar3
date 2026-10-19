@@ -327,8 +327,8 @@ const RICH: readonly Want[] = [
  * pays for each Raise Dead and each Cripple, a Banshee for every Curse and Anti-magic Shell, an
  * Obsidian Statue's Spirit Touch is a mana bar being spent on other people's mana bars, and the
  * Death Knight's Death Coil is the race's heal. `[utom] Makeitems` stocks `pman`, so a rich
- * undead computer's answer to "what do I do with this gold" is a belt of Potions of Mana. Three
- * of them: half a hero's inventory, and about what one long fight's worth of casting costs.
+ * undead computer's answer to "what do I do with this gold" is Potions of Mana. Up to three across
+ * the army — but never two in one belt (`ONE_PER_HERO`), so it is one per hero.
  *
  * The other three races have no equivalent — their surplus goes into the general `RICH` rows,
  * which is what a human does with it — so they stay unlisted rather than being given a habit.
@@ -424,6 +424,25 @@ const RACE_MANA: Partial<Record<PlayableRace, readonly Want[]>> = {
   nightelf: [{ id: "plcl", want: 1 }],
   undead: [{ id: "pman", want: 1 }],
 };
+
+/**
+ * ONE OF EACH PER HERO — the Potion of Healing and the Potion of Mana.
+ *
+ * Reported: a Normal computer's hero was walking about with two and three Potions of Healing
+ * (and a rich undead's with three Potions of Mana) — *"they should carry a maximum of 1 potion
+ * of healing and potion of mana"*. Every `want` on these lists is counted across ALL our heroes
+ * (`carried`), so with one hero standing the second and third potion all went into the same
+ * belt. The want rows still say how many the ARMY should hold; this says no single belt holds
+ * two, so the second potion goes to the second hero or is not bought. Ours, and the developer's
+ * rule — nothing in the install states it. Asked at every door a potion comes in by: the shop
+ * (`pick`/`shopper`), the field buys (`itemChance`) and the floor (`loot`).
+ */
+const ONE_PER_HERO: ReadonlySet<string> = new Set(["phea", "pman"]);
+
+/** May this hero take one more `itemId`? False only for a `ONE_PER_HERO` item it already holds. */
+function roomForOne(u: SimUnit, itemId: string): boolean {
+  return !ONE_PER_HERO.has(itemId) || !u.inventory.some((h) => h?.itemId === itemId);
+}
 
 /** The buys `PlusProfile.shopping` does not cap: the Town Portal (see `shop`), the Potion of
  *  Healing (see `LIST`) and the two FIGHT items (`FIGHT`). A free SLOT is still required —
@@ -1281,6 +1300,7 @@ export class PlusItems {
         for (const u of grabbers) {
           if (taken.has(u.id)) continue;
           if (!def.powerup && u.inventory.indexOf(null) < 0) continue;
+          if (!roomForOne(u, it.itemId)) continue;
           const d = Math.hypot(u.x - it.x, u.y - it.y);
           if (d <= feetD) { feetD = d; feet = u; }
         }
@@ -1303,6 +1323,7 @@ export class PlusItems {
         if (taken.has(u.id)) continue;
         // A powerup is consumed on contact and never stored, so a full belt is no obstacle.
         if (!def.powerup && u.inventory.indexOf(null) < 0) continue;
+        if (!roomForOne(u, it.itemId)) continue;
         const d = Math.hypot(u.x - it.x, u.y - it.y);
         if (d < bestD) { bestD = d; best = u; }
       }
@@ -1994,7 +2015,7 @@ export class PlusItems {
     // fight ends sat unbought at the shop it walked past. A player who keeps a Town Portal
     // replaces it whatever else is in the belt; a free SLOT is the only thing that can stop
     // them, and `shopper` still asks for one.
-    let hero = this.shopper(own, rich, ESSENTIAL.has(buy.itemId));
+    let hero = this.shopper(own, rich, buy.itemId);
     // …and a row the habit ceiling refuses must not hide an ESSENTIAL one below it. `pick` stops
     // at the first row it can act on, which for an orc is its opening salve — so a hero at the
     // ceiling was refused the salve and the pass ended there, every pass, with the Potion of
@@ -2003,7 +2024,7 @@ export class PlusItems {
       const essential = this.pick(own, this.view.gold(), ctx, rich, true);
       if (essential) {
         buy = essential;
-        hero = this.shopper(own, rich, true);
+        hero = this.shopper(own, rich, essential.itemId);
       }
     }
     if (!hero) return void (this.onErrand = 0);
@@ -2105,7 +2126,7 @@ export class PlusItems {
     // The FIRST hero where it can be: the highest level (which is nearly always the first one
     // trained), the older of two at the same level. A full belt cannot take it.
     const heroes = own
-      .filter((u) => u.isHero && !u.isIllusion && u.inventory.length && u.inventory.indexOf(null) >= 0 && u.order !== "getitem" && this.canAct(u))
+      .filter((u) => u.isHero && !u.isIllusion && u.inventory.length && u.inventory.indexOf(null) >= 0 && roomForOne(u, itemId) && u.order !== "getitem" && this.canAct(u))
       .sort((a, b) => b.level - a.level || a.id - b.id);
     if (!heroes.length) return false;
     const shops: SimUnit[] = [];
@@ -2332,7 +2353,8 @@ export class PlusItems {
    *  Attack had "three items" and stopped shopping for the rest of the match, with the gold
    *  still in the bank. `rich` lifts it to the six slots the hero actually has: a player with
    *  money spare fills the belt, whatever is already in it. */
-  private shopper(own: SimUnit[], rich: boolean, essential = false): SimUnit | null {
+  private shopper(own: SimUnit[], rich: boolean, itemId: string): SimUnit | null {
+    const essential = ESSENTIAL.has(itemId);
     let best: SimUnit | null = null;
     for (const u of own) {
       if (!u.isHero || !u.inventory.length || u.isIllusion) continue;
@@ -2341,6 +2363,7 @@ export class PlusItems {
       // argue about the same hero for the rest of the match. Same rule `pawn` and `loot` follow.
       if (u.order === "getitem") continue;
       if (u.inventory.indexOf(null) < 0) continue; // belt full
+      if (!roomForOne(u, itemId)) continue; // already holds its one (`ONE_PER_HERO`)
       // …and the habit ceiling, which an ESSENTIAL buy is exempt from — see `shop`.
       const cap = rich || essential ? u.inventory.length : this.profile.shopping;
       if (u.inventory.filter((h) => h !== null).length >= cap) continue;
@@ -2368,6 +2391,8 @@ export class PlusItems {
       const def = this.view.item(want.id);
       if (!def) continue;
       if (this.carried(own, want.id) >= want.want) continue;
+      // Every hero already holds its one (`ONE_PER_HERO`): the row is satisfied, not blocked.
+      if (!own.some((u) => u.isHero && !u.isIllusion && u.inventory.length && roomForOne(u, want.id))) continue;
       if (def.gold > purse) {
         // SAVE for a missing Town Portal rather than spend the gold on the next row down. With
         // the scroll first on the list (`hadPortal`) but 350 gold, every pass it could not be

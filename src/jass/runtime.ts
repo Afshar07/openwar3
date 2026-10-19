@@ -431,6 +431,18 @@ export interface JassPlayer {
    *  preference; this is the race the player actually plays (a lobby "random" already
    *  resolved), and it's what MeleeStartingUnits branches on. */
   raceIndex: number;
+  /**
+   * `PLAYER_STATE_ALLIED_VICTORY` (common.j `ConvertPlayerState(8)`), 0 or 1. blizzard.j's
+   * `MeleePlayerIsOpponent` lets two mutually-passive players stop being each other's
+   * opponents ONLY when both have it set — so with it stuck at 0 the two survivors of a team
+   * game were each other's last opponent and `MeleeCheckForVictors` never named a winner: the
+   * match ran on with nobody told (reported as an observer of a 2v2 on Lost Temple getting no
+   * "Game over."). A custom map writes it itself (`InitCustomTeams` emits
+   * `SetPlayerState(Player(n), PLAYER_STATE_ALLIED_VICTORY, 1)` for a force with flag 0x02 —
+   * NightElfX08Finale, UndeadX01); a MELEE game's teams come from the lobby, which grants it
+   * to everyone with a teammate (`applyLobby`) — the alliance panel's ticked Allied Victory box.
+   */
+  alliedVictory: number;
 }
 
 /** One playing slot as the host's lobby resolved it — the handoff into the script
@@ -1900,6 +1912,13 @@ export class Runtime {
       // before this, and a map that called SetPlayerName meant it.
       if (s.name && p.name === undefined) p.name = s.name;
     }
+    // A melee game's TEAMS are the lobby's, so is their allied victory (see JassPlayer.alliedVictory).
+    // A custom map's are its own forces' and were written by config() already.
+    if (this.gameType === 1) {
+      for (const s of slots) {
+        if (slots.some((o) => o.index !== s.index && o.team === s.team)) this.ensurePlayer(s.index).alliedVictory = 1;
+      }
+    }
   }
 
   /** A stable, interned player handle for slot `index` (Player(i) returns the same
@@ -1923,6 +1942,7 @@ export class Runtime {
         forcedStartLocation: false,
         slotState: 0, // PLAYER_SLOT_STATE_EMPTY until the lobby says otherwise
         raceIndex: 0,
+        alliedVictory: 0,
       };
       this.setup.players.set(index, p);
     }

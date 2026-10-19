@@ -1654,7 +1654,7 @@ export class MapViewerScene {
   private buildStrand = new Set<number>();
   private meleeTeams = new Map<number, number>(); // owner slot → team
   /** The seats an observer watches, in seat order (see beginMatch). */
-  private watchedSeats: Array<{ id: number; race: string; team: number }> = [];
+  private watchedSeats: Array<{ id: number; race: string; team: number; computer: boolean }> = [];
   /** Lobby labels by slot — the owner line, and the Allies dialog's player rows. */
   private playerNames = new Map<number, string>();
   /** Every chat line this player has heard, AS SAID — the F12 dialog's Chat History and the
@@ -2721,7 +2721,7 @@ export class MapViewerScene {
     // Who an observer watches (issue #168): every seat in the match, with the race it resolved
     // to. Handed to the controller on BOTH sides of the wire — the host builds a watcher's lane
     // from it and a watcher's own HUD reads it.
-    this.watchedSeats = config.slots.map((s) => ({ id: s.id, race: races.get(s.id) ?? "human", team: s.team }));
+    this.watchedSeats = config.slots.map((s) => ({ id: s.id, race: races.get(s.id) ?? "human", team: s.team, computer: s.controller === "computer" }));
     this.rts!.setObservedPlayers(this.watchedSeats.map((s) => s.id));
     this.rts!.setLocalTeam(this.teamOf(this.localPlayer)); // whose combined sight lifts the fog
     // Every seat gets its own eyes NOW, with the lobby's team, rather than a grid conjured
@@ -9415,6 +9415,7 @@ export class MapViewerScene {
           color: PLAYER_COLORS[rts.unitColor(seat.id) % PLAYER_COLORS.length],
           race: seat.race,
           team: this.teamOf(seat.id),
+          computer: seat.computer,
         }));
       },
       matchSeconds: () => this.rts?.matchSeconds() ?? 0,

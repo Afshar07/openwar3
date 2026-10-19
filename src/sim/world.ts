@@ -13388,9 +13388,11 @@ export class SimWorld {
     // An uprooted Ancient is still a STRUCTURE (Root is a building deciding to walk), so its
     // UnitBalance 40 is held to the building floor, 25, and walks at 40.
     if (u.baseSpeed > 0 && u.speed > 0) u.speed = Math.max(u.speed, u.building || root ? gameNum("MinBldgSpeed") : gameNum("MinUnitSpeed"));
-    // A critter walks at exactly its own pace, whatever it was before (HEX_MOVE_SPEED) — and
-    // the zeroing rules below still hold it, so an ensnared sheep stays put.
-    if (hexed) u.speed = HEX_MOVE_SPEED;
+    // A critter walks at exactly its own pace, whatever it was before (HEX_MOVE_SPEED) — but a
+    // NET still holds it. The set used to come after the pin and overwrite it: a Huntress hexed
+    // by a Shadow Hunter and Ensnared by a Raider walked out of the net as a sheep (reported).
+    // Every net pins at 1.0 (`root`), so a full slow is a pin whatever the body is wearing.
+    if (hexed) u.speed = slowMove >= 1 ? 0 : HEX_MOVE_SPEED;
     // Root (`Aroo`) — an Ancient is a building that can decide to walk. UnitBalance already
     // gives every carrier a real movement speed (eaom spd=40): that is its UPROOTED walk, and
     // what makes it a building the rest of the time is simply that we refuse to spend it.

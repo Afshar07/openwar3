@@ -237,6 +237,26 @@ console.log("\na critter has no hands: the whole inventory row goes dead");
   check("…nor dropped from", w.dropItem(hero.id, 0, hero.x, hero.y), false);
 }
 
+console.log("\na net still holds a critter — a hexed and Ensnared unit cannot walk");
+{
+  const w = world();
+  const hunter = caster(w, "Oshd", "AOhx", 1000, 1000);
+  const f = spawn(w, "hfoo", 1300, 1000, 1, 1);
+  check("the cast is taken", w.issueCast(hunter.id, "AOhx", f.id, 0, 0), true);
+  run(w, 2);
+  check("the Footman is hexed", f.hexed, true);
+  w.spellApi.applyBuff(f, { kind: "root", group: "ensnare", timeLeft: 10, sourceId: hunter.id, value: 1 });
+  w.recomputeStats(f);
+  check("…and Ensnared, it stands still", f.speed, 0);
+  const x = f.x;
+  w.issueMove(f.id, 1800, 1000);
+  run(w, 1);
+  check("…and a move order takes it nowhere", f.x, x);
+  for (const b of f.buffs) if (b.group === "ensnare") b.timeLeft = 0.01;
+  run(w, 0.2);
+  check("the net gone, the critter walks at 100 again", f.speed, 100);
+}
+
 console.log("\nevery speed stops at MaxUnitSpeed, and only Wind Walk and Chemical Rage go past it");
 {
   const w = world();

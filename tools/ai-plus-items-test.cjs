@@ -1345,10 +1345,25 @@ const spend = (h, id) => { const i = h.inventory.findIndex((s) => s?.itemId === 
   // so what is left to buy is only what the SURPLUS rows want. `RACE_SURPLUS` leads them, so a
   // banked undead computer keeps buying Potions of Mana. Reported: "undead is a very
   // mana-hungry race".
+  //
+  // …but ONE PER HERO (items.ts `ONE_PER_HERO`). Reported: heroes were carrying two and three
+  // Potions of Healing and of Mana — *"they should carry a maximum of 1 potion of healing and
+  // potion of mana"*. So the surplus goes to the hero that has none, and a lone hero that has
+  // one is done.
   const shelf = ["stwp", "phea", "pman"]; // [utom] Makeitems, less what this fixture has no row for
-  const h = belt(hero(), "stwp", "phea", "phea", "pman");
-  check("a rich undead keeps buying mana",
-    shopped([h, MERCHANT], PLUS_INSANE, { race: "undead", shelf, gold: 5000 }).buy?.itemId, "pman");
+  const h = belt(hero(), "stwp", "phea", "pman");
+  check("a rich undead does not buy a hero a second Potion of Mana",
+    shopped([h, MERCHANT], PLUS_INSANE, { race: "undead", shelf, gold: 5000 }).buy?.itemId, undefined);
+  const second = belt(hero({ level: 1 }), "phea");
+  const rich = shopped([h, second, MERCHANT], PLUS_INSANE, { race: "undead", shelf, gold: 5000 });
+  check("…it buys one for the hero that has none", rich.buy?.itemId, "pman");
+  const walk = shopped([h, second, MERCHANT], PLUS_INSANE, { race: "undead", shelf, gold: 5000, inRange: false });
+  check("…and it is that hero who walks to the shop", walk.move?.unitId, second.id);
+  // The same rule for healing, on any race: a rich hero holding one Potion of Healing is not
+  // sent for a second.
+  const healed = belt(hero(), "stwp", "phea", "shea", "pnvl", "spro");
+  check("a rich hero holding a Potion of Healing is not sold a second",
+    shopped([healed, MERCHANT], PLUS_INSANE, { shelf: ["stwp", "phea", "shea", "pnvl", "spro"], gold: 5000 }).buy?.itemId === "phea", false);
   // …and only when it IS rich: an ordinary purse stops at the core list, which wanted one.
   const lean = PLUS_INSANE.itemReserve + 300;
   check("…and stops at one on an ordinary purse",

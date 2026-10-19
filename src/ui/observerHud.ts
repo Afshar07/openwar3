@@ -37,6 +37,9 @@ export interface ObserverSeat extends ObserverPlayerView {
   color: string; // CSS colour of the seat's current player colour
   race: string; // human | orc | undead | nightelf | …
   team: number;
+  /** A computer seat. Its "actions" are the AI's orders, not hands on a keyboard, so the
+   *  scoreboard prints "-" for its APM rather than a number nobody could have played at. */
+  computer?: boolean;
 }
 
 /** A length in the 0.6-tall UI space, as CSS. */
@@ -630,7 +633,7 @@ export class ObserverHud {
         + `<span class="obs-score-race"${race ? ` style="background-image:url(${race})"` : ""}></span>`
         + `<span class="obs-score-name">${escapeHtml(s.name)}</span>`
         + `${gold}<span>${s.gold}</span>${lumber}<span>${s.lumber}</span>${food}<span>${s.foodUsed}/${s.foodMax}</span>`
-        + `<span class="obs-score-apm">APM</span><span>${s.apm}</span>`;
+        + `<span class="obs-score-apm">APM</span><span>${s.computer ? "-" : s.apm}</span>`;
     }).join("");
     for (const [host, list] of [[this.scoreLeft, left], [this.scoreRight, right]] as const) {
       const html = rows(list);

@@ -253,9 +253,9 @@ export class AllianceDialogOverlay {
       this.wireGift(screen, peer.id, "Gold");
       this.wireGift(screen, peer.id, "Lumber");
     }
-    // Allied Victory is a GAME RULE (blizzard.j's bj_alliedVictory), not an alliancetype —
-    // there is no melee victory condition reading it yet, so it is shown greyed rather than
-    // offered as a switch that does nothing.
+    // Allied Victory is a PLAYER STATE (`PLAYER_STATE_ALLIED_VICTORY`), not an alliancetype —
+    // a melee game grants it to every player with a teammate (Runtime.applyLobby) and the
+    // victory check reads it, but this panel has no door to change it yet, so it is greyed.
     screen.setEnabled("AlliedVictoryCheckBox", false);
     screen.setEnabled("AllianceAcceptButton", this.model.writable);
   }

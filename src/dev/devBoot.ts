@@ -190,6 +190,16 @@ export async function devBoot(hooks: DevBootHooks): Promise<void> {
   const aiPlus = aiParam.startsWith("plus-") || aiParam === "plus";
   const ai = AI_DIFFICULTIES[aiPlus ? aiParam.slice(5) || "normal" : aiParam] ?? null;
   const observe = params.has("observe"); // see observeConfig
+  // `?teams=0,0,1,1` — the lobby's Team column, seat by seat, so a TEAM game can be booted
+  // without the lobby (a 2v2 on Lost Temple: whether the match is decided when one side is
+  // gone). Seats past the list keep the map's own team.
+  const teams = (params.get("teams") ?? "").split(",").filter((t) => t.trim() !== "").map(Number);
+  const devConfig = (info: MapInfo): MeleeConfig => {
+    const base = meleeConfigFor(info, player, seed, fog, race, aiRace, ai, aiPlus);
+    const cfg = observe ? observeConfig(base, ai, aiPlus) : base;
+    if (!teams.length) return cfg;
+    return { ...cfg, slots: cfg.slots.map((s, i) => (i < teams.length && Number.isFinite(teams[i]) ? { ...s, team: teams[i] } : s)) };
+  };
 
   log("fetching manifest…");
   const res = await fetch("/wc3/manifest.json");
@@ -283,7 +293,7 @@ export async function devBoot(hooks: DevBootHooks): Promise<void> {
     const mapFile = path ? load.maps.get(path) : undefined;
     if (!mapFile) throw new Error(`no mounted map matching "${name}" — mount it with ?maps=`);
     const info = parseMapInfo(new Uint8Array(await mapFile.arrayBuffer()), path!);
-    await hooks.startGame(mapFile, info, (observe ? observeConfig(meleeConfigFor(info, player, seed, fog, race, aiRace, ai, aiPlus), ai, aiPlus) : meleeConfigFor(info, player, seed, fog, race, aiRace, ai, aiPlus)));
+    await hooks.startGame(mapFile, info, devConfig(info));
   };
 
   // A campaign chapter comes out of the archives we just mounted, so it needs no map file and
@@ -314,7 +324,7 @@ export async function devBoot(hooks: DevBootHooks): Promise<void> {
   }
 
   log(`starting ${info.name} as player ${player}, seed ${seed}`);
-  await hooks.startGame(file, info, (observe ? observeConfig(meleeConfigFor(info, player, seed, fog, race, aiRace, ai, aiPlus), ai, aiPlus) : meleeConfigFor(info, player, seed, fog, race, aiRace, ai, aiPlus)));
+  await hooks.startGame(file, info, devConfig(info));
 }
 
 /** Resolve once the lobby's state satisfies `ready`, or reject after `timeoutMs`. */
