@@ -196,6 +196,26 @@ i = one("Attack-move here.");
 check("Attack-move here.", i?.kind === "order" && i.order === "attackmove", JSON.stringify(i));
 check("orc does not sound like ark (too short)", one("build an ark") === null, JSON.stringify(p("build an ark")));
 
+console.log("camps, camera, fall back");
+i = one("Move the camera to a green camp.");
+check("camera to a green camp", i?.kind === "camera" && i.target.kind === "creeps" && i.target.tier === "green", JSON.stringify(i));
+i = one("Pan the camera to another orange creep camp");
+check("pan to another orange creep camp", i?.kind === "camera" && i.target.kind === "creeps" && i.target.tier === "orange" && i.target.pick === "next", JSON.stringify(i));
+i = one("Move the camera back to my base.");
+check("camera back to my base", i?.kind === "camera" && i.target.kind === "base" && i.target.side === "mine", JSON.stringify(i));
+i = one("pan to my base");
+check("pan to my base", i?.kind === "camera" && i.target.kind === "base", JSON.stringify(i));
+i = one("Fall back!");
+check("fall back", i?.kind === "retreat" && !i.target, JSON.stringify(i));
+i = one("retreat to the gold mine");
+check("retreat to the gold mine", i?.kind === "retreat" && i.target?.kind === "mine", JSON.stringify(i));
+i = one("go home");
+check("go home", i?.kind === "retreat", JSON.stringify(i));
+i = one("Place a farm here.");
+check("place a farm here", i?.kind === "build" && i.entry.id === "hhou", JSON.stringify(i));
+i = one("camera to the goblin merchant");
+check("camera to the goblin merchant (lexicon has it when seen)", i === null || i.kind === "camera", JSON.stringify(i));
+
 console.log("not commands");
 check("small talk is nothing", p("hello how are you").length === 0, JSON.stringify(p("hello how are you")));
 check("describe() names every intent", p("train three footmen and group two").map(describe).join(" · ") === "Train 3 × Footman · Group 2", p("train three footmen and group two").map(describe).join(" · "));

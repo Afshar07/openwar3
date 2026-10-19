@@ -57,7 +57,9 @@ export type VoiceTarget =
   | { kind: "mine"; region?: Region; pick?: Pick } // "the gold mine", "another gold mine"
   | { kind: "trees" } // "the trees", "the forest"
   | { kind: "army" } // "my army"
-  | { kind: "creeps"; region?: Region; pick?: Pick } // "the creep camp", "another camp"
+  /** "the creep camp", "another camp", "a green camp" — `tier` is the minimap's own colour for
+   *  the camp's combined level (game/minimapView.ts: green 1–9, orange 10–19, red 20+). */
+  | { kind: "creeps"; region?: Region; pick?: Pick; tier?: "green" | "orange" | "red" }
   | { kind: "region"; region: Region }; // "the top left", "the middle of the map"
 
 /**
@@ -80,6 +82,8 @@ export interface Subject {
 export type OrderVerb = "move" | "attack" | "attackmove" | "patrol" | "attackground" | "rally" | "smart";
 
 export type VoiceIntent =
+  /** "Fall back", "retreat", "go home": the whole army ("-") walks home, or to the place said. */
+  | { kind: "retreat"; target?: VoiceTarget }
   /** `source` is a rally's building TYPE ("the rally point of the barracks"), set on every one of
    *  ours without touching the selection. */
   | { kind: "order"; order: OrderVerb; target?: VoiceTarget; subject?: Subject; source?: LexEntry }
@@ -163,9 +167,11 @@ const VERBS2: Array<[string, string]> = [
   ["look at", "camera"], ["go to", "move"], ["chop wood", "lumber"], ["cut wood", "lumber"],
   ["get gold", "gold"], ["get lumber", "lumber"], ["get wood", "lumber"], ["idle worker", "idle"],
   ["select army", "army"], ["rally point", "rally"],
+  ["fall back", "retreat"], ["pull back", "retreat"], ["go home", "retreat"], ["run home", "retreat"],
+  ["back off", "retreat"], ["head home", "retreat"], ["come home", "retreat"], ["get out", "retreat"],
 ];
 const VERBS1: Record<string, string> = {
-  move: "move", walk: "move", run: "move", retreat: "move", come: "move",
+  move: "move", walk: "move", run: "move", retreat: "retreat", withdraw: "retreat", regroup: "retreat", come: "move",
   attack: "attack", hit: "attack", kill: "attack", fight: "attack", charge: "attack",
   amove: "attackmove", patrol: "patrol", rally: "rally", follow: "smart",
   // "put all peasants on gold", "send two footmen there", "put the rally point of the barracks
@@ -311,7 +317,8 @@ export function grammarWords(): string[] {
   for (const w of Object.keys(NUMBERS)) if (!/^\d+$/.test(w)) out.add(w);
   for (const s of [SCREEN_WORDS, CURSOR_WORDS, NEXT_WORDS, NEAREST_WORDS, ENEMY_WORDS, MINE_WORDS, ALLY_WORDS, PREPOSITIONS, FILLER]) for (const w of s) out.add(w);
   for (const w of Object.keys(REGION_WORDS)) out.add(w);
-  for (const w of ["side", "map", "corner", "camera", "move", "take", "put", "look", "one"]) out.add(w);
+  for (const w of ["side", "map", "corner", "camera", "move", "take", "put", "look", "one", "pan", "place", "fall", "back",
+    "retreat", "home", "green", "orange", "yellow", "red", "goblin", "tavern"]) out.add(w);
   for (const set of [WORKER_WORDS, ALL_WORDS, FROM_WORDS, GOLD_WORDS, LUMBER_WORDS]) for (const w of set) out.add(w);
   for (const w of ["finish", "complete", "resume", "continue", "construction", "building", "buildings", "item", "items",
     "idle", "rally", "point", "creep", "creeps", "camp", "camps", "neutral", "tower", "shop", "farm",
@@ -388,7 +395,11 @@ export function readTarget(ws: readonly string[], at: number, lex: Lexicon): Voi
   let side: Side = "any";
   const mods = readModifiers(ws, at);
   const skippable = (w: string): boolean =>
-    PREPOSITIONS.has(w) || FILLER.has(w) || w === "a" || w === "an" || NEXT_WORDS.has(w) || NEAREST_WORDS.has(w) || w === "camera";
+    PREPOSITIONS.has(w) || FILLER.has(w) || w === "a" || w === "an" || NEXT_WORDS.has(w) || NEAREST_WORDS.has(w) ||
+    w === "camera" || w === "back" || w === "over" || w === "up" || w === "view";
+  // A camp's COLOUR on the minimap ("a green camp", "the red creeps"), said before the camp.
+  const tierAt = (j: number): "green" | "orange" | "red" | undefined =>
+    ws[j] === "green" || ws[j] === "easy" ? "green" : ws[j] === "orange" || ws[j] === "yellow" || ws[j] === "medium" ? "orange" : ws[j] === "red" || ws[j] === "hard" ? "red" : undefined;
   while (i < ws.length && skippable(ws[i])) i++;
   if (i >= ws.length) return undefined;
   if (CURSOR_WORDS.has(ws[i])) return { kind: "cursor" };
@@ -405,6 +416,12 @@ export function readTarget(ws: readonly string[], at: number, lex: Lexicon): Voi
   if ((s === "gold" && (ws[i + 1] === "mine" || ws[i + 1] === undefined)) || (s === "mine" && side === "any")) return { kind: "mine", ...mods };
   if (s === "tree" || s === "forest" || s === "wood" || s === "lumber") return { kind: "trees" };
   if (s === "army") return { kind: "army" };
+  {
+    // "a green camp", "the red creeps", "an orange creep camp"
+    const tier = tierAt(i);
+    const next = stem(ws[i + 1] ?? "");
+    if (tier && (next === "camp" || next === "creep")) return { kind: "creeps", tier, ...mods };
+  }
   if (s === "creep" || s === "camp" || (s === "neutral" && stem(ws[i + 1] ?? "") === "camp")) return { kind: "creeps", ...mods };
   const m = lex.match(ws, i, ["unit", "building", "hero"]);
   if (m) return { kind: "unit", entry: m.entry, side, ...mods };
@@ -505,6 +522,7 @@ function parseClause(ws: string[], ctx: ParseContext, inherited: string | null):
       const t = rest();
       return t || sub ? done({ kind: "order", order: "move", target: t, subject: sub?.subject }, "move") : null;
     }
+    case "retreat": return done({ kind: "retreat", target: rest() });
     case "stop": return done({ kind: "stop" });
     case "hold": return done({ kind: "hold" });
     case "cancel": return done({ kind: "cancel" });
@@ -738,11 +756,12 @@ export function describe(i: VoiceIntent): string {
       case "mine": return ` → ${x.pick === "next" ? "another " : ""}gold mine${x.region ? ` (${regionWords(x.region)})` : ""}`;
       case "trees": return " → trees";
       case "army": return " → army";
-      case "creeps": return ` → ${x.pick === "next" ? "another " : ""}creep camp${x.region ? ` (${regionWords(x.region)})` : ""}`;
+      case "creeps": return ` → ${x.pick === "next" ? "another " : ""}${x.tier ? `${x.tier} ` : ""}creep camp${x.region ? ` (${regionWords(x.region)})` : ""}`;
     }
   };
   switch (i.kind) {
     case "order": return `${i.subject ? `${who(i.subject)}: ` : ""}${i.source ? `${i.source.phrase} ` : ""}${{ move: "Move", attack: "Attack", attackmove: "Attack-move", patrol: "Patrol", attackground: "Attack ground", rally: "Rally", smart: "Follow" }[i.order]}${t(i.target)}`;
+    case "retreat": return `Fall back${t(i.target) || " → home"}`;
     case "stop": return "Stop";
     case "hold": return "Hold position";
     case "cancel": return "Cancel";

@@ -247,11 +247,13 @@ export function makeVoiceHost(d: VoiceDriver): VoiceHost {
       case "creeps": {
         const cam = d.cameraFocus();
         const origin = t.pick === "next" ? cam : from;
+        // A camp's colour is the minimap's (game/minimapView.ts): green 1–9, orange 10–19, red 20+.
+        const tierOf = (level: number): "green" | "orange" | "red" => (level >= 20 ? "red" : level >= 10 ? "orange" : "green");
         const list = d.creepCamps()
-          .filter((c) => inRegion(c.x, c.y, t.region))
+          .filter((c) => inRegion(c.x, c.y, t.region) && (!t.tier || tierOf(c.level) === t.tier))
           .sort((a, b) => Math.hypot(a.x - origin[0], a.y - origin[1]) - Math.hypot(b.x - origin[0], b.y - origin[1]));
-        const c = t.pick === "next" ? stepNext("creeps", list) : list[0];
-        return c ? { point: [c.x, c.y] } : { fail: "No creep camp found." };
+        const c = t.pick === "next" ? stepNext(`creeps:${t.tier ?? ""}`, list) : list[0];
+        return c ? { point: [c.x, c.y] } : { fail: t.tier ? `No ${t.tier} creep camp found.` : "No creep camp found." };
       }
       case "trees": {
         const tree = r.simWorld.nearestTree(from[0], from[1], 2500);
@@ -571,6 +573,14 @@ export function makeVoiceHost(d: VoiceDriver): VoiceHost {
         const button = i.order === "attackmove" ? "attack" : i.order;
         d.press(button);
         aim(i.target, i.order === "move" || i.order === "rally" ? "mine" : "enemy");
+        return;
+      }
+      case "retreat": {
+        // "Fall back": the whole army — the "-" key's selection — walks home (our town hall), or
+        // to the place said. A MOVE, not an attack-move: falling back is not stopping to fight.
+        if (!d.selectAllArmy()) { d.error("You have no army."); return; }
+        d.press("move");
+        aim(i.target ?? { kind: "base", side: "mine" }, "mine");
         return;
       }
       case "stop": if (needSelection()) r.stopSelected(); return;

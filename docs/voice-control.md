@@ -114,6 +114,15 @@ files (`onnx-community/whisper-*.en`), run by transformers.js in a worker:
 - **The prompt knows the game.** The lexicon (the card, our tech tree, our units' spells, what is
   on screen) and then every melee unit, ability and item name prime Whisper's spelling, the most
   likely names LAST (the worker keeps the end of a long prompt).
+- **Camps by colour**: "move the camera to a green camp", "pan to another orange creep camp" — the
+  minimap's own colours for a camp's combined level (green 1–9, orange/yellow 10–19, red 20+,
+  game/minimapView.ts). "Back", "over", "up" are skipped before a place ("pan the camera BACK to my
+  base").
+- **"Fall back"** ("retreat", "pull back", "go home"): the "-" key's army is selected and MOVED —
+  not attack-moved — to our town hall, or to the place said ("retreat to the gold mine").
+- **The prompt carries example SENTENCES** (`COMMAND_EXAMPLES` in control.ts) after the names: the
+  words the developer named as hard — pan, move, place, camp, goblin, tavern, the camp colours,
+  fall back — are spelled right far more often after an example of them than after a name list.
 - Everything is fog-honest: "the enemy hero" is the nearest one this player can SEE.
 
 `window.openwar3.voiceSay("train three footmen")` runs a sentence through the same path with no

@@ -266,9 +266,19 @@ function promptFor(h: VoiceHost, lexicon: Lexicon): string {
   };
   for (const { entry } of lexicon.entries) add(entry.phrase);
   for (const w of h.vocabulary()) add(w);
-  const likely = names.slice(0, 90).reverse();
-  return `Warcraft III voice commands: ${likely.join(", ")}.`;
+  const likely = names.slice(0, 80).reverse();
+  // The sentences a player SAYS, beside the names: Whisper is primed by context, and words like
+  // "pan", "camp", "fall back" are spelled right far more often after an example of them than
+  // after a list of unit names.
+  return `Warcraft III voice commands: ${likely.join(", ")}. ${COMMAND_EXAMPLES}`;
 }
+
+/** Example commands for the prompt (see `promptFor`) — the developer's list of words the
+ *  recogniser must hear right: pan, move, place, camp, goblin, tavern, the camp colours, fall back. */
+const COMMAND_EXAMPLES =
+  "Move the camera to a green camp. Pan the camera back to my base. Move the camera to the tavern. " +
+  "Camera to an orange creep camp, a red camp, the goblin merchant. Place a farm here. Fall back. " +
+  "Train three footmen. Attack move here. Select army. Group one.";
 
 async function finish(u: Utterance): Promise<void> {
   if (current !== u) return;
