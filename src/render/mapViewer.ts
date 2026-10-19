@@ -44,6 +44,9 @@ import type { ScoreRow, ScoreTable } from "../game/scoreTable";
 import { unitSnapshot, unitSnapshots } from "../game/jassHooks";
 import { SoundBoard } from "../audio/sounds";
 import { VoiceChat } from "../audio/voiceChat";
+import { setVoiceHost } from "../voice/control";
+import { dressAsGameTip } from "../ui/gameTipSkin";
+import { makeVoiceHost } from "../game/voiceActions";
 import { Talkers, VOICE_HUD_MAX, VOICE_KEY_CODE, voiceFromBase64, voiceRecipients, voiceToBase64 } from "../game/voice";
 import { loadUnitRegistry, type UnitRegistry, type UnitDef } from "../data/units";
 import { applyMapUnitData, applyMapAbilityData, applyMapItemData, applyMapUpgradeData, applyMapTechData, heroFoldConstants, makeTrigStr, refoldHeroConstants } from "../data/objectData";
@@ -8828,6 +8831,122 @@ export class MapViewerScene {
    *  group's LEADING unit, the one the portrait shows. See RtsController.selectionAnchor
    *  for why the point has to be on a body rather than in the middle of the group. */
   /**
+   * The match's side of Voice Control (src/voice/, game/voiceActions.ts): hold "." and speak.
+   * Everything it lends is a door the mouse and the keyboard already use — the card's own
+   * `runCommand`, the click path, the HUD driver's inventory and control-group calls — so a
+   * spoken command is gated exactly as a clicked one.
+   */
+  private installVoiceControl(ui: HTMLElement, driver: HudDriver): void {
+    // The "Listening…" line: the tooltip's slab, centred over the console, while the key is
+    // held. Ours — nothing in the game listens.
+    const line = document.createElement("div");
+    line.className = "voice-control-status game-tip";
+    line.hidden = true;
+    dressAsGameTip(line);
+    ui.appendChild(line);
+    this.detachers.push(() => line.remove());
+    setVoiceHost(makeVoiceHost({
+      rts: () => this.rts,
+      localPlayer: () => this.localPlayer,
+      units: this.registry,
+      abilities: this.abilities,
+      tech: this.tech,
+      upgrades: this.upgrades,
+      canAct: () => !!this.hud?.acceptsInput() && !this.hardPaused && this.userControl,
+      card: () => this.commandCard(),
+      press: (id) => this.runCommand(id),
+      cursor: () => ({ x: this.lastMouse.x, y: this.lastMouse.y }),
+      screenCentre: () => this.rts?.groundPoint(this.canvas.clientWidth / 2, this.canvas.clientHeight / 2) ?? null,
+      mapBounds: () => driver.mapBounds(),
+      buildSpot: () => this.voiceBuildSpot(),
+      toScreen: (wx, wy) => this.worldToCss(wx, wy),
+      placing: () => !!this.placement,
+      placeAt: (x, y) => this.placeBuilding(x, y),
+      panTo: (wx, wy) => driver.panTo(wx, wy),
+      jumpToSelection: () => this.jumpToSelection(),
+      recallGroup: (n) => driver.recallControlGroup(String(n), true),
+      selectHero: (i) => driver.selectHero(i, true),
+      inventory: () => (this.rts?.inventorySlots() ?? []).map((sl) => (sl ? { name: sl.name, usable: sl.usable } : null)),
+      useInventory: (slot) => driver.useInventory(slot),
+      message: (text) => this.hud?.showMessage(text, -1),
+      error: (text) => this.hud?.showError(text),
+      status: (text) => {
+        line.hidden = text === null;
+        if (text !== null) line.textContent = text;
+      },
+    }));
+    this.detachers.push(() => setVoiceHost(null));
+  }
+
+  /**
+   * "Build a farm here": a site for the building on the cursor SOMEWHERE ON THE SCREEN, chosen
+   * the way a player would — beside this player's other buildings, as near the middle of the
+   * view as that allows — and never in the lane between a town hall and its gold mine, which is
+   * the one place a careless wall starves an economy. Every candidate goes through the
+   * placement click's own test (`placementValid`, against the grid and our pending sites), so a
+   * site this finds is one the click would accept. Canvas CSS pixels, or null when nothing on
+   * screen fits. The band sampled stops short of the console, whose art covers the world.
+   */
+  private voiceBuildSpot(): { x: number; y: number } | null {
+    const p = this.placement;
+    const rts = this.rts;
+    if (!p || !rts) return null;
+    const w = this.canvas.clientWidth;
+    const h = this.canvas.clientHeight;
+    const centre = rts.groundPoint(w / 2, h / 2);
+    const own: Array<{ x: number; y: number }> = [];
+    const lanes: Array<[number, number, number, number]> = [];
+    const mines = [...rts.simView.mines.values()];
+    for (const u of rts.simView.units.values()) {
+      if (u.owner !== this.localPlayer || !u.building || u.hp <= 0) continue;
+      own.push(u);
+      if (this.registry.get(u.typeId)?.buffType !== "townhall") continue;
+      let best: { x: number; y: number } | null = null;
+      for (const m of mines) if (Math.hypot(m.x - u.x, m.y - u.y) < 1400 && (!best || Math.hypot(m.x - u.x, m.y - u.y) < Math.hypot(best.x - u.x, best.y - u.y))) best = m;
+      if (best) lanes.push([u.x, u.y, best.x, best.y]);
+    }
+    const toLane = (x: number, y: number, [ax, ay, bx, by]: [number, number, number, number]): number => {
+      const dx = bx - ax, dy = by - ay;
+      const t = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy || 1)));
+      return Math.hypot(x - (ax + t * dx), y - (ay + t * dy));
+    };
+    const reserved = this.pendingBuildCells(p.workerId);
+    let best: [number, number] | null = null;
+    let bestScore = Infinity;
+    const COLS = 18, ROWS = 10;
+    for (let gy = 0; gy < ROWS; gy++) {
+      for (let gx = 0; gx < COLS; gx++) {
+        const hit = rts.groundPoint(w * (0.05 + (0.9 * gx) / (COLS - 1)), h * (0.08 + (0.6 * gy) / (ROWS - 1)));
+        if (!hit) continue;
+        const [x, y] = this.snapPlacement(p.def, hit[0], hit[1], p.fp);
+        if (!this.placementValid(x, y, reserved)) continue;
+        if (lanes.some((l) => toLane(x, y, l) < 280)) continue;
+        const near = own.length ? Math.min(...own.map((b) => Math.hypot(b.x - x, b.y - y))) : 0;
+        const score = near + 0.35 * (centre ? Math.hypot(centre[0] - x, centre[1] - y) : 0);
+        if (score < bestScore) { bestScore = score; best = [x, y]; }
+      }
+    }
+    return best ? this.worldToCss(best[0], best[1]) : null;
+  }
+
+  /** Where a world point (on the ground) is drawn, in canvas CSS pixels — the projection the
+   *  floating text uses (`overlayHost.project`). Null behind the eye. */
+  private worldToCss(wx: number, wy: number): { x: number; y: number } | null {
+    const scene = this.viewer.map?.worldScene;
+    if (!scene || !this.rts) return null;
+    // The canvas's own buffer-to-CSS ratio, not the device's: the Resolution rung sizes the
+    // buffer independently of the page (docs/video-options.md).
+    const dpr = this.canvas.width / this.canvas.clientWidth || 1;
+    this.world3[0] = wx;
+    this.world3[1] = wy;
+    this.world3[2] = this.rts.groundHeightAt(wx, wy);
+    (scene.camera as unknown as RtsHost["camera"]).worldToScreen(this.screen3, this.world3, scene.viewport);
+    const sx = this.screen3[0] / dpr;
+    const sy = (this.canvas.height - this.screen3[1]) / dpr;
+    return Number.isFinite(sx) && Number.isFinite(sy) ? { x: sx, y: sy } : null;
+  }
+
+  /**
    * The match's side of the gamepad (issue #162, ui/gamepad.ts): the pad actions that have no
    * key to be pressed through. Everything a pad button CAN say as a key (Escape, Tab, "-",
    * F8, F9, F10) or as a click is sent as one, and reaches this scene by its ordinary doors.
@@ -9665,6 +9784,7 @@ export class MapViewerScene {
     this.consoleUi.setObserver(this.observer);
     this.hud = new GameHud(ui, driver);
     this.installGamepad();
+    this.installVoiceControl(ui, driver);
     this.mountScriptUi(ui);
     this.gameMenu?.dispose();
     const endGame = (scores = true): void => {

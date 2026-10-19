@@ -1,0 +1,78 @@
+# Voice Control
+
+Options → Gameplay → **Voice Control**: hold **Period (.)**, say a command, let go. Nothing in
+Warcraft III listens, so every part of this is OURS — the key, the vocabulary, the grammar —
+and nothing here is a number from the game. What it ends in is the game's: every spoken command
+is carried out through the doors a click and a hotkey already use.
+
+## The pipeline
+
+```
+"." held ─▶ microphone (ScriptProcessor tap) ─▶ Vosk recogniser in a worker, GRAMMAR-constrained
+          ─▶ text ─▶ parser (deterministic) ─▶ intents ─▶ game/voiceActions.ts ─▶ runCommand /
+             orderClickAt / tryTargetArmedAt / RtsController.execute
+```
+
+| file | what it is |
+| --- | --- |
+| [`src/voice/model.ts`](../src/voice/model.ts) | the speech model: install check, download with a bar, the recogniser (lazy-loaded) |
+| [`src/voice/vocabulary.ts`](../src/voice/vocabulary.ts) | the GRAMMAR — the words the recogniser may hear for this utterance |
+| [`src/voice/parser.ts`](../src/voice/parser.ts) | text → intents. Pure; pinned by `tools/voice-parser-test.cjs` |
+| [`src/voice/control.ts`](../src/voice/control.ts) | push-to-talk, the microphone, one utterance's life; `applyVoiceOptions` |
+| [`src/game/voiceActions.ts`](../src/game/voiceActions.ts) | intents → the match's own click/hotkey paths; target resolution; spell assist |
+| [`src/ui/voiceOptions.ts`](../src/ui/voiceOptions.ts), [`src/ui/voiceDownload.ts`](../src/ui/voiceDownload.ts) | the Options row's two faces and the download dialog |
+
+## Why no language model
+
+It was the obvious design and it is wrong for the machines this has to run on. Whisper's
+smallest model is 75 MB and takes SECONDS per utterance in WebAssembly on a weak CPU; it
+transcribes free text, so it invents words the game must then un-invent; an LLM to map the text
+onto commands is the same cost again. Instead:
+
+- **Vosk** (Kaldi in WebAssembly, `vosk-browser`, Apache-2.0) with its small English model (41 MB,
+  Apache-2.0). Kaldi's small models run in real time on a Raspberry Pi.
+- It takes a **grammar**: the list of words it may hear. Told it is listening for "footman",
+  "attack", "three" and a few hundred others, it cannot hear "foot man" or "football". The grammar
+  is rebuilt per utterance from the game's own tables — the card, the tech tree of everything we
+  own, the spells our units know, what is on screen — so a map's custom ability is speakable the
+  moment its button is on the card.
+- The text is then a sentence in a CLOSED vocabulary, and a closed vocabulary is a small grammar,
+  not a model: instant, offline, and it never does something the player did not say.
+
+## Three traps
+
+1. **Where the model is kept.** vosk-browser stores a model in Emscripten's IDBFS (IndexedDB
+   database `/vosk`, store `FILE_DATA`, version 21, one row per file keyed by path) under a folder
+   named after the model URL, and skips its own download when `downloaded.ok` is there. Its own
+   fetch reports no progress, so we fetch the archive ourselves (with the bar) and WRITE it where
+   its download would have — then loading the model is the unpack. The row shape is IDBFS's and is
+   pinned with the package version; a vosk-browser upgrade must re-check it.
+2. **The dictionary is inside `Gr.fst`.** The small model ships no `words.txt`; its word table is
+   the grammar FST's embedded OpenFst symbol table (magic `2125658996`). It is read so that a
+   compound the dictionary lacks ("blademaster") is offered split ("blade master") — the parser
+   compares names with spaces removed, so the split costs nothing downstream. A grammar word the
+   model does not know is silently dropped by Vosk.
+3. **The download host.** The model comes from the vosk-browser project's own published copy, the
+   one host that sends `Access-Control-Allow-Origin` (alphacephei.com does not, so a browser tab
+   could never fetch it there). Nothing else ever leaves the machine: the microphone is read only
+   while the key is held, into a worker on this page.
+
+## What a phrase means (the developer's rules)
+
+- **"Here", "there", "this", "that" are the middle of the SCREEN**, not the mouse — a player
+  playing by voice may have no hand on it. "The cursor" / "the mouse" is the mouse.
+- **"Build a farm here"** (or no place at all) puts it SOMEWHERE ON THE SCREEN it fits, beside our
+  other buildings, never in the lane between a town hall and its gold mine
+  (`MapViewerScene.voiceBuildSpot`, every candidate through the placement click's own test).
+- **A spell assists**: "use frost nova" selects the unit of ours that has it (ready, with the
+  mana, nearest the middle of the screen) and, with nothing said about where, aims it — a row that
+  may hit an enemy goes on the enemy (heroes first), a friendly-only row on the most hurt friend,
+  an area spell where the most enemies stand inside its own radius. Each candidate is offered to
+  the card's own aim, so the spell's own refusals still apply.
+- **Camera**: any clause naming the camera is a camera command ("move the camera to another gold
+  mine" is not a MOVE order). "Another"/"next" is the nearest one the camera is NOT already on;
+  "on the right side of the map", "top left" are halves (thirds for "middle") of the playable map.
+- Everything is fog-honest: "the enemy hero" is the nearest one this player can SEE.
+
+`window.openwar3.voiceSay("train three footmen")` runs a sentence through the same path with no
+microphone — the way to test the mapping in a live match.

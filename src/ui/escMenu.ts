@@ -44,6 +44,7 @@ import { ESC_OPTIONS_OVERRIDE, ESC_TEMPLATES_OVERRIDE, OW3_STRINGS } from "../ov
 import { EscOptions } from "./escOptions";
 import { DEFAULT_GAME_SPEED, type GameSpeed } from "../data/gameSpeed";
 import { gamepadButtonPressed } from "./gamepad";
+import { voiceDownloadPressed } from "./voiceOptions";
 
 const ESC_MENU_FDF = "UI\\FrameDef\\UI\\EscMenuMainPanel.fdf";
 const ESC_OPTIONS_FDF = "UI\\FrameDef\\UI\\EscMenuOptionsPanel.fdf";
@@ -84,6 +85,16 @@ const OPTIONS_PANELS: Partial<Record<PanelId, "gameplay" | "video" | "sound" | n
  * button at that height, so it is the size the panels were authored against.
  */
 const OPTIONS_PANEL_SIZE = { width: 0.288, height: 0.384 };
+
+/**
+ * …and how much TALLER the Gameplay one is than that. Ours: the 2003 panel's rows filled it to
+ * the OK button, and OpenWar3's Gameplay panel carries one more than it ever did — the Voice
+ * Control row (src/voice/), which with "Detect Gamepad" in the band above OK/Cancel has nowhere
+ * left to stand. One checkbox step (0.024 box + the panel's 0.00375 tuck, rounded up to 0.03 so
+ * the band keeps its own clearance). The stone frame is a nine-slice and stretches; the other
+ * three panels keep the authored height.
+ */
+const GAMEPLAY_PANEL_EXTRA = 0.03;
 
 const num = (v: number): Arg => ({ s: String(v), n: v, str: false });
 const prop = (key: string, ...args: Arg[]): FdfProp => ({ key, args });
@@ -354,7 +365,10 @@ export class EscMenu {
       name: "EscMenuOptionsPanel",
       inherits: null,
       withChildren: false,
-      props: [prop("Width", num(OPTIONS_PANEL_SIZE.width)), prop("Height", num(OPTIONS_PANEL_SIZE.height))],
+      props: [
+        prop("Width", num(OPTIONS_PANEL_SIZE.width)),
+        prop("Height", num(OPTIONS_PANEL_SIZE.height + (this.panel === "optgameplay" ? GAMEPLAY_PANEL_EXTRA : 0))),
+      ],
       children,
     };
   }
@@ -414,6 +428,8 @@ export class EscMenu {
       // step Previous Menu and Cancel take everywhere else on this stack.
       OptionsOKButton: () => { this.options.ok(); this.go("options"); },
       GamepadButton: () => gamepadButtonPressed(), // detect / unpair, issue #162 — ui/gamepad.ts
+      // Voice Control's speech model (src/voice/), mid-match as well as from the menus.
+      VoiceDownloadButton: () => voiceDownloadPressed(this.container, this.vfs),
       OptionsCancelButton: () => { this.options.cancel(); this.go("options"); },
       // --- HelpPanel / TipsPanel
       HelpOKButton: () => this.go("main"),

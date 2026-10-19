@@ -259,6 +259,23 @@ body.in-game {
    the loading screen draws it; the text is placed in those same coordinates. */
 .update-overlay { z-index: 60; }
 .update-overlay-canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+/* Voice Control's download dialog (ui/voiceDownload.ts): the Battle.net progress bar, a canvas laid
+   over the dialog where its FDF sprite sits. Fixed, because it is placed in viewport pixels off the
+   dialog's own rect; above the dialog's frames, and deaf to the mouse like them. */
+.voice-download-bar { position: fixed; z-index: 1; pointer-events: none; }
+.voice-download-percent {
+  position: fixed;
+  z-index: 2;
+  margin: 0;
+  transform: translate(-50%, -50%);
+  color: #fff;
+  font-family: var(--game-font);
+  text-shadow: 0 0 2px #000, 0 0 2px #000;
+  pointer-events: none;
+}
+/* Voice Control's "Listening…" line (render/mapViewer.ts installVoiceControl): the tooltip slab,
+   centred over the console while "." is held, showing what the recogniser hears so far. */
+.voice-control-status.game-tip { left: 50%; bottom: 27%; z-index: 30; }
 .update-overlay-caption,
 .update-overlay-percent {
   position: absolute;

@@ -1,0 +1,106 @@
+// Headless check of Voice Control's MAPPING — what the recogniser heard → the intents the match
+// carries out (src/voice/parser.ts). Run: pnpm sim:test
+//
+// The parser is the whole of "understanding" in Voice Control: there is no language model, by
+// design (src/voice/model.ts says why), so every phrase a player is promised in the Options
+// tooltip is pinned here. The lexicon is a hand-made slice of what a match hands in — the card's
+// buttons, the race's tech tree, the units on screen — using the game's own names.
+const { join } = require("node:path");
+const REPO = join(__dirname, "..");
+require("node:fs").writeFileSync(join(REPO, ".sim-build", "package.json"), '{"type":"commonjs"}');
+const { Lexicon, parse, describe, stem } = require(join(REPO, ".sim-build", "src", "voice", "parser.js"));
+
+let fails = 0;
+function check(name, ok, detail) {
+  if (ok) console.log(`  ok   ${name}`);
+  else { fails++; console.log(`  FAIL ${name}${detail ? ` — ${detail}` : ""}`); }
+}
+
+const lex = new Lexicon([
+  { kind: "unit", id: "hfoo", phrase: "Footman" },
+  { kind: "unit", id: "hrif", phrase: "Rifleman" },
+  { kind: "unit", id: "hpea", phrase: "Peasant" },
+  { kind: "hero", id: "Hblm", phrase: "Blood Mage" },
+  { kind: "unit", id: "Obla", phrase: "Blademaster" },
+  { kind: "building", id: "hhou", phrase: "Farm" },
+  { kind: "building", id: "hbar", phrase: "Barracks" },
+  { kind: "upgrade", id: "Rhme", phrase: "Iron Forged Swords" },
+  { kind: "ability", id: "AHtb", phrase: "Storm Bolt" },
+  { kind: "ability", id: "AUfn", phrase: "Frost Nova" },
+  { kind: "ability", id: "AHhb", phrase: "Holy Light" },
+  { kind: "button", id: "ability:AHbz", phrase: "Blizzard" },
+  { kind: "button", id: "rally", phrase: "Set Rally Point" },
+]);
+const p = (t) => parse(t, { lexicon: lex });
+const one = (t) => { const r = p(t); return r.length === 1 ? r[0] : null; };
+
+console.log("stems");
+check("footmen → footman", stem("footmen") === "footman");
+check("riflemen → rifleman", stem("riflemen") === "rifleman");
+
+console.log("orders");
+let i = one("attack move here");
+check("attack move here = attackmove @ screen", i?.kind === "order" && i.order === "attackmove" && i.target?.kind === "screen", JSON.stringify(i));
+i = one("move to the cursor");
+check("cursor only when said", i?.kind === "order" && i.order === "move" && i.target?.kind === "cursor", JSON.stringify(i));
+i = one("attack the enemy hero");
+check("attack the enemy hero", i?.kind === "order" && i.order === "attack" && i.target?.kind === "hero" && i.target.side === "enemy", JSON.stringify(i));
+i = one("hold position");
+check("hold position", i?.kind === "hold");
+i = one("stop");
+check("stop", i?.kind === "stop");
+
+console.log("production");
+i = one("train three footmen");
+check("train three footmen", i?.kind === "train" && i.entry.id === "hfoo" && i.count === 3, JSON.stringify(i));
+i = one("make a rifleman");
+check("make a rifleman = 1", i?.kind === "train" && i.entry.id === "hrif" && i.count === 1, JSON.stringify(i));
+const two = p("train two footmen and a rifleman");
+check("train … and … inherits the verb", two.length === 2 && two[1].kind === "train" && two[1].entry.id === "hrif", JSON.stringify(two));
+i = one("build a farm here");
+check("build a farm here", i?.kind === "build" && i.entry.id === "hhou" && i.target?.kind === "screen", JSON.stringify(i));
+i = one("build farm");
+check("build farm (no place)", i?.kind === "build" && i.entry.id === "hhou" && !i.target, JSON.stringify(i));
+i = one("research iron forged swords");
+check("research", i?.kind === "research" && i.entry.id === "Rhme", JSON.stringify(i));
+i = one("train blade master");
+check("a split compound still names the unit", i?.kind === "train" && i.entry.id === "Obla", JSON.stringify(i));
+
+console.log("spells");
+i = one("use frost nova");
+check("use frost nova = press, no target (assist)", i?.kind === "press" && i.entry.id === "AUfn" && !i.target, JSON.stringify(i));
+i = one("storm bolt the enemy hero");
+check("storm bolt the enemy hero", i?.kind === "press" && i.entry.id === "AHtb" && i.target?.kind === "hero" && i.target.side === "enemy", JSON.stringify(i));
+i = one("blizzard here");
+check("blizzard here (a card button)", i?.kind === "press" && i.entry.id === "ability:AHbz" && i.target?.kind === "screen", JSON.stringify(i));
+i = one("holy light my hero");
+check("holy light my hero", i?.kind === "press" && i.target?.kind === "hero" && i.target.side === "mine", JSON.stringify(i));
+
+console.log("selection & groups");
+i = one("select all footmen");
+check("select all footmen", i?.kind === "select" && i.what === "all-of" && i.entry.id === "hfoo", JSON.stringify(i));
+i = one("select army");
+check("select army", i?.kind === "select" && i.what === "army");
+i = one("group two");
+check("group two", i?.kind === "group" && i.n === 2 && i.mode === "recall", JSON.stringify(i));
+i = one("make group three");
+check("make group three", i?.kind === "group" && i.n === 3 && i.mode === "assign", JSON.stringify(i));
+
+console.log("camera");
+i = one("move the camera to another gold mine");
+check("camera → another gold mine (not a MOVE order)", i?.kind === "camera" && i.target.kind === "mine" && i.target.pick === "next", JSON.stringify(i));
+i = one("move the camera to a gold mine on the right side of the map");
+check("camera → gold mine, right side", i?.kind === "camera" && i.target.kind === "mine" && i.target.region?.x === 1 && i.target.region.y === null, JSON.stringify(i));
+i = one("camera top left");
+check("camera top left = a region", i?.kind === "camera" && i.target.kind === "region" && i.target.region.x === -1 && i.target.region.y === 1, JSON.stringify(i));
+i = one("look at my base");
+check("look at my base", i?.kind === "camera" && i.target.kind === "base" && i.target.side === "mine", JSON.stringify(i));
+i = one("show the enemy base");
+check("show the enemy base", i?.kind === "camera" && i.target.kind === "base" && i.target.side === "enemy", JSON.stringify(i));
+
+console.log("not commands");
+check("small talk is nothing", p("hello how are you").length === 0, JSON.stringify(p("hello how are you")));
+check("describe() names every intent", p("train three footmen and group two").map(describe).join(" · ") === "Train 3 × Footman · Group 2", p("train three footmen and group two").map(describe).join(" · "));
+
+if (fails) { console.log(`\n${fails} FAILED`); process.exit(1); }
+console.log("\nvoice parser: all ok");

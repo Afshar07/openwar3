@@ -121,6 +121,39 @@ Frame "TEXT" "ShowHotkeysLabel" INHERITS "EscMenuLabelTextTemplate" {
     Text "SHOW_HOTKEYS_ON_BUTTONS",
 }
 
+// "Voice Control" (src/voice/), the row under "Show hotkeys on command buttons" — the same two
+// faces as the glue panel's (see `OptionsMenu.fdf`): a button that fetches the speech model, or
+// the checkbox once it is here. Same frame names, so one OPTION_DEFS row binds on either screen.
+// The checkbox steps down like the panel's other checkbox pair (the -0.00375 tuck), and the
+// button is the panel's own `EscMenuButtonTemplate` at the "Detect Gamepad" button's 0.026,
+// centred on that same box so the row does not jump when the model arrives.
+Frame "GLUECHECKBOX" "VoiceControlCheckBox" INHERITS WITHCHILDREN "EscMenuCheckBoxTemplate" {
+    SetPoint TOPLEFT, "ShowHotkeysCheckBox", BOTTOMLEFT, 0.0, -0.00375,
+}
+
+Frame "TEXT" "VoiceControlLabel" INHERITS "EscMenuLabelTextTemplate" {
+    SetPoint LEFT, "VoiceControlCheckBox", RIGHT, 0.003, 0.0,
+    Width 0.195,
+    Height 0.024,
+    Text "VOICE_CONTROL",
+}
+
+Frame "GLUETEXTBUTTON" "VoiceDownloadButton" INHERITS WITHCHILDREN "EscMenuButtonTemplate" {
+    // The OK/Cancel pair's whole width (0.112 + 0.00625 + 0.112, rounded), so it ends where they do.
+    Width 0.23,
+    Height 0.026,
+    SetPoint LEFT, "VoiceControlCheckBox", LEFT, 0.0, 0.0,
+
+    ButtonText "VoiceDownloadButtonText",
+    // One size down from the template's 0.013: at 0.013 the caption is wider than the panel and
+    // wraps onto a second line the 0.026 button has no room for. 0.011 is the size the panel's
+    // own labels are set in (`EscMenuLabelTextTemplate`'s row height carries it).
+    Frame "TEXT" "VoiceDownloadButtonText" INHERITS "EscMenuButtonTextTemplate" {
+        FrameFont "EscMenuTextFont", 0.011, "",
+        Text "DOWNLOAD_VOICE_CONTROL",
+    }
+}
+
 // "Detect Gamepad" / "Unpair Gamepad" (issue #162), under "Show hotkeys on command buttons" as on the glue panel —
 // see `OptionsMenu.fdf` for what it does. The panel's own button (`EscMenuButtonTemplate`, the
 // Gameplay/Video/Sound buttons' art), narrowed to the checkbox column's label width.

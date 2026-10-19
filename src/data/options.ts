@@ -171,6 +171,12 @@ export const OPTION_DEFS: readonly OptionDef[] = [
   // the tooltip — so it is ours, on a frame of ours, under the row whose answer it prints. ON by
   // default, and live through the same `applyHotkeyOptions`.
   { key: "showHotkeys", frame: "ShowHotkeysCheckBox", kind: "bool", panel: "gameplay", def: true },
+  // "Voice Control": push-to-talk commands on the "." key (src/voice/). Not a WC3 row — nothing
+  // in the 2003 game listens — so frame, label and behaviour are all ours. OFF by default: it
+  // opens the microphone, and it needs a speech model the player has to fetch first (until it is
+  // here the row is a download button instead — ui/voiceOptions.ts). Live through
+  // `applyVoiceOptions`.
+  { key: "voiceControl", frame: "VoiceControlCheckBox", kind: "bool", panel: "gameplay", def: false },
 
   // --- Video (applied through render/videoQuality.ts, which documents what each rung does) ---
   { key: "gamma", frame: "GammaSlider", kind: "range", panel: "video", def: 50 },

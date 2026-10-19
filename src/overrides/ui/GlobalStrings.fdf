@@ -61,6 +61,15 @@ StringList {
     // it has no word for one.
     DETECT_GAMEPAD              "Detect Gamepad",
     UNPAIR_GAMEPAD              "Unpair Gamepad",
+    // ...and the row between the two: push-to-talk commands on the "." key (src/voice/). The
+    // button is the row until the speech model is on this machine, the checkbox after it.
+    VOICE_CONTROL               "Voice Control",
+    COLON_VOICE_CONTROL         "Voice Control:",
+    DOWNLOAD_VOICE_CONTROL      "Download voice control dependencies",
+    // The download dialog (src/ui/voiceDownload.ts) -- built as the game's own "Downloading
+    // Update" box (MainMenu.fdf BattleNetPatchDialog), whose title is DOWNLOADING_UPDATE.
+    DOWNLOADING_VOICE_CONTROL   "Downloading Voice Control",
+    VOICE_CONTROL_TITLE         "Voice Control",
 
     // Options, Video panel, under "Occlusion:": the desktop app's vsync switch. The game has no
     // such row. It is a Chromium LAUNCH switch there (electron/main.mjs), so OK asks the second
