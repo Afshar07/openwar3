@@ -1,4 +1,6 @@
-import { DROPPED_MODEL_REPOS, WHISPER_MODEL, whisperFiles, type WhisperReply, type WhisperRequest } from "./whisperModels";
+import ortWasm from "onnxruntime-web/ort-wasm-simd-threaded.asyncify.wasm?url";
+import ortMjs from "onnxruntime-web/ort-wasm-simd-threaded.asyncify.mjs?url";
+import { WHISPER_MODEL, whisperFiles, type WhisperReply, type WhisperRequest } from "./whisperModels";
 
 // Voice Control's speech recogniser: OpenAI's Whisper, English-only, run on this computer in a
 // worker (src/voice/whisperWorker.ts, transformers.js over onnxruntime-web's WebAssembly build).
@@ -11,7 +13,7 @@ import { DROPPED_MODEL_REPOS, WHISPER_MODEL, whisperFiles, type WhisperReply, ty
 // it hears is then free text, which the parser reads with a tolerance for near misses
 // (parser.ts `Lexicon.match`).
 //
-// Whisper base.en (~80 MB, `WHISPER_MODEL`) is downloaded once, from the Hugging Face hub (the one host the files are published on,
+// Whisper small.en (~250 MB, `WHISPER_MODEL`) is downloaded once, from the Hugging Face hub (the one host the files are published on,
 // with the CORS header a page needs), into the browser's own Cache Storage, where transformers.js
 // looks before it ever goes to the network again. Nothing else leaves the machine: the audio of
 // a command goes to a worker on this page.
@@ -153,7 +155,7 @@ export function transcribe(audio: Float32Array, prompt: string): Promise<string>
 
 /**
  * The models earlier builds downloaded are nothing to anyone now — the Vosk model the first
- * Voice Control kept in IndexedDB (`/vosk`, ~70 MB unpacked), and Whisper small.en — dropped on
+ * Voice Control kept in IndexedDB (`/vosk`, ~70 MB unpacked), and Whisper base.en — dropped on
  * every boot, quietly, so a player who had them gets the space back.
  */
 export function forgetOldVoiceModels(): void {
@@ -162,14 +164,17 @@ export function forgetOldVoiceModels(): void {
   } catch {
     /* no IndexedDB — nothing to forget */
   }
-  // …and the "Accurate" small.en an earlier build fetched beside base.en (~250 MB): every file
-  // of a dropped repo comes out of transformers.js's cache, configs and tokenizer too.
+  // …and anything in transformers.js's cache that this build does not run on: the "Fast" base.en
+  // an earlier build fetched beside small.en (~80 MB), configs and tokenizer too, whatever another
+  // model or a test left behind — and an older build's copy of the ONNX runtime, which
+  // transformers.js caches beside the model under the bundle's FINGERPRINTED url, so every update
+  // of the game would otherwise leave one more ~27 MB behind. The cache is Voice Control's alone.
+  const keep = (url: string): boolean =>
+    url.includes(`/${WHISPER_MODEL.repo}/`) || [ortWasm, ortMjs].some((own) => url.endsWith(own.replace(/^\.?\//, "/")));
   void (async () => {
     try {
       const cache = await caches.open("transformers-cache");
-      for (const req of await cache.keys()) {
-        if (DROPPED_MODEL_REPOS.some((repo) => req.url.includes(`/${repo}/`))) await cache.delete(req);
-      }
+      for (const req of await cache.keys()) if (!keep(req.url)) await cache.delete(req);
     } catch {
       /* no Cache Storage — nothing kept */
     }

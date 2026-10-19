@@ -936,7 +936,7 @@ data, or asset behaviour, **consult our sources** and cite what you used.
   match with no menu or dialog up.
 - **Voice Control:** read [`docs/voice-control.md`](docs/voice-control.md) before touching
   [`src/voice/`](src/voice/) or `game/voiceActions.ts`. Hold "." and speak; it is OURS end to end
-  and has NO language model in the loop: Whisper (base.en only — a small.en "Accurate"
+  and has NO language model in the loop: Whisper (small.en only — a base.en "Fast"
   pulldown was tried and removed — fetched by the Options row's download, int8 ONNX in a
   transformers.js worker) transcribes,
   PRIMED with the names on screen, and a deterministic parser maps the text — tolerating sound-

@@ -11,7 +11,7 @@ import { applyVoiceOptions } from "../voice/control";
 // (src/voice/model.ts) in the game's OWN chrome, in two steps:
 //
 //   1. the menus' own question box (`DialogWar3.fdf`, ui/glueDialog.ts) asks first, naming the
-//      size — an 80 MB download is the player's decision, not a side effect of a click;
+//      size — a 250 MB download is the player's decision, not a side effect of a click;
 //   2. Yes puts up the dialog Warcraft III already had for exactly this: `BattleNetPatchDialog`
 //      (`UI\FrameDef\Glue\MainMenu.fdf`), the box the game showed while Battle.net handed it a
 //      patch — the dialogue box, a gold "Downloading Update" title, one line of text,

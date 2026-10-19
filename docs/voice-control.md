@@ -30,13 +30,13 @@ The first Voice Control ran Vosk's small Kaldi model (41 MB) under a GRAMMAR of 
 command could hold. It was chosen for the slow PC and paid for it in accuracy — "altar" heard as
 "alter", "finish" as "fish" — and a grammar only narrows what a weak listener guesses between.
 It was replaced by **Whisper** (OpenAI, MIT), English-only, as the hub's int8-quantized ONNX
-files (`onnx-community/whisper-base.en`, ~80 MB), run by transformers.js in a worker:
+files (`onnx-community/whisper-small.en`, ~250 MB), run by transformers.js in a worker:
 
-- **One model, base.en.** There was a second, "Accurate" small.en (~250 MB) on a Fast/Accurate
-  pulldown beside the checkbox; it was taken out because, on the developer's machine, base.en's
-  "Fast" answered no quicker than it and was the worse listener, so the pulldown bought nothing a
-  player could feel and tripled the download. Its cached files are deleted on boot
-  (`forgetOldVoiceModels`, with the first build's Vosk model).
+- **One model, small.en.** There was a second, "Fast" base.en (~80 MB) on a Fast/Accurate
+  pulldown beside the checkbox; it was taken out because, on the developer's machine, it answered
+  no quicker than small.en and was the worse listener, so the pulldown bought nothing a player
+  could feel. Its cached files are deleted on boot (`forgetOldVoiceModels`, with the first
+  build's Vosk model).
 - It is **primed, not constrained**: the names the player is likely to say (the lexicon, then the
   host's wider vocabulary) go in as a prompt after `<|startofprev|>`, Whisper's own
   `initial_prompt` mechanism, which makes "Blademaster" and "Altar of Kings" the likely
