@@ -35,6 +35,18 @@ const version = JSON.parse(readFileSync(new URL("./package.json", import.meta.ur
 export default defineConfig({
   plugins: [devInstall(), driveProxy(), perfLog(), relay()],
   define: { ...perfLogDefines(), __OW3_VERSION__: JSON.stringify(version) },
-  server: { port: 5173 },
+  server: {
+    port: 5173,
+    // Cross-origin ISOLATION, so Voice Control's recogniser may use threads (SharedArrayBuffer):
+    // single-threaded, Whisper took ~4.7 s to answer a two-second command. `credentialless` rather
+    // than `require-corp`, so a cross-origin fetch that sends no CORP header still loads.
+    headers: { "Cross-Origin-Opener-Policy": "same-origin", "Cross-Origin-Embedder-Policy": "credentialless" },
+  },
   build: { target: "es2022", outDir: "dist" },
+  // Voice Control's recogniser runs in a MODULE worker (src/voice/whisperWorker.ts) that code-
+  // splits transformers.js; the default "iife" worker format cannot.
+  worker: { format: "es" },
+  // transformers.js and onnxruntime-web ship their own WebAssembly glue; pre-bundling them breaks
+  // the relative paths that glue resolves at runtime.
+  optimizeDeps: { exclude: ["@huggingface/transformers", "onnxruntime-web"] },
 });

@@ -809,8 +809,6 @@ export function makeVoiceHost(d: VoiceDriver): VoiceHost {
     acceptsInput: () => d.canAct(),
     lexicon: () => lexicon(d, mine()),
     vocabulary: () => (vocab ??= gameVocabulary(d)),
-    // The match runs the free recogniser beside the grammar one, for chat lines.
-    dictates: true,
     perform: (intents, heard) => {
       // The echo: what was heard, then what it was read as — in the message log, where the game
       // prints what a player said.

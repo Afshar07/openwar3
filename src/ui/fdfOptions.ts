@@ -231,7 +231,13 @@ export async function mountOptions(
       detect: lib?.string("DETECT_GAMEPAD") ?? "Detect Gamepad",
       unpair: lib?.string("UNPAIR_GAMEPAD") ?? "Unpair Gamepad",
     });
-    bindVoiceRow(s, () => { committed.voiceControl = true; working.voiceControl = true; });
+    bindVoiceRow(s, {
+      enabled: () => { committed.voiceControl = true; working.voiceControl = true; },
+      // A model the player downloaded is the player's choice already made: kept on Cancel too.
+      setModel: (v) => { committed.voiceModel = v; working.voiceModel = v; },
+      container,
+      vfs,
+    });
     syncVideoRows(s);
   }
 

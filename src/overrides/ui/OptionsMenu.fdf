@@ -282,3 +282,22 @@ Frame "TEXT" "VoiceControlLabel" INHERITS "StandardInfoTextTemplate" {
     SetPoint LEFT, "VoiceControlCheckBox", RIGHT, 0.01, 0.0,
     Text "VOICE_CONTROL",
 }
+
+// The model that listens — "Fast" (Whisper base.en, the default) or "Accurate" (small.en) —
+// on the checkbox's own line, right of its label, once a model is on this machine (the row's
+// download face has no use for it). Built as the "Healthbars:" row's pulldown is: the panel's
+// `OptionsPopupMenuBackdropTemplate` socket holding an `OptionsPopupMenuTemplate`, here narrowed
+// to the two short words it offers.
+Frame "BACKDROP" "VoiceModelBackdrop" INHERITS "OptionsPopupMenuBackdropTemplate" {
+    Width 0.13,
+    SetPoint LEFT, "VoiceControlLabel", RIGHT, 0.008, 0.0,
+
+    Frame "POPUPMENU" "VoiceModelMenu" INHERITS WITHCHILDREN "OptionsPopupMenuTemplate" {
+        Width 0.1,
+        SetPoint TOPLEFT, "VoiceModelBackdrop", TOPLEFT, 0.012, -0.013,
+
+        PopupMenuFrame "VoiceModelPopupMenuMenu",
+        Frame "MENU" "VoiceModelPopupMenuMenu" INHERITS WITHCHILDREN "StandardPopupMenuMenuTemplate" {
+        }
+    }
+}

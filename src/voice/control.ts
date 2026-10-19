@@ -1,46 +1,44 @@
 import type { Options } from "../data/options";
-import { loadVoiceModel, voiceModelInstalled, type VoskModel } from "./model";
+import { preloadVoiceModel, transcribe, voiceModelInstalled, voiceModelInstalledNow, WHISPER_RATE } from "./model";
 import { describe, Lexicon, parse, type LexEntry, type VoiceIntent } from "./parser";
-import { grammarFor } from "./vocabulary";
+import type { WhisperModelId } from "./whisperModels";
 
 // Voice Control's PUSH-TO-TALK: hold ".", speak, let go (Options → Gameplay → "Voice Control").
 //
 // The key is "." by `e.code` ("Period"), the key beside voice chat's "/" (game/voice.ts) — the
 // two are a pair, one for talking to people and one for talking to the game. It is read only
-// while the option is ticked, only in a match, and never while the player is typing.
+// while the option is ticked, and never while the player is typing.
 //
 // What happens between the press and the release:
-//   1. a fresh Vosk recogniser is made whose GRAMMAR is the words this match can mean right
-//      now (vocabulary.ts), and fed the PRE-ROLL — the last 0.6 s of microphone from before the
-//      key went down, as voice chat's "/" does — then the live samples. The microphone is opened
-//      as soon as Voice Control is on in a match (`warm`), so even the first press has a
-//      pre-roll; while the key is up nothing but those 0.6 s is ever kept;
+//   1. the microphone's samples are KEPT — starting with the PRE-ROLL, the last 0.6 s from before
+//      the key went down (people start speaking as they press, as voice chat's "/" knows). The
+//      microphone is opened as soon as Voice Control is on, so even the first press has one;
+//      while the key is up nothing but those 0.6 s is ever kept;
 //   2. on release, a short tail is let through (people let go of a key as the last syllable
-//      ends), then the recogniser is asked for its final text;
+//      ends), the utterance is resampled to Whisper's 16 kHz and transcribed in a worker
+//      (model.ts), PRIMED with the names the player is likely to say (`promptFor`);
 //   3. the text is parsed (parser.ts) and the intents are handed to the match (`VoiceHost`),
-//      which carries them out through the same paths a click and a hotkey take.
+//      which carries them out through the same paths a click and a hotkey take — or, on a menu,
+//      to the menu reader (menu.ts).
 //
 // Nothing is sent anywhere: the samples go to a worker on this page.
 
-/** What the match does for Voice Control (render/mapViewer.ts implements it). */
+/** What the match (or the menus) does for Voice Control (render/mapViewer.ts, voice/menu.ts). */
 export interface VoiceHost {
-  /** Whether the match is taking commands right now (no menu up, not paused, not a cinematic) —
-   *  the HUD's own `acceptsInput` gate. */
+  /** Whether it is taking commands right now (no menu up, not paused, not a cinematic) — the
+   *  HUD's own `acceptsInput` gate. */
   acceptsInput(): boolean;
   /** Every name the player could mean right now: the card, the race's tech tree, what is on
-   *  the map. */
+   *  the map — what the parser matches against, and the first names in the recogniser's prompt. */
   lexicon(): LexEntry[];
-  /** Every unit, ability and item NAME in the game — heard even when it is not on this screen,
-   *  so the recogniser is not forced to hear it as something that is. Built once per match. */
+  /** More names worth priming the recogniser with, after the lexicon's (every unit, ability and
+   *  item name in the game; the menu's own words). Built once. */
   vocabulary(): readonly string[];
   /** Carry the intents out. */
   perform(intents: VoiceIntent[], heard: string): void;
   /** A host that understands sentences ITSELF (the menus, src/voice/menu.ts) takes the text
    *  whole instead of the match's intents. True if it did something with it. */
   handle?(text: string): boolean;
-  /** Whether to run the free DICTATION recogniser beside the grammar one — the match does, for
-   *  "say good game to all", whose message is words no grammar can hold. */
-  dictates?: boolean;
   /** Tell the player what is going on (listening, heard nothing, …). null clears it. */
   status(text: string | null): void;
   /** Tell the player something went wrong (no microphone, …). */
@@ -50,22 +48,29 @@ export interface VoiceHost {
 /** The push-to-talk key, by position (`e.code`). */
 export const VOICE_CONTROL_KEY_CODE = "Period";
 
-/** How long the microphone keeps feeding the recogniser after the key comes up. */
+/** How long the microphone keeps feeding the utterance after the key comes up. */
 const TAIL_MS = 250;
 
 /**
- * Seconds of microphone kept, in memory only, while the key is UP — and fed to the recogniser
- * ahead of the live audio when it goes down. People start speaking as they press, and the key
- * event, the processor's buffer and the recogniser's start all lag that, so without it the first
- * syllable ("TRAIN three footmen") was cut off. Voice chat's own pre-roll (audio/voiceChat.ts
- * `PREROLL_SECS`, 0.4) is the same idea; this one is a little longer, because a command's first
- * word is the verb and losing it loses the command.
+ * Seconds of microphone kept, in memory only, while the key is UP — and put in front of the
+ * utterance when it goes down. People start speaking as they press, and the key event and the
+ * processor's buffer lag that, so without it the first syllable ("TRAIN three footmen") was cut
+ * off. Voice chat's own pre-roll (audio/voiceChat.ts `PREROLL_SECS`, 0.4) is the same idea; this
+ * one is a little longer, because a command's first word is the verb and losing it loses the
+ * command.
  */
 const PREROLL_SECS = 0.6;
 /** Samples per processor callback: ~43 ms at 48 kHz, so the pre-roll is kept in fine slices. */
 const TAP_SAMPLES = 2048;
+/** The longest utterance kept: a command is a sentence, and Whisper hears 30 s at most. */
+const MAX_SECS = 15;
+/** Below this loudness (RMS) the press held nothing but room noise — Whisper would invent a
+ *  sentence out of it ("Thank you."), so silence is answered as silence. */
+const SILENCE_RMS = 0.004;
 
 let enabled = false;
+/** Which model the player picked (Options → the dropdown beside the checkbox). */
+let picked: WhisperModelId = "base";
 /** The match, while one is up. */
 let host: VoiceHost | null = null;
 /** The menus — every glue screen, and the in-game panels (F10, quests, allies) — registered
@@ -85,27 +90,37 @@ export function setMenuVoiceHost(h: VoiceHost | null): void {
   warm();
 }
 
-/** Options → Gameplay → "Voice Control", live. */
+/** Options → Gameplay → "Voice Control" and its model, live. */
 export function applyVoiceOptions(opts: Options): void {
   const on = opts.voiceControl === true;
-  if (on === enabled) return;
+  const model: WhisperModelId = opts.voiceModel === "accurate" ? "small" : "base";
+  const changed = model !== picked;
+  picked = model;
+  if (on === enabled && !changed) return;
   enabled = on;
   if (!on) closeMic();
   else warm();
 }
 
+/** The model a press will use: the one picked, or — while it is not on this machine yet — the
+ *  other one, if that is. */
+function modelToUse(): WhisperModelId {
+  if (voiceModelInstalledNow(picked) !== false) return picked;
+  const other: WhisperModelId = picked === "base" ? "small" : "base";
+  return voiceModelInstalledNow(other) ? other : picked;
+}
+
 /**
- * Get ready to listen BEFORE the first press: with Voice Control on, a match up and the model
- * installed, the recogniser is loaded and the microphone opened, so the pre-roll is already
- * filling when "." goes down — the first command of a match is not the one that loses its start
- * to a permission prompt and a model load — and the menus listen too, so it is open whenever the
- * option is on. The microphone is closed again when the option is turned off.
+ * Get ready to listen BEFORE the first press: with Voice Control on and a model installed, the
+ * model is loaded into the worker (a cold load is seconds) and the microphone opened, so the
+ * pre-roll is already filling when "." goes down. The menus listen too, so it is open whenever
+ * the option is on; it is closed again when the option is turned off.
  */
 function warm(): void {
   if (!enabled || (!host && !menuHost)) return;
-  void voiceModelInstalled().then((ok) => {
-    if (!ok || !enabled || (!host && !menuHost)) return;
-    void loadVoiceModel().catch(() => {});
+  void Promise.all([voiceModelInstalled("base"), voiceModelInstalled("small")]).then(([b, s]) => {
+    if (!(b || s) || !enabled) return;
+    preloadVoiceModel(modelToUse());
     void openMic();
   });
 }
@@ -164,28 +179,13 @@ function closeMic(): void {
 
 // ---- one utterance ---------------------------------------------------------------------
 
-type Recognizer = InstanceType<VoskModel["KaldiRecognizer"]>;
-
-/** A sentence that is a CHAT line ("say good game", "tell allies push mid", "send message gg to
- *  all"): its message is whatever was said, so it is read off the dictation recogniser. */
-const CHAT_START = /^(say|tell|type|write|chat|message|send (a )?(message|msg|text|chat))\b/;
-
 interface Utterance {
   h: VoiceHost;
-  rec: Recognizer | null;
-  /** The free recogniser — no grammar, the model's whole vocabulary — for chat dictation. */
-  free: Recognizer | null;
   lexicon: Lexicon;
-  /** Audio captured before the recognisers were ready (the first press loads the model). */
-  pending: Float32Array[];
-  /** Text of every result segment so far — Kaldi ends a segment at a pause, so a long
-   *  sentence can arrive in pieces. One list per recogniser. */
-  text: string[];
-  freeText: string[];
-  /** Final results still to come back (one per recogniser running). */
-  outstanding: number;
+  /** The samples, at the microphone's own rate, pre-roll first. */
+  chunks: Float32Array[];
+  rate: number;
   listening: boolean;
-  finishing: boolean;
 }
 
 let current: Utterance | null = null;
@@ -194,9 +194,9 @@ let current: Utterance | null = null;
 let preroll: Float32Array[] = [];
 
 function feed(samples: Float32Array): void {
-  const u = current;
   if (!ctx) return;
   const copy = new Float32Array(samples);
+  const u = current;
   if (!u || !u.listening) {
     // Key up: keep the last moments, in memory, and nothing else.
     preroll.push(copy);
@@ -204,56 +204,20 @@ function feed(samples: Float32Array): void {
     while (preroll.length > keep) preroll.shift();
     return;
   }
-  if (u.rec) {
-    u.rec.acceptWaveformFloat(copy, ctx.sampleRate);
-    u.free?.acceptWaveformFloat(copy, ctx.sampleRate);
-  } else u.pending.push(copy);
+  if (u.chunks.length * TAP_SAMPLES < MAX_SECS * u.rate) u.chunks.push(copy);
 }
+
+/** Whether "." is held now — a press whose microphone was still opening may be over before it is. */
+let keyHeld = false;
 
 async function begin(h: VoiceHost): Promise<void> {
   if (current) return;
-  const lexicon = new Lexicon(h.lexicon());
+  if (!(await openMic()) || !ctx || current) return;
   // The utterance starts with the pre-roll — the audio from just BEFORE the key went down.
-  const u: Utterance = {
-    h, rec: null, free: null, lexicon, pending: preroll, text: [], freeText: [], outstanding: 0, listening: true, finishing: false,
-  };
+  current = { h, lexicon: new Lexicon(h.lexicon()), chunks: preroll, rate: ctx.sampleRate, listening: true };
   preroll = [];
-  current = u;
   h.status("Listening…");
-  const [model, mic] = await Promise.all([loadVoiceModel().catch(() => null), openMic()]);
-  if (current !== u) return;
-  if (!model || !mic) {
-    if (!model) h.error("Voice Control: the speech model could not be loaded.");
-    h.status(null);
-    current = null;
-    return;
-  }
-  const rec = new model.KaldiRecognizer(ctx!.sampleRate, JSON.stringify(await grammarFor(lexicon, h.vocabulary())));
-  if (current !== u) { rec.remove(); return; }
-  const collect = (r: Recognizer, into: string[]): void => {
-    r.on("result", (m) => {
-      if (m.event !== "result") return;
-      const t = m.result.text.trim();
-      if (t) into.push(t);
-      if (u.finishing && --u.outstanding <= 0) finish(u);
-    });
-  };
-  collect(rec, u.text);
-  rec.on("partialresult", (m) => {
-    if (m.event === "partialresult" && m.result.partial && current === u) h.status(`“${m.result.partial}”`);
-  });
-  u.rec = rec;
-  if (h.dictates) {
-    // No grammar: the model's whole vocabulary, so a chat line is heard as said.
-    u.free = new model.KaldiRecognizer(ctx!.sampleRate);
-    collect(u.free, u.freeText);
-  }
-  for (const p of u.pending) {
-    rec.acceptWaveformFloat(p, ctx!.sampleRate);
-    u.free?.acceptWaveformFloat(p, ctx!.sampleRate);
-  }
-  u.pending = [];
-  if (!u.listening) end(u); // the key came up while the model was loading
+  if (!keyHeld) release(); // let go while the microphone was opening
 }
 
 function release(): void {
@@ -261,35 +225,84 @@ function release(): void {
   if (!u || !u.listening) return;
   setTimeout(() => {
     u.listening = false;
-    if (u.rec) end(u);
+    void finish(u);
   }, TAIL_MS);
 }
 
-function end(u: Utterance): void {
-  u.finishing = true;
-  u.outstanding = (u.rec ? 1 : 0) + (u.free ? 1 : 0);
-  u.rec?.retrieveFinalResult();
-  u.free?.retrieveFinalResult();
+/** The utterance at Whisper's 16 kHz: a box average over each output sample's span, which is
+ *  also the anti-aliasing a decimation needs (game/voice.ts `encodeVoice` does the same). */
+function resample(chunks: Float32Array[], rate: number): Float32Array {
+  const n = chunks.reduce((s, c) => s + c.length, 0);
+  const all = new Float32Array(n);
+  let at = 0;
+  for (const c of chunks) { all.set(c, at); at += c.length; }
+  if (rate === WHISPER_RATE) return all;
+  const ratio = rate / WHISPER_RATE;
+  const out = new Float32Array(Math.floor(n / ratio));
+  for (let i = 0; i < out.length; i++) {
+    const a = Math.floor(i * ratio);
+    const b = Math.min(n, Math.max(a + 1, Math.floor((i + 1) * ratio)));
+    let sum = 0;
+    for (let j = a; j < b; j++) sum += all[j];
+    out[i] = sum / (b - a);
+  }
+  return out;
 }
 
-const clean = (parts: string[]): string => parts.join(" ").replace(/\[unk\]/g, "").replace(/\s+/g, " ").trim();
+/**
+ * The words that PRIME Whisper's spelling: the lexicon first (the card, our tech tree, our units'
+ * spells, what is on screen — the names most likely said), then the host's wider vocabulary,
+ * each once, as a comma list after a line saying what is coming. Whisper takes a prompt of a
+ * couple of hundred tokens; the worker keeps the END of it, so the most likely names go LAST.
+ */
+function promptFor(h: VoiceHost, lexicon: Lexicon): string {
+  const seen = new Set<string>();
+  const names: string[] = [];
+  const add = (p: string): void => {
+    const k = p.toLowerCase();
+    if (!p || seen.has(k)) return;
+    seen.add(k);
+    names.push(p);
+  };
+  for (const { entry } of lexicon.entries) add(entry.phrase);
+  for (const w of h.vocabulary()) add(w);
+  const likely = names.slice(0, 90).reverse();
+  return `Warcraft III voice commands: ${likely.join(", ")}.`;
+}
 
-function finish(u: Utterance): void {
+async function finish(u: Utterance): Promise<void> {
+  if (current !== u) return;
+  const audio = resample(u.chunks, u.rate);
+  let sq = 0;
+  for (let i = 0; i < audio.length; i++) sq += audio[i] * audio[i];
+  if (audio.length < WHISPER_RATE * 0.2 || Math.sqrt(sq / Math.max(1, audio.length)) < SILENCE_RMS) {
+    current = null;
+    u.h.status(null);
+    u.h.error("Voice Control: didn't catch that.");
+    return;
+  }
+  u.h.status("…");
+  let text: string;
+  try {
+    text = await transcribe(modelToUse(), audio, promptFor(u.h, u.lexicon));
+  } catch (err) {
+    if (current === u) current = null;
+    u.h.status(null);
+    if (!(err instanceof Error && err.message === "cancelled")) u.h.error("Voice Control: the speech model could not run.");
+    return;
+  }
   if (current !== u) return;
   current = null;
-  u.rec?.remove();
-  u.free?.remove();
-  let heard = clean(u.text);
-  // A chat line: the grammar recogniser heard the VERB ("say …"); the message is the free one's.
-  const dictated = clean(u.freeText);
-  if (CHAT_START.test(heard) && dictated) heard = CHAT_START.test(dictated) ? dictated : `${heard.split(" ")[0]} ${dictated}`;
-  run(u.h, heard, u.lexicon);
+  run(u.h, clean(text), u.lexicon);
 }
+
+/** Whisper's sentence as a command: no trailing full stop, no "[BLANK_AUDIO]"-style tags. */
+const clean = (text: string): string => text.replace(/\[[^\]]*\]|\([^)]*\)/g, " ").replace(/\s+/g, " ").trim();
 
 /** One sentence, to whichever host it was spoken at. */
 function run(h: VoiceHost, heard: string, lexicon: Lexicon): string[] {
   h.status(null);
-  if (!heard) {
+  if (!heard || /^[\s.,!?-]*$/.test(heard)) {
     h.error("Voice Control: didn't catch that.");
     return [];
   }
@@ -329,6 +342,18 @@ export function voiceSay(text: string): string[] {
   return run(h, text, new Lexicon(h.lexicon()));
 }
 
+/**
+ * Transcribe 16 kHz samples with the picked model and run the result — the console probe for the
+ * RECOGNISER (`window.openwar3.voiceHear(samples)`), for testing it with recorded speech.
+ */
+export async function voiceHear(audio: Float32Array): Promise<{ heard: string; did: string[] }> {
+  const h = active() ?? host ?? menuHost;
+  if (!h) return { heard: "", did: [] };
+  const lexicon = new Lexicon(h.lexicon());
+  const heard = clean(await transcribe(modelToUse(), audio, promptFor(h, lexicon)));
+  return { heard, did: run(h, heard, lexicon) };
+}
+
 /** Whether the microphone is open and how many seconds of pre-roll it holds — a console probe
  *  (`window.openwar3.voicePreroll()`) for checking the pre-roll in a live match. */
 export function voicePrerollState(): { micOpen: boolean; seconds: number } {
@@ -337,8 +362,6 @@ export function voicePrerollState(): { micOpen: boolean; seconds: number } {
 }
 
 function cancelUtterance(): void {
-  current?.rec?.remove();
-  current?.free?.remove();
   current = null;
 }
 
@@ -358,10 +381,17 @@ window.addEventListener("keydown", (e) => {
   // Swallowed before anything else hears it: on a menu, "." is nobody's key, and in a match the
   // HUD's handler must not see it either.
   e.stopImmediatePropagation();
-  if (!e.repeat) void begin(h);
+  if (e.repeat) return;
+  keyHeld = true;
+  void begin(h);
 });
 window.addEventListener("keyup", (e) => {
-  if (e.code === VOICE_CONTROL_KEY_CODE) release();
+  if (e.code !== VOICE_CONTROL_KEY_CODE) return;
+  keyHeld = false;
+  release();
 });
 // A key released in another window is never seen: let go of the utterance with the focus.
-window.addEventListener("blur", () => release());
+window.addEventListener("blur", () => {
+  keyHeld = false;
+  release();
+});

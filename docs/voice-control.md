@@ -8,56 +8,64 @@ is carried out through the doors a click and a hotkey already use.
 ## The pipeline
 
 ```
-"." held ─▶ microphone (ScriptProcessor tap) ─▶ Vosk recogniser in a worker, GRAMMAR-constrained
-          ─▶ text ─▶ parser (deterministic) ─▶ intents ─▶ game/voiceActions.ts ─▶ runCommand /
-             orderClickAt / tryTargetArmedAt / RtsController.execute
+"." held ─▶ microphone (ScriptProcessor tap, 0.6 s pre-roll) ─▶ utterance resampled to 16 kHz
+        ─▶ Whisper in a worker, PRIMED with the names on screen ─▶ text ─▶ parser (deterministic)
+        ─▶ intents ─▶ game/voiceActions.ts ─▶ runCommand / orderClickAt / RtsController.execute
 ```
 
 | file | what it is |
 | --- | --- |
-| [`src/voice/model.ts`](../src/voice/model.ts) | the speech model: install check, download with a bar, the recogniser (lazy-loaded) |
-| [`src/voice/vocabulary.ts`](../src/voice/vocabulary.ts) | the GRAMMAR — the words the recogniser may hear for this utterance |
+| [`src/voice/whisperModels.ts`](../src/voice/whisperModels.ts) | the two models (Fast / Accurate), their sizes, the worker messages |
+| [`src/voice/whisperWorker.ts`](../src/voice/whisperWorker.ts) | transformers.js + onnxruntime-web, in a worker: load, progress, transcribe with a prompt |
+| [`src/voice/model.ts`](../src/voice/model.ts) | the page's side: is it installed (Cache Storage), download with a bar, transcribe |
 | [`src/voice/parser.ts`](../src/voice/parser.ts) | text → intents. Pure; pinned by `tools/voice-parser-test.cjs` |
 | [`src/voice/control.ts`](../src/voice/control.ts) | push-to-talk, the microphone, one utterance's life; `applyVoiceOptions` |
+| [`src/voice/menu.ts`](../src/voice/menu.ts) | the menus' host: reads the screen (see below) |
 | [`src/game/voiceActions.ts`](../src/game/voiceActions.ts) | intents → the match's own click/hotkey paths; target resolution; spell assist |
-| [`src/ui/voiceOptions.ts`](../src/ui/voiceOptions.ts), [`src/ui/voiceDownload.ts`](../src/ui/voiceDownload.ts) | the Options row's two faces and the download dialog |
+| [`src/ui/voiceOptions.ts`](../src/ui/voiceOptions.ts), [`src/ui/voiceDownload.ts`](../src/ui/voiceDownload.ts) | the Options row's two faces, the model pulldown, the download dialog |
 
-## Why no language model
+## The recogniser: Whisper, and why not Vosk
 
-It was the obvious design and it is wrong for the machines this has to run on. Whisper's
-smallest model is 75 MB and takes SECONDS per utterance in WebAssembly on a weak CPU; it
-transcribes free text, so it invents words the game must then un-invent; an LLM to map the text
-onto commands is the same cost again. Instead:
+The first Voice Control ran Vosk's small Kaldi model (41 MB) under a GRAMMAR of the words a
+command could hold. It was chosen for the slow PC and paid for it in accuracy — "altar" heard as
+"alter", "finish" as "fish" — and a grammar only narrows what a weak listener guesses between.
+It was replaced by **Whisper** (OpenAI, MIT), English-only, as the hub's int8-quantized ONNX
+files (`onnx-community/whisper-*.en`), run by transformers.js in a worker:
 
-- **Vosk** (Kaldi in WebAssembly, `vosk-browser`, Apache-2.0) with its small English model (41 MB,
-  Apache-2.0). Kaldi's small models run in real time on a Raspberry Pi.
-- It takes a **grammar**: the list of words it may hear. Told it is listening for "footman",
-  "attack", "three" and a few hundred others, it cannot hear "foot man" or "football". The grammar
-  is rebuilt per utterance from the game's own tables — the card, the tech tree of everything we
-  own, the spells our units know, what is on screen — so a map's custom ability is speakable the
-  moment its button is on the card.
-- The text is then a sentence in a CLOSED vocabulary, and a closed vocabulary is a small grammar,
-  not a model: instant, offline, and it never does something the player did not say.
+- **Fast** = base.en, ~80 MB, the default. **Accurate** = small.en, ~250 MB. The Options row's ONE
+  download fetches both (332 MB, one bar), so the pulldown beside the checkbox is a switch; a pick
+  whose model has gone missing (a cleared cache) fetches just that one.
+- It is **primed, not constrained**: the names the player is likely to say (the lexicon, then the
+  host's wider vocabulary) go in as a prompt after `<|startofprev|>`, Whisper's own
+  `initial_prompt` mechanism, which makes "Blademaster" and "Altar of Kings" the likely
+  spellings without forbidding anything. transformers.js does not wire `prompt_ids` through
+  `generate`, so the worker writes the decoder's opening tokens itself and cuts the prompt off
+  the answer.
+- The text is FREE, so the parser reads it tolerantly: punctuation and capitals are dropped,
+  digits are numbers, and a name may match by SOUND (`sound()`: "alter" is Altar) from four
+  letters up. Chat lines need no second recogniser any more — the message is what was said.
+- Silence is answered as silence (RMS gate): Whisper invents a sentence out of room noise.
 
-## Three traps
+## Four traps
 
-1. **Where the model is kept.** vosk-browser stores a model in Emscripten's IDBFS (IndexedDB
-   database `/vosk`, store `FILE_DATA`, version 21, one row per file keyed by path) under a folder
-   named after the model URL, and skips its own download when `downloaded.ok` is there. Its own
-   fetch reports no progress, so we fetch the archive ourselves (with the bar) and WRITE it where
-   its download would have — then loading the model is the unpack. The row shape is IDBFS's and is
-   pinned with the package version; a vosk-browser upgrade must re-check it.
-2. **The dictionary is inside `Gr.fst`.** The small model ships no `words.txt`; its word table is
-   the grammar FST's embedded OpenFst symbol table (magic `2125658996`). It is read so that a
-   compound the dictionary lacks ("blademaster") is offered split ("blade master") — the parser
-   compares names with spaces removed, so the split costs nothing downstream. A grammar word the
-   model does not know is silently dropped by Vosk.
-3. **The download host.** The model comes from the vosk-browser project's own published copy, the
-   one host that sends `Access-Control-Allow-Origin` (alphacephei.com does not, so a browser tab
-   could never fetch it there). Nothing else ever leaves the machine. The microphone is open
-   while Voice Control is on in a match, so a PRE-ROLL (the last 0.6 s, in memory only) can be
-   fed ahead of the live audio when "." goes down — without it the first word, which is the
-   verb, was cut off — and the audio goes into a worker on this page.
+1. **The runtime is SHIPPED, not fetched.** transformers.js loads onnxruntime-web's WebAssembly
+   from a CDN by default; the worker points `wasmPaths` at the copies Vite bundles
+   (`ort-wasm-simd-threaded.asyncify.{wasm,mjs}`, ~27 MB, fetched only when Voice Control is
+   first used). The only download is the model.
+2. **Threads need cross-origin ISOLATION.** Whisper's encoder always processes a 30-second
+   window, so a short command costs nearly what a long one does: on ONE thread base.en took
+   ~4.7 s to answer a two-second command, on eight ~1.4 s (small.en ~3.5 s). The dev server
+   (`vite.config.ts`) and the desktop app's server (`electron/server.mjs`) send
+   `Cross-Origin-Opener-Policy: same-origin` + `Cross-Origin-Embedder-Policy: credentialless`;
+   a host that does not falls back to one thread, slowly but correctly.
+3. **Installed = in Cache Storage.** transformers.js keeps every file in the `transformers-cache`
+   Cache; "installed" is its two ONNX files being there (`whisperFiles`), so a browser clearing
+   site data is a model to fetch again, never a broken one. The old Vosk model in IndexedDB
+   (`/vosk`) is deleted at boot (`forgetOldVoskModel`).
+4. **CPU everywhere, for now.** The int8 files are the fast ones on CPU, and every machine has a
+   CPU. WebGPU would answer in a fraction of the time on a machine with a GPU, but it wants
+   different files (fp16/fp32 encoder, 4-bit decoder) — a second download per device, left for
+   when it can be measured on real hardware.
 
 ## What a phrase means (the developer's rules)
 
@@ -103,11 +111,9 @@ onto commands is the same cost again. Instead:
   one first), presses the pocket, and aims it: an item's behaviour is its ability row, so a gift
   goes on the grunt of ours with the least life, a weapon on the enemy. Said as players say them:
   "healing potion" for Potion of Healing, "town portal" / "tp", "salve".
-- **The grammar knows the whole game.** Every melee unit, building, hero, creep, ability and item
-  name (≈1000), the jargon (creep, expo, rax, tp, upkeep…), and the commands themselves as whole
-  PHRASES ("finish the altar", "build a farm", "use healing salve"). Vosk scores one listed phrase
-  below the same words loose, so a real command is preferred over a near-sounding word salad —
-  the fix for "altar" heard as "alter" and "finish" as "fish".
+- **The prompt knows the game.** The lexicon (the card, our tech tree, our units' spells, what is
+  on screen) and then every melee unit, ability and item name prime Whisper's spelling, the most
+  likely names LAST (the worker keeps the end of a long prompt).
 - Everything is fog-honest: "the enemy hero" is the nearest one this player can SEE.
 
 `window.openwar3.voiceSay("train three footmen")` runs a sentence through the same path with no
@@ -139,7 +145,7 @@ WeakMap the widget fills). So "click single player", "select lost temple", "set 
 - The CONSOLE lines belong to the match even while a panel is up or the game is paused — "open
   the quest log", "pause"/"unpause", and chat — and opening one panel puts away whichever is open.
 - **Chat**: "say good game to all", "tell allies push mid", "send message … to my team", "open
-  chat". A chat line's words are not in any grammar, so the match runs a SECOND, free recogniser
-  beside the grammar one (`VoiceHost.dictates`) and the message is read off it; the grammar one
-  only has to hear the verb. "And" inside a chat line is the message's own.
-- `window.openwar3.voiceSay(text)` works on the menus too (it asks whichever host is active).
+  chat". The message is the rest of the sentence as Whisper heard it. "And" inside a chat line is
+  the message's own.
+- `window.openwar3.voiceSay(text)` works on the menus too (it asks whichever host is active), and
+  `window.openwar3.voiceHear(samples16k)` runs recorded speech through the recogniser itself.

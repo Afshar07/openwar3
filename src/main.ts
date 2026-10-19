@@ -37,7 +37,8 @@ import { applyVideoOptions } from "./render/videoQuality";
 import { applyHealthBarOptions } from "./render/worldOverlays";
 import { applyHotkeyOptions } from "./data/hotkeys";
 import { applyScrollOptions } from "./render/scrollOptions";
-import { applyVoiceOptions, setMenuVoiceHost, voicePrerollState, voiceSay } from "./voice/control";
+import { applyVoiceOptions, setMenuVoiceHost, voiceHear, voicePrerollState, voiceSay } from "./voice/control";
+import { forgetOldVoskModel } from "./voice/model";
 import { makeMenuVoiceHost } from "./voice/menu";
 import { GlueManager, type GlueScreenDef } from "./ui/glue";
 import { mountLoadingScreen, type LoadingScreen } from "./ui/loadingScreen";
@@ -108,6 +109,8 @@ applyVoiceOptions(bootOptions);
 // …and the menus' half of it: every glue screen and in-game panel, read off the page when "." is
 // held (src/voice/menu.ts).
 setMenuVoiceHost(makeMenuVoiceHost());
+// The first Voice Control's Vosk model (~70 MB in IndexedDB) is replaced by Whisper's: freed.
+forgetOldVoskModel();
 
 const resolver = new AssetResolver(null);
 
@@ -1289,4 +1292,5 @@ if (import.meta.env.DEV && new URLSearchParams(location.search).has("dev")) {
   // Voice Control's mapping without a microphone (src/voice/control.ts).
   voiceSay,
   voicePreroll: voicePrerollState,
+  voiceHear,
 };

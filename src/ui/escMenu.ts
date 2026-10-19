@@ -148,6 +148,8 @@ export class EscMenu {
       sounds: () => this.actions.sounds?.() ?? null,
       gameSpeed: () => this.actions.gameSpeed?.() ?? { speed: DEFAULT_GAME_SPEED, locked: true },
       setGameSpeed: (speed) => this.actions.setGameSpeed?.(speed),
+      // Where Voice Control's download dialog goes up when Accurate is picked mid-match.
+      dialogDoor: () => ({ container: this.container, vfs: this.vfs }),
     });
     // Escape closes the menu, captured ahead of the HUD's own Escape handler. From a
     // sub-panel it steps BACK one level instead — the same thing its Previous Menu /

@@ -65,6 +65,9 @@ StringList {
     // button is the row until the speech model is on this machine, the checkbox after it.
     VOICE_CONTROL               "Voice Control",
     COLON_VOICE_CONTROL         "Voice Control:",
+    // ...and the pulldown beside its checkbox: which speech model listens (src/voice/).
+    VOICE_MODEL_FAST            "Fast",
+    VOICE_MODEL_ACCURATE        "Accurate",
     DOWNLOAD_VOICE_CONTROL      "Download voice control dependencies",
     // The download dialog (src/ui/voiceDownload.ts) -- built as the game's own "Downloading
     // Update" box (MainMenu.fdf BattleNetPatchDialog), whose title is DOWNLOADING_UPDATE.

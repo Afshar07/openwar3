@@ -1,4 +1,5 @@
 import type { SoundBoard } from "../audio/sounds";
+import type { DataSource } from "../vfs/types";
 import type { FdfLibrary } from "./fdf/library";
 import type { FdfScreen } from "./fdf/render";
 import {
@@ -60,6 +61,8 @@ export interface EscOptionsHost {
   gameSpeed(): { speed: GameSpeed; locked: boolean };
   /** Apply a new speed to the running match. */
   setGameSpeed(speed: GameSpeed): void;
+  /** Where a download dialog goes up (Voice Control's Accurate model). */
+  dialogDoor(): { container: HTMLElement; vfs: DataSource };
 }
 
 /**
@@ -204,7 +207,11 @@ export class EscOptions {
     });
     // Voice Control: download button or checkbox (src/voice/) — ticked for both copies the
     // moment the model arrives.
-    bindVoiceRow(screen, () => { this.committed.voiceControl = true; this.working.voiceControl = true; });
+    bindVoiceRow(screen, {
+      enabled: () => { this.committed.voiceControl = true; this.working.voiceControl = true; },
+      setModel: (v) => { this.committed.voiceModel = v; this.working.voiceModel = v; },
+      ...this.host.dialogDoor(),
+    });
     const { locked } = this.host.gameSpeed();
     if (locked) this.workingSpeed = this.host.gameSpeed().speed;
     const speed = screen.slider("GameSpeedSlider");

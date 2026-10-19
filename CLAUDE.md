@@ -936,11 +936,13 @@ data, or asset behaviour, **consult our sources** and cite what you used.
   match with no menu or dialog up.
 - **Voice Control:** read [`docs/voice-control.md`](docs/voice-control.md) before touching
   [`src/voice/`](src/voice/) or `game/voiceActions.ts`. Hold "." and speak; it is OURS end to end
-  and deliberately has NO language model — a grammar-constrained Vosk recogniser (41 MB, fetched
-  on demand by the Options row's download button) feeds a deterministic parser, because the target
-  is the slow PC. The model is written straight into vosk-browser's IDBFS rows so the download can
-  show a bar, its dictionary is read out of `Gr.fst`, "here" is the middle of the SCREEN (the mouse
-  only when said), and every command leaves through the click/hotkey paths so it cannot cheat.
+  and has NO language model in the loop: Whisper (base.en "Fast" / small.en "Accurate", both
+  fetched by the Options row's one download, int8 ONNX in a transformers.js worker) transcribes,
+  PRIMED with the names on screen, and a deterministic parser maps the text — tolerating sound-
+  alike spellings — onto the click/hotkey paths, so it cannot cheat. The ONNX runtime is bundled,
+  never fetched from a CDN, and only runs multithreaded on a cross-origin-ISOLATED page (the dev
+  server and `electron/server.mjs` send COOP/COEP): one thread is 4.7 s a command, eight 1.4 s.
+  "Here" is the middle of the SCREEN (the mouse only when said).
 - **Never edit the install's UI files.** `UI\FrameDef\` is the player's. A control OpenWar3 needs
   that the 2003 UI has no frame for goes in [`src/overrides/`](src/overrides/) — our own FrameDef
   files, layered onto the screen at mount through `mountFdfScreen`'s `overrides` option — and its

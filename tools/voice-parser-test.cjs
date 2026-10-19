@@ -185,6 +185,17 @@ check("open chat = the input", i?.kind === "chat" && i.text === "", JSON.stringi
 i = one("show the enemy base");
 check("show the enemy base is still the camera", i?.kind === "camera", JSON.stringify(i));
 
+console.log("free text (Whisper)");
+i = one("Build an alter.");
+check("Build an alter. (sound-alike, punctuation)", i?.kind === "build" && i.entry.id === "halt", JSON.stringify(i));
+i = one("Train 3 Footmen.");
+check("Train 3 Footmen. (digits, capitals)", i?.kind === "train" && i.entry.id === "hfoo" && i.count === 3, JSON.stringify(i));
+i = one("Finish the altar.");
+check("Finish the altar.", i?.kind === "finish" && i.entry?.id === "halt", JSON.stringify(i));
+i = one("Attack-move here.");
+check("Attack-move here.", i?.kind === "order" && i.order === "attackmove", JSON.stringify(i));
+check("orc does not sound like ark (too short)", one("build an ark") === null, JSON.stringify(p("build an ark")));
+
 console.log("not commands");
 check("small talk is nothing", p("hello how are you").length === 0, JSON.stringify(p("hello how are you")));
 check("describe() names every intent", p("train three footmen and group two").map(describe).join(" · ") === "Train 3 × Footman · Group 2", p("train three footmen and group two").map(describe).join(" · "));

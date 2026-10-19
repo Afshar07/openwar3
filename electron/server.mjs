@@ -68,6 +68,13 @@ async function sendFile(res, path) {
     // index.html may be cached hard; index.html must not be, or a patched game keeps booting
     // the old bundle.
     "Cache-Control": path.endsWith("index.html") ? "no-cache" : "public, max-age=31536000, immutable",
+    // Cross-origin ISOLATION (the dev server sends the same pair, vite.config.ts): it is what
+    // lets Voice Control's recogniser run on several threads (src/voice/whisperWorker.ts) — one
+    // thread took ~4.7 s to answer a two-second command, eight take ~1.4. `credentialless`, so a
+    // cross-origin fetch that sends no CORP header still loads. A Chromium that does not know the
+    // value ignores it, and the recogniser falls back to one thread.
+    "Cross-Origin-Opener-Policy": "same-origin",
+    "Cross-Origin-Embedder-Policy": "credentialless",
   });
   await new Promise((done) => createReadStream(path).pipe(res).on("finish", done).on("error", done));
   return true;

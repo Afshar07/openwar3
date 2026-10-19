@@ -148,6 +148,7 @@ export const OPTIONS_MENU_OVERRIDE: FdfOverride = {
     { frame: "VoiceDownloadButton", into: "GameplayPanel" },
     { frame: "VoiceControlCheckBox", into: "GameplayPanel" },
     { frame: "VoiceControlLabel", into: "GameplayPanel" },
+    { frame: "VoiceModelBackdrop", into: "GameplayPanel" }, // Fast / Accurate, beside the box
     { frame: "GamepadButton", into: "GameplayPanel" }, // Detect / Unpair Gamepad, issue #162
     // Options → Video: "Low Performance Mode" under "Resolution:" (issue #161), and "Vertical
     // Sync" under the game's last row (Occlusion). Box before label in each pair — a label
@@ -211,6 +212,7 @@ export const ESC_OPTIONS_OVERRIDE: FdfOverride = {
     { frame: "VoiceControlCheckBox", into: "GameplayPanel" }, // Voice Control (src/voice/)
     { frame: "VoiceControlLabel", into: "GameplayPanel" },
     { frame: "VoiceDownloadButton", into: "GameplayPanel" },
+    { frame: "EscVoiceModelMenu", into: "GameplayPanel" },
     { frame: "GamepadButton", into: "GameplayPanel" }, // Detect / Unpair Gamepad, issue #162
     // …and the Video panel's "Low Performance Mode" (issue #161), which on THIS panel closes the
     // panel rather than sitting under Resolution — that file says why.

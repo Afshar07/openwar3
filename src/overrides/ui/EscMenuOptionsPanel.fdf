@@ -135,9 +135,39 @@ Frame "GLUECHECKBOX" "VoiceControlCheckBox" INHERITS WITHCHILDREN "EscMenuCheckB
 
 Frame "TEXT" "VoiceControlLabel" INHERITS "EscMenuLabelTextTemplate" {
     SetPoint LEFT, "VoiceControlCheckBox", RIGHT, 0.003, 0.0,
-    Width 0.195,
+    // Only as wide as its two words: the model's pulldown hangs off its right edge.
+    Width 0.085,
     Height 0.024,
     Text "VOICE_CONTROL",
+}
+
+// …and the model that listens, on the same line — the panel's own pulldown (`EscOptionsParticles
+// Menu`'s 0.0245 height), as "Healthbars:" and "Hotkeys:" are built above it.
+Frame "POPUPMENU" "EscVoiceModelMenu" {
+    Width 0.1,
+    Height 0.0245,
+    PopupButtonInset 0.01,
+    SetPoint LEFT, "VoiceControlLabel", RIGHT, 0.004, 0.0,
+
+    ControlBackdrop "EscVoiceModelPopupMenuBackdrop",
+    Frame "BACKDROP" "EscVoiceModelPopupMenuBackdrop" INHERITS "EscMenuButtonBackdropTemplate" {
+    }
+
+    ControlDisabledBackdrop "EscVoiceModelPopupMenuDisabledBackdrop",
+    Frame "BACKDROP" "EscVoiceModelPopupMenuDisabledBackdrop" INHERITS "EscMenuButtonDisabledBackdropTemplate" {
+    }
+
+    PopupTitleFrame "EscVoiceModelPopupMenuTitle",
+    Frame "GLUETEXTBUTTON" "EscVoiceModelPopupMenuTitle" INHERITS WITHCHILDREN "EscMenuPopupMenuTitleTemplate" {
+    }
+
+    PopupArrowFrame "EscVoiceModelPopupMenuArrow",
+    Frame "BUTTON" "EscVoiceModelPopupMenuArrow" INHERITS WITHCHILDREN "EscMenuPopupMenuArrowTemplate" {
+    }
+
+    PopupMenuFrame "EscVoiceModelPopupMenuMenu",
+    Frame "MENU" "EscVoiceModelPopupMenuMenu" INHERITS WITHCHILDREN "EscMenuPopupMenuMenuTemplate" {
+    }
 }
 
 Frame "GLUETEXTBUTTON" "VoiceDownloadButton" INHERITS WITHCHILDREN "EscMenuButtonTemplate" {

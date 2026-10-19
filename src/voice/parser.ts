@@ -215,6 +215,21 @@ export function key(ws: readonly string[]): string {
   return ws.map(stem).join("");
 }
 
+/**
+ * A word as it SOUNDS, roughly: the consonant skeleton after the first letter, doubled letters
+ * single, the common same-sound spellings folded ("ph"/"f", "ck"/"k", "z"/"s", "c" before e/i
+ * as "s"). A free-text recogniser's misses are mostly spellings of the right sound — "alter" for
+ * Altar, "rifle men" for Riflemen, "goul" for Ghoul — and two keys that sound alike are a match
+ * the edit distance alone would refuse for a short name.
+ */
+export function sound(k: string): string {
+  const s = k
+    .replace(/ph/g, "f").replace(/ck/g, "k").replace(/gh/g, "g").replace(/z/g, "s")
+    .replace(/c([eiy])/g, "s$1").replace(/c/g, "k").replace(/q/g, "k").replace(/x/g, "ks");
+  const head = s[0] ?? "";
+  return (head + s.slice(1).replace(/[aeiouyhw]/g, "")).replace(/(.)\1+/g, "$1");
+}
+
 /** Levenshtein distance, capped (the caller only ever asks "within k?"). */
 function distance(a: string, b: string, cap: number): number {
   if (Math.abs(a.length - b.length) > cap) return cap + 1;
@@ -267,8 +282,11 @@ export class Lexicon {
         // that survived stemming and for a plural the recogniser spelled oddly, not enough to
         // turn "farm" into "arm".
         const cap = e.key.length >= 6 ? Math.floor(e.key.length / 5) : 0;
-        const d = k === e.key ? 0 : distance(k, e.key, cap);
-        if (d > cap) continue;
+        let d = k === e.key ? 0 : distance(k, e.key, cap);
+        // …or the same SOUND (a free-text recogniser spells the right sound wrongly), from four
+        // letters up — under that a skeleton is too short to mean anything ("orc" and "ark").
+        if (d > cap && e.key.length >= 4 && sound(k) === sound(e.key)) d = cap + 1;
+        else if (d > cap) continue;
         const score = (end - at) * 10 - d * 15;
         if (!best || score > best.score) best = { entry: e.entry, end, score };
       }

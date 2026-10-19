@@ -1,7 +1,7 @@
 import { popupOptions } from "../ui/fdf/widgets";
 import { voiceClick, voicePoint, voicePointed } from "../ui/gamepad";
 import { dressAsGameTip } from "../ui/gameTipSkin";
-import { stem, words, type LexEntry } from "./parser";
+import { sound, stem, words, type LexEntry } from "./parser";
 import type { VoiceHost } from "./control";
 
 // Voice Control in the MENUS: "click single player", "move the cursor to options", "select echo
@@ -95,6 +95,8 @@ function keysOf(text: string): string[] {
  *  (a recogniser's "isle" for "isles" survives stemming; "orc" for "ork" does not need to). */
 function near(a: string, b: string): boolean {
   if (a === b) return true;
+  // The same sound, spelled otherwise ("alter" for "altar") — from four letters up.
+  if (Math.min(a.length, b.length) >= 4 && sound(a) === sound(b)) return true;
   if (Math.min(a.length, b.length) < 5 || Math.abs(a.length - b.length) > 1) return false;
   let i = 0;
   while (i < a.length && a[i] === b[i]) i++;
