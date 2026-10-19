@@ -109,7 +109,7 @@ function recorder(table, strategy, profile, opts = {}) {
     // …and the same question asked of what is FINISHED, which is what `harvestPlan` puts a
     // crew on: a haunt still going up is a mine nobody can kneel at (plan.ts `mineWorkable`).
     countAt: (id, town) => opts.perTown?.[town]?.[id] ?? count(id),
-    minesOwned: () => 1, goldOwned: () => 20000,
+    minesOwned: () => opts.mines ?? 1, goldOwned: () => 20000,
     foodUsed: () => opts.foodUsed ?? 0, foodCap: () => opts.foodCap ?? 100, foodCeiling: () => opts.foodCeiling ?? 100,
     foodMade: (id) => opts.foodMade?.[id] ?? 6,
     gold: () => opts.gold ?? 500, wood: () => opts.wood ?? 500,
@@ -646,9 +646,17 @@ console.log("\n--- the human's Scout Towers become something ---");
   const bare = towered(PLUS_NORMAL, { standing: { hwtw: 0 } });
   check("with no Scout Tower standing there is nothing to upgrade", rows(bare, "hatw").length + rows(bare, "hgtw").length, 0);
   const insane = towered(PLUS_INSANE);
-  check("an Insane human makes the rest of its towers Guard Towers", at(insane, "hgtw"), "3@0");
+  // Insane's ceiling is TWO towers in all (the developer's: "it should build at most 2"), so
+  // the rest after the Arcane Tower is one Guard Tower.
+  check("an Insane human makes the rest of its towers Guard Towers", at(insane, "hgtw"), "1@0");
+  check("…and asks for no more than two towers at its base", at(insane, "hwtw"), "2@0");
   check("…and still one Arcane Tower", at(insane, "hatw"), "1@0");
   const easy = towered(PLUS_EASY);
+  // …and two is the WHOLE MATCH's count, never a quota per town: with three towns the main
+  // takes one, the first expansion the other, and the third none.
+  const spread = towered(PLUS_INSANE, { towns: 3, mines: 3 });
+  check("an Insane computer with three towns still asks for two towers in all",
+    rows(spread, "hwtw").reduce((n, x) => n + x.qty, 0), 2);
   check("an easy human builds no towers at all", easy.build.some((x) => ["hwtw", "hatw", "hgtw"].includes(x.item)), false);
   const orc = recorder(PLUS_RACES.orc, PLUS_RACES.orc.strategies[0], PLUS_NORMAL, { standing: { ogre: 1, owtw: 2 }, clock: 600 });
   buildPlan(orc.ctx);

@@ -679,7 +679,12 @@ export class AiPlayer {
   /** Is this research row one the loop should save for right now — not yet at `level`, its own
    *  requirements met, and a building of ours that researches it standing? */
   private researchDue(level: number, id: string): boolean {
-    if (this.upgradeLevelOrQueued(id) >= level || !this.techMeets(id)) return false;
+    // The NEXT rank's requirements, not the first's: `[Redc] Requires=` is empty and
+    // `Requires1=etoe`, so asked of rank 1 a Druid Training row aimed at rank 2 saved its price
+    // at tier 2 for a research no building could start until the Tree of Eternity.
+    const next = this.upgradeLevelOrQueued(id);
+    if (next >= level || !this.techMeets(id)) return false;
+    if (next > 0 && this.host.world.tech && !this.host.world.tech.meets(this.player, id, next)) return false;
     for (const b of this.host.world.units.values()) {
       if (b.owner !== this.player || b.hp <= 0 || !b.building || b.building.constructionLeft > 0) continue;
       if (this.host.tech.researches(b.typeId).includes(id)) return true;

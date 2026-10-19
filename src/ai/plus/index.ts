@@ -1106,6 +1106,11 @@ const WAVE_GAP_SPREAD = 0.25;
  *  (36 s, UnitBalance `bldtm`) and a few steps to the rally point. It was 90, and a wave
  *  standing at home for a minute and a half read as "not keen on attacking". OURS. */
 const SIEGE_WAIT = 45;
+/** The longest an Insane wave waits for a hero to carry a Town Portal (`portalHeld`) — long
+ *  enough for the shopping pass to fetch one the purse is already saving for (items.ts
+ *  `portalSaving`), short enough that a map with no scroll on any shelf still sees an attack.
+ *  OURS. */
+const PORTAL_WAIT = 150;
 /** How long before a wave ENDED a win may have come and still count as that wave's win —
  *  `endWave` lands after the march home, the verdict `WON_QUIET` after the last enemy. OURS. */
 const WON_RECENT = 120;
@@ -2157,6 +2162,8 @@ interface Brain {
   assaults: number;
   /** When the wave first stood waiting for its siege unit (`siegeHeld`), -1 = not waiting. */
   siegeWaitFrom: number;
+  /** When the wave first stood waiting for a Town Portal (`portalHeld`), -1 = not waiting. */
+  portalWaitFrom: number;
   /** When this army last WON a fight against a player's army (`victoryPass`'s verdict), -1 =
    *  never. The next wave's gap is shortened off it (`PlusProfile.wonGap`). */
   lastWon: number;
@@ -2535,6 +2542,7 @@ export class ComputerPlusAi {
       refill: false,
       assaults: 0,
       siegeWaitFrom: -1,
+      portalWaitFrom: -1,
       lastWon: -1,
       creepRuns: 0,
       lastCreepEnd: -1,
@@ -4646,6 +4654,9 @@ export class ComputerPlusAi {
     if (this.squadFood(b, at) < profile.attackFood) return false;
     // …and from the SECOND wave on, the race's siege if it is on its way — see `siegeHeld`.
     if (this.siegeHeld(b)) return false;
+    // …and on Insane, a Town Portal in some hero's belt — see `portalHeld`. A held wave is an
+    // OPEN creep window, so the army creeps (and the hero shops) rather than standing about.
+    if (this.portalHeld(b)) return false;
     // …and after a FALL-BACK, the WHOLE army, not merely a wave's worth of it — see
     // `PlusProfile.refill`. Asked last because it is the one gate that prices the plan.
     return this.refilled(b, at);
@@ -4681,6 +4692,31 @@ export class ComputerPlusAi {
     if (b.ai.count(unit) < 1 && !(from && b.ai.count(from) > 0)) return false;
     if (b.siegeWaitFrom < 0) b.siegeWaitFrom = b.clock;
     return b.clock - b.siegeWaitFrom < SIEGE_WAIT;
+  }
+
+  /**
+   * NO SCROLL, NO ATTACK — `PlusProfile.portalToAttack`, Insane's: a wave at a PLAYER waits while
+   * none of our heroes carries a Town Portal it could press (`PlusItems.holdsEscape`, the sim's
+   * own readiness), because the scroll is how a lost assault ends with the army alive.
+   *
+   * Only as the attacker: this is one of the WAVE's clocks (`waveReady`), which is also what an
+   * ally's call is joined on too (`answerAttack` asks it beside the first-attack floor), so both doors that start a fight with
+   * a player are held, and nothing else is — a base under attack is defended, a fight already in
+   * the field is fought, a camp is crept. For at most `PORTAL_WAIT` from the first pass it held,
+   * re-armed the moment a scroll is carried again, so one that cannot be bought costs a wave a
+   * couple of minutes rather than the match.
+   */
+  private portalHeld(b: Brain): boolean {
+    if (!b.profile.portalToAttack) return false;
+    for (const u of this.host.world.units.values()) {
+      if (u.owner !== b.ai.player || !u.isHero || u.hp <= 0 || isCopy(u)) continue;
+      if (b.items.holdsEscape(u)) {
+        b.portalWaitFrom = -1;
+        return false;
+      }
+    }
+    if (b.portalWaitFrom < 0) b.portalWaitFrom = b.clock;
+    return b.clock - b.portalWaitFrom < PORTAL_WAIT;
   }
 
   /**
@@ -7981,6 +8017,8 @@ export class ComputerPlusAi {
     // 2v2 was almost never: two computers walked at two bases a minute apart. The army-size half
     // is `rallyBusy`'s "small", already asked above.
     if (b.clock < b.profile.firstAttack) return decline(RALLY_BUSY_LINES.notReady);
+    // …and on Insane, not without a Town Portal (`portalHeld`): joining is attacking too.
+    if (this.portalHeld(b)) return decline(RALLY_BUSY_LINES.notReady);
     const spot = this.foeBase(b, foe);
     if (!spot) return;
     b.joining = foe;

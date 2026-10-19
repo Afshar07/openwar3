@@ -171,7 +171,8 @@ export interface PlusProfile {
    * which is the stuck game the unlock was meant to end, from the other side. OURS.
    */
   readonly lateAttackFood: number;
-  /** Towers it will ever put up. Easy builds none at all. */
+  /** Towers it will ever put up, across every town together (plan.ts `towers`). Easy builds
+   *  none at all; Insane at most two — the developer's ceiling (it was four, all at home). */
   readonly towers: number;
   /**
    * SIEGE it keeps on the field once its second tier is standing — the race's own artillery
@@ -382,6 +383,18 @@ export interface PlusProfile {
    * Off only on Easy, where nothing is bought at all.
    */
   readonly keepPortal: boolean;
+  /**
+   * Does it refuse to START a fight with a player while no hero carries a Town Portal?
+   *
+   * The developer's Insane rule: *"should avoid attacking/fighting an enemy as much as possible
+   * if it doesn't own a scroll of town portal (as the attacker of course)"*. The scroll is how a
+   * lost assault ends with the army alive, so an attack without one is the one this player does
+   * not make. Only as the ATTACKER — a wave set off, or an ally's attack joined; a base being
+   * defended, a fight already in the field and a creep camp are not gated (plus/index.ts
+   * `portalHeld`). "As much as possible" is a deadline, not a lock (`PORTAL_WAIT`): a scroll
+   * nobody can buy must not keep the army at home for the rest of the match.
+   */
+  readonly portalToAttack: boolean;
 
   // --- manners ------------------------------------------------------------------------------
   /**
@@ -445,7 +458,7 @@ export const PLUS_EASY: PlusProfile = {
   focusFire: false, pullOutHp: 0, stutterStep: false, creeps: true, creepAt: 240, creepFood: 8,
   creepCamps: 2, creepCampMax: CAMP_GREEN_MAX, creepRange: 3000, creepRest: 0, creepGreenUntil: 0,
   harass: false, roam: false, scout: false, sweepEvery: Infinity, expansionFirst: 0.5,
-  shopping: 0, itemReserve: Infinity, keepPortal: false,
+  shopping: 0, itemReserve: Infinity, keepPortal: false, portalToAttack: false,
   concedeAfter: 24,
 };
 
@@ -538,7 +551,7 @@ export const PLUS_NORMAL: PlusProfile = {
   // not touch is `ESSENTIAL` (plus/items.ts) — the Town Portal, the Potion of Healing and the two
   // fight items are bought past the ceiling — so the belt is thinner, not empty. Insane keeps
   // the full six.
-  shopping: 2, itemReserve: 500, keepPortal: true,
+  shopping: 2, itemReserve: 500, keepPortal: true, portalToAttack: false,
   concedeAfter: 14,
 };
 
@@ -562,7 +575,7 @@ export const PLUS_INSANE: PlusProfile = {
   // Full countering, off a small sample and a long memory: six units and a quarter of them one
   // type is enough to start shifting, and it remembers what it saw four minutes ago.
   counterWeight: 1, counterSample: 6, counterShare: 0.25, counterMemory: 240,
-  armyFood: UPKEEP_TIER2, wholeArmyCeiling: false, unlockAt: Infinity, lateAttackFood: 16, towers: 4, siegeUnits: 2, heroes: 3, techTier: 3, upgradeRank: 3,
+  armyFood: UPKEEP_TIER2, wholeArmyCeiling: false, unlockAt: Infinity, lateAttackFood: 16, towers: 2, siegeUnits: 2, heroes: 3, techTier: 3, upgradeRank: 3,
   // Half a minute of `firstAttackSpread` — it was none, so two Insane computers left home on the
   // same tick at 2:30 every game ("attack each other at the same moment").
   firstAttack: 150, firstAttackSpread: 30, waveGap: 30, wonGap: 0.5, attackFood: 16, retreatHp: 0.4, refill: false,
@@ -573,7 +586,7 @@ export const PLUS_INSANE: PlusProfile = {
   harass: true, roam: true, scout: true, sweepEvery: 75, expansionFirst: 0.85,
   // A full belt and a Town Portal on the hero. Both are what separates a player who has been
   // here before from one who has not.
-  shopping: 6, itemReserve: 200, keepPortal: true,
+  shopping: 6, itemReserve: 200, keepPortal: true, portalToAttack: true,
   concedeAfter: 8,
 };
 

@@ -22,7 +22,7 @@ import {
   TAUREN_CHIEF, THORNS_AURA, THORNY_SHIELD, THUNDER_BOLT, THUNDER_CLAP, TOTEM, TOWN_HALL,
   TRANQUILITY, TREE_AGES, TREE_ETERNITY, TREE_LIFE, TRUESHOT, UNHOLY_AURA, UPG_ABOLISH,
   UPG_ARMOR, UPG_BANSHEE, UPG_BLK_SPHINX, UPG_BOWS, UPG_BREEDING, UPG_CHIM_ACID, UPG_CLOUD, UPG_CR_ARMOR,
-  UPG_CR_ATTACK, UPG_DEFEND, UPG_DRUID_CLAW, UPG_DRUID_TALON, UPG_FIEND_WEB, UPG_GHOUL_FRENZY,
+  UPG_CR_ATTACK, UPG_DEFEND, UPG_DRUID_CLAW, UPG_MARK_CLAW, UPG_DRUID_TALON, UPG_FIEND_WEB, UPG_GHOUL_FRENZY,
   UPG_GUN_RANGE,
   UPG_HAMMERS, UPG_HIDES, UPG_LEATHER, UPG_MASONRY, UPG_MELEE, UPG_MOON_ARMOR, UPG_NECROS,
   UPG_ORC_ARMOR, UPG_ORC_BERSERKER, UPG_ORC_ENSNARE, UPG_ORC_MELEE, UPG_ORC_PULVERIZE,
@@ -131,6 +131,10 @@ export interface UpgradeRow {
    * because these are researched in the PRODUCTION buildings the army keeps busy.
    */
   unlock?: boolean;
+  /** Researched only while one of this UNIT of ours is on the field (or in a queue) — an upgrade
+   *  for a unit the active build may not be making at all (Druid Training under a mass-Dryad
+   *  build), so the Ancient of Lore does not spend the army's gold on a body nobody has. */
+  forUnit?: string;
 }
 
 /** A support building every build of this race wants, whatever its mix. */
@@ -201,6 +205,21 @@ export interface PlusStrategy {
    * and its heroes — what changes is what comes out of the buildings.
    */
   readonly thenAt3?: string;
+  /**
+   * The same clause one tier earlier: the build this one grows into once a TIER-2 hall stands
+   * (its own `thenAt3` still applies at tier 3, and wins there). For a TIER-1 build whose army
+   * is an opening rather than a plan — the night elf's Archers and Huntresses, which the
+   * developer calls *"a good strategy early in the game, but later it should go for bears"*.
+   */
+  readonly thenAt2?: string;
+  /**
+   * Units of the mix taken ONLY with something to spare — a second mine of ours, a bank the
+   * build order is visibly not spending, or the unit's producer already standing (plan.ts
+   * `activeStrategy`). The night elf's Chimaera: *"even chimeras if it has the resources (or an
+   * expo at least)"* — a 140/190 flyer off a 140/190 Roost is not something a one-mine
+   * economy fields beside a druid army.
+   */
+  readonly affluent?: readonly string[];
   /**
    * An INSANE-ONLY build that is never rolled on its own: it REPLACES the build that was rolled
    * when that build opens on one of `first`, with probability `chance` (`insaneVariant`). Its
@@ -1019,7 +1038,18 @@ const NIGHT_ELF: PlusRaceTable = {
     // `Redc` rank TWO is what puts Bear Form on the Druid of the Claw at all
     // (`[Abrf] Requires=Redc Requiresamount=2`), which is why the "bears" build exists and why
     // this row is worth two ranks — see the Computer+ caster.
-    { id: UPG_DRUID_CLAW, from: ANCIENT_LORE, ranks: 2, after: 18 },
+    //
+    // …and it is a UNIT-ABILITY UNLOCK in the plainest sense — rank 1 is Rejuvenation
+    // (`[Arej] Requires=Redc`), rank 2 Bear Form — researched at the Ancient of Lore that is
+    // training Druids and Dryads all match, so as an ordinary row it was almost never started.
+    // Saved for (`unlock`), and only once a Druid of the Claw is on the field (`forUnit`).
+    { id: UPG_DRUID_CLAW, from: ANCIENT_LORE, ranks: 2, after: 12, unlock: true, forUnit: DRUID_CLAW },
+    // MARK OF THE CLAW — "Allows Druids of the Claw to cast Roar while in Bear Form"
+    // (NightElfUpgradeStrings `[Reeb]`; the bear's card carries `Ara2`, `Requires=Reeb`). Without
+    // it a druid that morphs for the fight gives up its Roar. `[Reeb] Requires=Redc
+    // Requiresamount=2`, which `researchDue` asks before it saves a coin; elf.ai buys it beside
+    // the second rank too.
+    { id: UPG_MARK_CLAW, from: ANCIENT_LORE, ranks: 1, after: 16, unlock: true, forUnit: DRUID_CLAW },
     { id: UPG_ABOLISH, from: ANCIENT_LORE, ranks: 1, after: 12, unlock: true },
     { id: UPG_DRUID_TALON, from: ANCIENT_WIND, ranks: 2, after: 20 },
     { id: UPG_CHIM_ACID, from: CHIMAERA_ROOST, ranks: 1, after: 30 },
@@ -1031,26 +1061,41 @@ const NIGHT_ELF: PlusRaceTable = {
     // the build's power spike, and it is why this one build is worth two Lores.
     { id: "bears", name: "Dryads and Druids of the Claw", tier: 2, weight: 26, expandAt: 330, expandAgainAt: 750,
       heroes: [DEMON_HUNTER, KEEPER, MOON_CHICK, WARDEN],
-      factories: { [ANCIENT_LORE]: 2 },
+      factories: { [ANCIENT_LORE]: 2 }, thenAt3: "lategrove",
       mix: { [DRUID_CLAW]: 2.5, [DRYAD]: 2, [ARCHER]: 1.5 } },
     // KEEPER OF THE GROVE, ARCHERS AND HUNTRESSES — committed to from tier 1 (the Hunter's Hall
     // is what decides it), with the Priestess of the Moon as the second hero.
+    //
+    // …as an OPENING. Reported: *"night elf computer+ ai seems to like going for archers +
+    // huntresses a bit too much. it's a good strategy early in the game, but later it should go
+    // for bears (druid of the claw + his upgrades) and dryads"*. So it grows into the bear build
+    // when the Tree of Ages lands (`thenAt2`) and into the late grove at tier 3; the Archers and
+    // Huntresses already trained go on fighting in the army.
     { id: "huntresses", name: "Archers and Huntresses", tier: 1, weight: 26, expandAt: 240, expandAgainAt: 660,
-      heroes: [KEEPER, MOON_CHICK, DEMON_HUNTER, WARDEN],
+      heroes: [KEEPER, MOON_CHICK, DEMON_HUNTER, WARDEN], thenAt2: "bears", thenAt3: "lategrove",
       mix: { [ARCHER]: 2.5, [HUNTRESS]: 2.5, [DRYAD]: 1 } },
     // …the same opening, massing DRYADS out of both Lores instead. Abolish Magic is the upgrade
     // that makes it, and the second hero is the ranged damage the Dryads do not have.
     { id: "dryads", name: "Mass Dryads", tier: 2, weight: 22, expandAt: 300, expandAgainAt: 720,
       heroes: [DEMON_HUNTER, MOON_CHICK, KEEPER, WARDEN],
-      factories: { [ANCIENT_LORE]: 2 },
+      factories: { [ANCIENT_LORE]: 2 }, thenAt3: "lategrove",
       mix: { [DRYAD]: 3.5, [ARCHER]: 1.5 } },
     // …and the same opening again, teching to the WIND instead: Druids of the Talon behind
     // Archers that never stop, with `Reib` (Improved Bows) off the Ancient of War.
     { id: "talons", name: "Archers and Druids of the Talon", tier: 2, weight: 20, expandAt: 270, expandAgainAt: 690,
-      heroes: [DEMON_HUNTER, MOON_CHICK, KEEPER, WARDEN],
+      heroes: [DEMON_HUNTER, MOON_CHICK, KEEPER, WARDEN], thenAt3: "lategrove",
       mix: { [ARCHER]: 3, [DRUID_TALON]: 1.2, [DRYAD]: 1 } },
     { id: "chimaeras", name: "Chimaeras and Dryads", tier: 3, weight: 12, expandAt: 480, expandAgainAt: 900,
       mix: { [CHIMAERA]: 3, [DRYAD]: 2, [HUNTRESS]: 1.5, [FAERIE_DRAGON]: 0.5 } },
+    // THE LATE GROVE — never rolled (weight 0), only grown into at tier 3 by every other night
+    // elf build (`thenAt3`). The developer's late game: *"bears (druid of the claw + his
+    // upgrades) and dryads and even chimeras if it has the resources (or an expo at least)"*.
+    // Bear Form is `Redc` rank 2, which wants this very tier (`[Redc] Requires1=etoe`), so tier 3
+    // is where the Druid of the Claw becomes the army. The Chimaeras are `affluent`: taken with a
+    // second mine or a bank to spare, and kept once their Roost stands.
+    { id: "lategrove", name: "Druids of the Claw, Dryads and Chimaeras", tier: 3, weight: 0, expandAt: 480, expandAgainAt: 900,
+      factories: { [ANCIENT_LORE]: 2 }, affluent: [CHIMAERA],
+      mix: { [DRUID_CLAW]: 3, [DRYAD]: 2, [CHIMAERA]: 1.5, [ARCHER]: 0.5 } },
   ],
   heroes: [DEMON_HUNTER, KEEPER, MOON_CHICK, WARDEN],
   skills: {
@@ -1160,7 +1205,11 @@ export function tableForEdition(table: PlusRaceTable, tech: EditionTech): PlusRa
     })
     .filter((s): s is PlusStrategy => s !== null);
   const ids = new Set(kept.map((s) => s.id));
-  const strategies = kept.map((s) => (s.thenAt3 && !ids.has(s.thenAt3) ? { ...s, thenAt3: undefined } : s));
+  const strategies = kept.map((s) => ({
+    ...s,
+    thenAt3: s.thenAt3 && ids.has(s.thenAt3) ? s.thenAt3 : undefined,
+    thenAt2: s.thenAt2 && ids.has(s.thenAt2) ? s.thenAt2 : undefined,
+  }));
 
   return {
     ...table,
@@ -1194,7 +1243,9 @@ export function tableForEdition(table: PlusRaceTable, tech: EditionTech): PlusRa
  * tier-1 half of whichever of them it drew.
  */
 export function rollStrategy(table: PlusRaceTable, techTier: number, roll: (lo: number, hi: number) => number): PlusStrategy {
-  const rollable = table.strategies.filter((s) => !s.replaces);
+  // A weight of 0 is a build that is only ever GROWN INTO (`thenAt2`/`thenAt3`) or swapped in
+  // (`replaces`), never rolled.
+  const rollable = table.strategies.filter((s) => !s.replaces && s.weight > 0);
   const eligible = rollable.filter((s) => s.tier <= techTier);
   const lowest = Math.min(...rollable.map((s) => s.tier));
   const pool = eligible.length ? eligible : rollable.filter((s) => s.tier === lowest);

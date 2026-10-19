@@ -94,6 +94,14 @@ const ABILS = {
   Acan: { code: "Acan", target: "none", autocast: false, targetFlags: ["dead"], levelData: [lvl({ duration: 15 })] },
   AHdr: { code: "AHdr", target: "unit", autocast: false, targetFlags: ["air", "ground", "organic", "notself"], levelData: [lvl({ castRange: 600, duration: 6, cost: 10, data: [0, 15, 0, 0, 30] })] },
   AOhx: { code: "AOhx", target: "unit", autocast: false, targetFlags: ["air", "ground", "enemy", "neutral", "organic"], levelData: [lvl({ castRange: 800, duration: 7, heroDuration: 3, cost: 70 })] },
+  // THE DRUID OF THE CLAW's three, with their real rows (`Units\AbilityData.slk`):
+  //   [Abrf] targs1 "_", Cost1 25, Dur1 1.45 (the morph), DataA1 edoc — Bear Form
+  //   [Aroa] targs1 "air,ground,friend,self", Cost1 100, Dur1 45, Area1 500, DataA1 0.25 — Roar
+  //   [Arej] targs1 "air,ground,friend,vuln,invu,self,organic,neutral", Cost1 125, Rng1 400,
+  //          Dur1 12, DataA1 400 — Rejuvenation
+  Abrf: { code: "Abrf", target: "none", autocast: false, targetFlags: [], levelData: [lvl({ cost: 25, duration: 1.45, castRange: 0, dataStr: ["edoc"] })] },
+  Aroa: { code: "Aroa", target: "none", autocast: false, targetFlags: ["air", "ground", "friend", "self"], levelData: [lvl({ area: 500, castRange: 0, cost: 100, duration: 45, heroDuration: 45, buffs: ["Broa"], data: [0.25, 0] })] },
+  Arej: { code: "Arej", target: "unit", autocast: false, targetFlags: ["air", "ground", "friend", "vuln", "invu", "self", "organic", "neutral"], levelData: [lvl({ castRange: 400, cost: 125, duration: 12, heroDuration: 12, buffs: ["Brej"], data: [400, 0] })] },
   AOmi: { code: "AOmi", target: "none", autocast: false, targetFlags: [], levelData: [lvl({ area: 1000, castRange: 128, cost: 100, duration: 60, heroDuration: 60, buffs: ["BOmi"], data: [1, 0, 2, 0.5] })] },
 };
 
@@ -149,6 +157,7 @@ function cast(units, profile = PLUS_INSANE, opts = {}) {
         // allegiance — which is exactly why a flagless buff could be cast at the enemy at all.
         const F = new Set((ABILS[code]?.targetFlags ?? []).map((f) => f.toLowerCase()));
         if (!F.has("enemy") && !F.has("friend")) return null;
+        if (F.has("friend") && !F.has("enemy")) return t.owner === 1 ? "mustargetfriendly" : null;
         return t.owner === 0 ? "mustargetenemy" : null;
       }
       const undead = t.race === "undead";
@@ -804,6 +813,53 @@ console.log("\n--- Hex is aimed at heroes ---");
   const hero = unit({ owner: 1, x: 400, isHero: true, level: 3 });
   const grunt = unit({ owner: 1, x: 200 });
   check("a Shadow Hunter hexes the hero over the soldier in front of him", cast([sh, grunt, hero])?.targetId, hero.id);
+}
+
+// THE DRUID OF THE CLAW — "we must make sure that it correctly utilizes the druid of the claws'
+// rejuvenation, roar and bear form abilities (bear form must be used during fights and it's ok
+// to leave them morphed as bears afterwards)". A plain unit, not a hero, carrying all three.
+console.log("\n--- the Druid of the Claw uses all three of its buttons ---");
+const druid = (o = {}) => unit({
+  typeId: "edoc", race: "nightelf", mana: 400, maxMana: 400,
+  abilities: ["Abrf", "Aroa", "Arej"].map((id) => ({ id, code: id, level: 1, cooldownLeft: 0, autocastOn: false })),
+  ...o,
+});
+{
+  const d = druid();
+  const foes = [unit({ owner: 1, x: 300 }), unit({ owner: 1, x: 320, y: 40 })];
+  const presses = cast([d, ...foes], PLUS_INSANE, { all: true, passes: 2 }).map((c) => c.code);
+  check("a druid in a fight presses Bear Form or Roar", presses.some((c) => c === "Abrf" || c === "Aroa"), true);
+}
+{
+  // Bear Form, once a fight is on — whatever else it does first — and Roar over the army it
+  // stands in. The stub plays each press out: the morph leaves it in its other form
+  // (`altModel`), the roar leaves its buff on everybody in the circle.
+  const d = druid();
+  const army = [unit({ x: 40 }), unit({ x: -40 }), unit({ y: 60 })];
+  const foes = [unit({ owner: 1, x: 300 }), unit({ owner: 1, x: 320, y: 40 })];
+  const seen = new Set();
+  for (let i = 0; i < 6; i++) {
+    for (const c of cast([d, ...army, ...foes], PLUS_INSANE, { all: true })) {
+      seen.add(c.code);
+      if (c.code === "Abrf") d.altModel = true;
+      if (c.code === "Aroa") for (const u of [d, ...army]) u.buffs.push({ group: "Broa", id: "Broa", kind: "damagePct", timeLeft: 45 });
+    }
+  }
+  check("…and over a few passes it morphs into a bear", seen.has("Abrf"), true);
+  check("…and roars", seen.has("Aroa"), true);
+}
+{
+  // A BEAR stays one. Already in the other form (`altModel`), the engage morph is not pressed
+  // back out once the fight is over — the developer's "it's ok to leave them morphed".
+  const d = druid({ altModel: true, altFormLeft: 0 });
+  check("a bear with no fight near does not turn back", cast([d])?.code === "Abrf", false);
+}
+{
+  // REJUVENATION on a hurt friend in reach, out of the fight as well as in it.
+  const d = druid();
+  const hurt = unit({ hp: 350, x: 200, race: "nightelf" });
+  check("a druid rejuvenates a hurt soldier beside it", cast([d, hurt])?.code, "Arej");
+  check("…aimed at it", cast([d, hurt])?.targetId, hurt.id);
 }
 
 console.log(failed ? `\n${failed} FAILED` : "\nall ok");

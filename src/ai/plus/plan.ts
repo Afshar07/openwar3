@@ -1174,9 +1174,44 @@ const MIN_COUNTER_WEIGHT = 0.2;
  * obeys (rule 1 at the top of the file).
  */
 function activeStrategy(c: PlusCtx): PlusStrategy {
+  return affordable(c, grownInto(c));
+}
+
+/** …the rolled build, or what it has grown into: `thenAt3` at tier 3, `thenAt2` from tier 2
+ *  (`PlusStrategy.thenAt2`), each only where the difficulty may reach that tier at all. */
+function grownInto(c: PlusCtx): PlusStrategy {
   const { strategy } = c;
-  if (!strategy.thenAt3 || c.tier < 3 || c.profile.techTier < 3) return strategy;
-  return c.table.strategies.find((s) => s.id === strategy.thenAt3) ?? strategy;
+  const find = (id: string | undefined): PlusStrategy | undefined =>
+    id ? c.table.strategies.find((s) => s.id === id) : undefined;
+  if (c.tier >= 3 && c.profile.techTier >= 3) {
+    const at3 = find(strategy.thenAt3) ?? find(find(strategy.thenAt2)?.thenAt3);
+    if (at3) return at3;
+  }
+  if (c.tier >= 2 && c.profile.techTier >= 2) return find(strategy.thenAt2) ?? strategy;
+  return strategy;
+}
+
+/** A bank the build order is visibly not spending — `PlusStrategy.affluent`'s "the resources".
+ *  OURS, and the same order of purse elf.ai's own `setBuildUnit(gold > 1000 && wood > 500 ? 2
+ *  : 1, …)` reads as "rich" (src/ai/aiPlayer.ts). */
+const AFFLUENT_GOLD = 1000;
+const AFFLUENT_LUMBER = 500;
+
+/** …less the `affluent` units, unless there is something to spare: a second mine, a rich bank,
+ *  or their producer already standing (so a Roost that was built is not left idle the moment
+ *  the bank dips). Read every pass, like the tier. */
+function affordable(c: PlusCtx, strategy: PlusStrategy): PlusStrategy {
+  if (!strategy.affluent?.length) return strategy;
+  const { ai } = c;
+  const rich = ai.minesOwned() >= 2 || (ai.gold() >= AFFLUENT_GOLD && ai.wood() >= AFFLUENT_LUMBER);
+  const drop = strategy.affluent.filter((u) => {
+    if (rich) return false;
+    const from = c.table.units[u]?.from;
+    return !(from && ai.countDone(from) > 0);
+  });
+  if (!drop.length) return strategy;
+  const mix = Object.fromEntries(Object.entries(strategy.mix).filter(([u]) => !drop.includes(u)));
+  return { ...strategy, mix };
 }
 
 /** The buildings the strategy's mix implies — every producer it names, and everything those
@@ -1616,15 +1651,26 @@ function towers(c: PlusCtx): void {
   if (!threatened && clock < TOWER_CLOCK) return;
   // Split between the main and the expansions: an expansion is the thing that actually needs
   // guarding, so it gets the first one.
+  //
+  // `profile.towers` is the WHOLE MATCH's count, never a per-town one. `each` rounds UP to one, so
+  // three towns at two towers was three, and a per-town quota of four on Insane was a main with
+  // four towers in it — reported: *"building a lot of towers in its base. it should build at
+  // most 2."* So the towns draw on one budget, in town order, until it is spent.
   const towns = Math.max(1, ai.minesOwned());
   const each = Math.max(1, Math.floor(profile.towers / towns));
-  for (let t = 0; t < ai.townCountTotal(); t++) ai.guardSecondary(t, each, table.tower);
+  const quota: number[] = [];
+  let budget = profile.towers;
+  for (let t = 0; t < ai.townCountTotal(); t++) {
+    quota[t] = Math.min(each, budget);
+    budget -= quota[t];
+    if (quota[t] > 0) ai.guardSecondary(t, quota[t], table.tower);
+  }
   if (!table.towerUpgrades) return;
   for (let t = 0; t < ai.townCountTotal(); t++) {
     // Something to upgrade: a FINISHED plain tower here. (One whose upgrade is already in its
     // queue is still its base type, and the row below counts that queued job as done.)
     if (ai.countAt(table.tower, t, true) < 1) continue;
-    let left = each;
+    let left = quota[t];
     for (const up of table.towerUpgrades) {
       if (left < 1) break;
       const qty = up.perTown === undefined ? left : Math.min(up.perTown, left);
@@ -1700,6 +1746,7 @@ function abilityUpgrades(c: PlusCtx): void {
   for (const row of table.upgrades) {
     if (!row.unlock || ai.countDone(row.from) < 1) continue;
     if (armyFood < (row.after ?? 0)) continue;
+    if (row.forUnit && ai.count(row.forUnit) < 1) continue; // `UpgradeRow.forUnit`
     if (row.when === "enemyRanged" && (c.enemy.pierce ?? 0) < ENEMY_RANGED) continue;
     ai.setBuildUpgrSaved(row.ranks, row.id);
   }
@@ -1715,6 +1762,7 @@ function upgrades(c: PlusCtx): void {
     if (row.unlock) continue; // `abilityUpgrades`, much higher up
     if (ai.countDone(row.from) < 1) continue;
     if (armyFood < (row.after ?? 0)) continue;
+    if (row.forUnit && ai.count(row.forUnit) < 1) continue; // `UpgradeRow.forUnit`
     // …and an upgrade that only answers one thing waits until that thing has been SEEN — see
     // `UpgradeRow.when`. Asked of the scouting read, so it is only as good as the scouting.
     if (row.when === "enemyRanged" && (c.enemy.pierce ?? 0) < ENEMY_RANGED) continue;

@@ -44,7 +44,7 @@ function check(what, got, want) {
 function ctx(table, strategy, profile, standing, tier) {
   const have = new Set(standing);
   return {
-    ai: { countDone: (id) => (have.has(id) ? 1 : 0) },
+    ai: { countDone: (id) => (have.has(id) ? 1 : 0), minesOwned: () => 1, gold: () => 0, wood: () => 0 },
     profile, table, strategy, tier,
     // Nothing scouted, so the counter half of the weighting is off and the weights under test
     // are the build order's own.
@@ -159,6 +159,31 @@ console.log("\n--- thenAt3: the tier-3 transition ---");
   check("…and no Knights yet", two.some((r) => r.unit === "hkni"), false);
   const three = buildableMix(ctx(human, rifles, PLUS_NORMAL, [human.halls[2], ...standing], 3));
   check("…and Knights once the Castle is standing", three.some((r) => r.unit === "hkni"), true);
+}
+
+// THE NIGHT ELF'S LATE GAME. Reported: *"going for archers + huntresses a bit too much … later it
+// should go for bears (druid of the claw + his upgrades) and dryads and even chimeras if it has
+// the resources (or an expo at least)"*.
+console.log("\n--- night elf: Archers and Huntresses is an opening ---");
+{
+  const elf = PLUS_RACES.nightelf;
+  const hunt = elf.strategies.find((s) => s.id === "huntresses");
+  const standing = [elf.barracks, "edob", elf.units.edoc.from, "eden"];
+  const at = (tier, extra = {}) => {
+    const c = ctx(elf, hunt, PLUS_INSANE, [elf.halls[tier - 1], ...standing, ...(extra.also ?? [])], tier);
+    c.ai = { ...c.ai, minesOwned: () => extra.mines ?? 1, gold: () => extra.gold ?? 200, wood: () => extra.wood ?? 100 };
+    return buildableMix(c).map((r) => r.unit);
+  };
+  check("at tier 1 it is Archers and Huntresses", at(1).includes("esen") && !at(1).includes("edoc"), true);
+  check("…at tier 2 it has grown into Druids of the Claw and Dryads", at(2).includes("edoc") && at(2).includes("edry"), true);
+  check("…and trains no more Huntresses", at(2).includes("esen"), false);
+  check("at tier 3, one mine and a lean bank: druids and dryads, no Chimaeras", `${at(3).includes("edoc")},${at(3).includes("echm")}`, "true,false");
+  check("…with an expansion, Chimaeras too", at(3, { mines: 2, also: ["edos"] }).includes("echm"), true);
+  check("…or with the resources", at(3, { gold: 1500, wood: 800, also: ["edos"] }).includes("echm"), true);
+  check("…or once a Roost already stands", at(3, { also: ["edos"] }).includes("echm"), true);
+  check("every other night elf build but the air one grows into the late grove",
+    elf.strategies.filter((s) => s.weight > 0 && s.id !== "chimaeras").every((s) => s.thenAt3 === "lategrove"), true);
+  check("…which is never rolled on its own", elf.strategies.find((s) => s.id === "lategrove").weight, 0);
 }
 
 // The cap is the difficulty's, not the fallback's: an Easy computer never reaches past tier 1
