@@ -318,16 +318,39 @@ html body.loading-screen * { cursor: none !important; }
   pointer-events: none;
   z-index: 2;
 }
-.unit-hpbar-level {
-  font: 700 13px/1 var(--game-font);
-  color: #ffe08a;
-  background: rgba(0, 0, 0, 0.82);
-  border: 1px solid rgba(216, 180, 90, 0.75);
-  border-radius: 3px;
-  padding: 2px 5px;
-  min-width: 17px;
-  text-align: center;
+/* A HERO's bar is one panel, as the original draws it (matched by eye to footage of the
+   client — no file describes it): the level in a dark square on the left, health over mana on
+   the right, and a gold frame round the whole of it that also divides the parts. The frame is
+   the root's own background showing through the gaps and the padding, so a divider is a GAP,
+   not a border. Colours are ours — the HUD's `--gold`, lit at the top and shaded at the
+   bottom like the clip's metal — and every size is a var render/worldOverlays.ts writes off the
+   viewport (`--hero-frame`, `--herobar-h`, …). `is-hero` is toggled with the level badge. */
+.unit-hpbar.is-hero {
+  gap: var(--hero-frame, 2px);
+  padding: var(--hero-frame, 2px);
+  align-items: stretch;
+  background: linear-gradient(to bottom, #f3dc9a 0%, var(--gold) 30%, #a8843e 75%, #7a5c28 100%);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.7);
 }
+.unit-hpbar.is-hero .unit-hpbar-bars { gap: var(--hero-frame, 2px); }
+.unit-hpbar.is-hero .unit-hpbar-track { height: var(--herobar-h, 8px); }
+/* A hero's mana bar keeps a frame of its own: the gold divider sits between the two. */
+.unit-hpbar.is-hero .unit-hpbar-manatrack {
+  height: var(--heromana-h, 6px);
+  margin-top: 0;
+  border-top-width: 1px;
+}
+.unit-hpbar-level {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--hero-level-w, 19px);
+  font: 700 var(--hero-level-font, 12px)/1 var(--game-font);
+  color: #fff;
+  text-shadow: 0 1px 1px #000;
+  background: #2a2622;
+}
+.unit-hpbar-level[hidden] { display: none; } /* an author `display` outranks the UA's [hidden] */
 /* `relative` so the ally-hero spell row (.unit-hpbar-abils) can hang above the bars from
    their own left edge without being in their flow — see that rule. */
 .unit-hpbar-bars { position: relative; display: flex; flex-direction: column; gap: 1px; }
@@ -355,6 +378,14 @@ html body.loading-screen * { cursor: none !important; }
 .unit-hpbar-fill[data-state="yellow"] { background-color: #c8c800; }
 .unit-hpbar-fill[data-state="red"] { background-color: #c80000; }
 .unit-hpbar-mana { background-color: #2a6cf0; }
+/* A unit's mana bar is thinner than its health and shares one black frame with it: pulled up
+   over the column's 1px gap with no top border of its own, so the health bar's bottom row of
+   frame is the one line between the two (as the original draws a caster's pair). */
+.unit-hpbar-manatrack {
+  height: var(--manabar-h, 5px);
+  margin-top: -1px;
+  border-top-width: 0;
+}
 /* "Healthbars: Team Colored" (issue #141) — a flat player colour that does NOT slide towards
    red as the bar drains. There is no rule for the colour itself: it is written INLINE by
    render/worldOverlays.ts, one owner at a time, and inline beats every rule here (including

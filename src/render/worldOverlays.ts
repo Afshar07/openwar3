@@ -196,6 +196,20 @@ const STATBAR_MIN_H = 7; // …never below the client's own 5 rows of fill plus 
 const STATBAR_W_FRAC = 64 / 1424; // the smallest bar's fill, as a fraction of the viewport's width
 const STATBAR_MAX_W = 5; // × that, so a Town Hall's bar can reach the width the game gives it
 
+// The two bars a unit WITH MANA wears, matched by eye to footage of the original (the 1.30
+// client draws them; no file describes them): health over a thinner mana bar, the pair in one
+// black frame. A hero's are a panel — its level in a dark square on the left, the two bars on
+// the right, all of it in a gold frame — with both bars a touch fuller than a unit's. Every
+// size is a share of the frame-constant bar height, so it scales with the viewport like the
+// bar itself; the colours are ours (the gold is the HUD's `--gold`), not the clip's, which
+// was a compressed video. See .unit-hpbar.is-hero in style.css.
+const MANABAR_SCALE = 0.65; // a unit's mana bar, × the health bar's height
+const HERO_HP_SCALE = 1.1; // a hero's health bar, × an ordinary one
+const HERO_MANA_SCALE = 0.8; // a hero's mana bar, × an ordinary health bar
+const HERO_FRAME_SCALE = 1 / 5.5; // the gold frame and its dividers (2px at 1080p, 1px at 720p)
+const HERO_LEVEL_W_SCALE = 2.7; // the level square's width
+const HERO_LEVEL_FONT_SCALE = 1.7; // the level number's size
+
 // The ally-hero spell row. Small and quiet on purpose: it is something you read out of the
 // corner of your eye while looking at the fight, not a second command card. Sized off the bar
 // it hangs over (which is itself sized off the viewport), so it tracks zoom with everything
@@ -501,8 +515,8 @@ export class WorldOverlays {
         bar.hp.dataset.state = state;
         bar.hp.style.backgroundColor = team ?? ""; // "" hands the fill back to the stylesheet
       }
-      // Mana bar (units/heroes with a mana pool). WC3 floats no mana bar of its own,
-      // so it has no mana art either — the game builds one out of the SAME textures under
+      // Mana bar (units/heroes with a mana pool). WC3 has no mana art of its own — the
+      // game builds the bar out of the SAME textures under
       // a blue geoset colour (war3skins.txt points SimpleManaBarConsole at the health
       // fill, and ManaBarConsoleSmall.mdx is HPBarConsoleSmall.mdx in blue), and so do we.
       if (last.manaFrac !== s.manaFrac) {
@@ -660,6 +674,9 @@ export class WorldOverlays {
         } else {
           bar.level.hidden = true;
         }
+        // A hero's badge and bars are one framed panel, not two pieces side by side (see
+        // .unit-hpbar.is-hero) — and a pool slot can pass from a hero to a footman.
+        bar.root.classList.toggle("is-hero", s.level !== null);
       }
       if (last.hidden) {
         last.hidden = false;
@@ -667,7 +684,7 @@ export class WorldOverlays {
       }
       // Bar width tracks the unit/building on-screen size (≈ its footprint), floored at the
       // width the game gives its smallest units. Heroes get a wider one so their HP + mana
-      // stand out (WC3 floats neither, so there is nothing to match here).
+      // stand out (no file sizes it, so the share is ours).
       const barW = s.isHero
         ? Math.max(minW * 1.25, Math.min(maxW, p.ry * 3))
         : Math.max(minW, Math.min(maxW, p.ry * 2.4));
@@ -678,10 +695,18 @@ export class WorldOverlays {
         // The fill art is stretched across the WHOLE bar and clipped by the fraction, so its
         // shading stays put as the bar drains instead of squashing along with it.
         bar.bars.style.setProperty("--statbar-w", `${barW}px`);
-        bar.bars.style.setProperty("--statbar-h", `${barH}px`);
-        // On the root: the spell row hangs inside the bars, and inherits it from here along
-        // with everything else the bar is sized by.
-        bar.root.style.setProperty("--abil-size", `${abilPx}px`);
+        // On the root: the spell row hangs inside the bars and the level square beside them,
+        // and both inherit from here everything the bar is sized by. Whole pixels, all of
+        // it — a fractional bar height smears its one-texel lit top row across two.
+        const rs = bar.root.style;
+        rs.setProperty("--statbar-h", `${barH}px`);
+        rs.setProperty("--manabar-h", `${Math.max(3, Math.round(barH * MANABAR_SCALE))}px`);
+        rs.setProperty("--herobar-h", `${Math.round(barH * HERO_HP_SCALE)}px`);
+        rs.setProperty("--heromana-h", `${Math.round(barH * HERO_MANA_SCALE)}px`);
+        rs.setProperty("--hero-frame", `${Math.max(1, Math.round(barH * HERO_FRAME_SCALE))}px`);
+        rs.setProperty("--hero-level-w", `${Math.round(barH * HERO_LEVEL_W_SCALE)}px`);
+        rs.setProperty("--hero-level-font", `${Math.round(barH * HERO_LEVEL_FONT_SCALE)}px`);
+        rs.setProperty("--abil-size", `${abilPx}px`);
       }
       // gl y-up → css y-down (floats above the unit). Rounded to whole CSS pixels: the bar
       // cannot be drawn at a finer grain than that, and rounding is what lets a unit standing
