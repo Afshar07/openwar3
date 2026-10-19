@@ -2,7 +2,7 @@ import { mountFdfScreen, type FdfScreen } from "./fdf/render";
 import { showGlueDialog } from "./glueDialog";
 import { ProgressBarScene, PROGRESS_BAR_H, PROGRESS_BAR_W } from "../render/progressBarScene";
 import { installVoiceModel } from "../voice/model";
-import { WHISPER_MODELS, type WhisperModelId } from "../voice/whisperModels";
+import { WHISPER_MODEL } from "../voice/whisperModels";
 import type { DataSource } from "../vfs/types";
 import { loadOptions, saveOptions } from "../data/options";
 import { applyVoiceOptions } from "../voice/control";
@@ -11,7 +11,7 @@ import { applyVoiceOptions } from "../voice/control";
 // (src/voice/model.ts) in the game's OWN chrome, in two steps:
 //
 //   1. the menus' own question box (`DialogWar3.fdf`, ui/glueDialog.ts) asks first, naming the
-//      size — an 80 MB (or 250 MB) download is the player's decision, not a side effect of a click;
+//      size — an 80 MB download is the player's decision, not a side effect of a click;
 //   2. Yes puts up the dialog Warcraft III already had for exactly this: `BattleNetPatchDialog`
 //      (`UI\FrameDef\Glue\MainMenu.fdf`), the box the game showed while Battle.net handed it a
 //      patch — the dialogue box, a gold "Downloading Update" title, one line of text,
@@ -24,10 +24,7 @@ import { applyVoiceOptions } from "../voice/control";
 // the fetch and nothing half-written is kept.
 
 const MAIN_MENU_FDF = "UI\\FrameDef\\Glue\\MainMenu.fdf";
-/** Every model, Fast first — what the one download action fetches. */
-const ALL: WhisperModelId[] = ["base", "small"];
-const mb = (id: WhisperModelId): string => (WHISPER_MODELS[id].bytes / 1_000_000).toFixed(0);
-const mbOf = (ids: WhisperModelId[]): string => (ids.reduce((n, id) => n + WHISPER_MODELS[id].bytes, 0) / 1_000_000).toFixed(0);
+const MB = (WHISPER_MODEL.bytes / 1_000_000).toFixed(0);
 
 /** The patch dialog's width (`BattleNetPatchDialog` Width), which every placement is scaled by. */
 const DIALOG_W = 0.35;
@@ -49,17 +46,11 @@ const BAR_SCALE = 1.15;
 /** The words. Ours — the game never fetched anything but itself — set in its markup: gold
  *  (`|cffffcc00`) for the key and the size, as the game golds a hotkey in a tooltip. */
 const TEXT = {
-  ask: (ids: WhisperModelId[]) =>
-    ids.length > 1
-      ? `Voice Control needs its speech models — |cffffcc00Fast|r and |cffffcc00Accurate|r, |cffffcc00${mbOf(ids)} MB|r — downloaded once and kept on this computer.|n|nDownload them now?`
-      : `Voice Control needs its |cffffcc00${WHISPER_MODELS[ids[0]].label}|r speech model (|cffffcc00${mbOf(ids)} MB|r), downloaded once and kept on this computer.|n|nDownload it now?`,
+  ask: `Voice Control needs its speech model (|cffffcc00${MB} MB|r), downloaded once and kept on this computer.|n|nDownload it now?`,
   title: "Downloading Voice Control",
   titleDone: "Voice Control is ready",
   titleFailed: "Download failed",
-  fetching: (id: WhisperModelId, ids: WhisperModelId[]) =>
-    ids.length > 1
-      ? `${WHISPER_MODELS[id].label} speech model (${ids.indexOf(id) + 1} of ${ids.length}), ${mb(id)} MB.`
-      : `${WHISPER_MODELS[id].label} speech model, ${mb(id)} MB.`,
+  fetching: `Speech model, ${MB} MB — kept on this computer.`,
   done: "Hold |cffffcc00Period (.)|r and speak a command.",
   failed: (why: string) => `The speech model could not be downloaded.|n${why}`,
 };
@@ -67,10 +58,6 @@ const TEXT = {
 export interface VoiceDownloadOptions {
   container: HTMLElement;
   vfs: DataSource;
-  /** Which models. BOTH by default — the Options row's one download action fetches Fast and
-   *  Accurate together, so the pulldown is a switch and never a second download. One alone is the
-   *  fallback for a pick whose model is missing (a cache the browser cleared). */
-  models?: WhisperModelId[];
 }
 
 /** Ask, then download. Resolves when the dialog closes, true if the model arrived (the Options
@@ -80,7 +67,7 @@ export async function showVoiceDownload(opts: VoiceDownloadOptions): Promise<boo
     showGlueDialog({
       container: opts.container,
       vfs: opts.vfs,
-      text: TEXT.ask(opts.models ?? ALL),
+      text: TEXT.ask,
       buttons: "yesno",
       dimmed: true,
       onConfirm: () => resolve(true),
@@ -92,7 +79,6 @@ export async function showVoiceDownload(opts: VoiceDownloadOptions): Promise<boo
 
 /** The patch dialog, downloading from the moment it is up. */
 async function download(opts: VoiceDownloadOptions): Promise<boolean> {
-  const models = opts.models ?? ALL;
   const scrim = document.createElement("div");
   scrim.className = "glue-dialog-scrim dimmed voice-download";
   opts.container.appendChild(scrim);
@@ -128,7 +114,7 @@ async function download(opts: VoiceDownloadOptions): Promise<boolean> {
       fdfPath: MAIN_MENU_FDF,
       rootFrame: "BattleNetPatchDialog",
       centerRoot: true,
-      textOverrides: { PatchTitleText: TEXT.title, PatchInfoText: TEXT.fetching(models[0], models) },
+      textOverrides: { PatchTitleText: TEXT.title, PatchInfoText: TEXT.fetching },
       // Cancel while it runs, OK once it has finished — one button, as the patch box has.
       handlers: { PatchButton: () => close() },
     });
@@ -188,21 +174,11 @@ async function download(opts: VoiceDownloadOptions): Promise<boolean> {
   };
   progress(0);
   try {
-    // One bar over all of them: each model's share of the bar is its share of the bytes.
-    const total = models.reduce((n, id) => n + WHISPER_MODELS[id].bytes, 0);
-    let before = 0;
-    for (const id of models) {
-      s.setText("PatchInfoText", TEXT.fetching(id, models));
-      const share = WHISPER_MODELS[id].bytes;
-      await installVoiceModel(id, (p) => progress((before + p.fraction * share) / total), abort.signal);
-      before += share;
-    }
+    await installVoiceModel((p) => progress(p.fraction), abort.signal);
     installed = true;
-    // Downloading it was the decision to use it: Voice Control comes on, saved, at once. Fast is
-    // the default; a lone Accurate fetched for a pick IS the pick.
+    // Downloading it was the decision to use it: Voice Control comes on, saved, at once.
     const stored = loadOptions();
     stored.voiceControl = true;
-    if (models.length === 1) stored.voiceModel = models[0] === "small" ? "accurate" : "fast";
     saveOptions(stored);
     applyVoiceOptions(stored);
     s.setText("PatchTitleText", TEXT.titleDone);

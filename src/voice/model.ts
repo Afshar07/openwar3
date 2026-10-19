@@ -1,4 +1,4 @@
-import { WHISPER_MODELS, whisperFiles, type WhisperModelId, type WhisperReply, type WhisperRequest } from "./whisperModels";
+import { DROPPED_MODEL_REPOS, WHISPER_MODEL, whisperFiles, type WhisperReply, type WhisperRequest } from "./whisperModels";
 
 // Voice Control's speech recogniser: OpenAI's Whisper, English-only, run on this computer in a
 // worker (src/voice/whisperWorker.ts, transformers.js over onnxruntime-web's WebAssembly build).
@@ -11,9 +11,7 @@ import { WHISPER_MODELS, whisperFiles, type WhisperModelId, type WhisperReply, t
 // it hears is then free text, which the parser reads with a tolerance for near misses
 // (parser.ts `Lexicon.match`).
 //
-// Two sizes, the player's pick (Options → Gameplay, the dropdown beside the checkbox):
-// FAST = base.en (the default, ~80 MB) and ACCURATE = small.en (~250 MB) — `WHISPER_MODELS`.
-// Each is downloaded once, from the Hugging Face hub (the one host the files are published on,
+// Whisper base.en (~80 MB, `WHISPER_MODEL`) is downloaded once, from the Hugging Face hub (the one host the files are published on,
 // with the CORS header a page needs), into the browser's own Cache Storage, where transformers.js
 // looks before it ever goes to the network again. Nothing else leaves the machine: the audio of
 // a command goes to a worker on this page.
@@ -45,7 +43,7 @@ function getWorker(): Worker {
 function killWorker(): void {
   worker?.terminate();
   worker = null;
-  loadedModel = null;
+  loaded = false;
   for (const w of waiting.values()) w.reject(new Error("cancelled"));
   waiting.clear();
 }
@@ -54,37 +52,31 @@ const send = (m: WhisperRequest, transfer: Transferable[] = []): void => getWork
 
 // ---- what is on this machine -------------------------------------------------------------------
 
-/** Each model, once asked about: is it in the browser's cache? */
-const installed = new Map<WhisperModelId, boolean>();
+/** The model, once asked about: is it in the browser's cache? null = not asked yet. */
+let installed: boolean | null = null;
 const listeners = new Set<(installed: boolean) => void>();
 
-/** Whether `id`'s files are all in the cache transformers.js reads from. */
-async function inCache(id: WhisperModelId): Promise<boolean> {
+/** Whether the model's files are all in the cache transformers.js reads from. */
+async function inCache(): Promise<boolean> {
   try {
     const cache = await caches.open("transformers-cache");
-    for (const url of whisperFiles(id)) if (!(await cache.match(url))) return false;
+    for (const url of whisperFiles()) if (!(await cache.match(url))) return false;
     return true;
   } catch {
     return false; // no Cache Storage (a locked-down private window): nowhere to keep a model
   }
 }
 
-/** Whether a model is on this machine — `id`, or with no `id` EITHER of them (which is what
- *  decides the Options row's face: the download button, or the checkbox and its dropdown). */
-export async function voiceModelInstalled(id?: WhisperModelId): Promise<boolean> {
-  for (const m of id ? [id] : (Object.keys(WHISPER_MODELS) as WhisperModelId[])) {
-    if (!installed.has(m)) installed.set(m, await inCache(m));
-    if (installed.get(m)) return true;
-  }
-  return false;
+/** Whether the model is on this machine — what decides the Options row's face: the download
+ *  button, or the checkbox. */
+export async function voiceModelInstalled(): Promise<boolean> {
+  installed ??= await inCache();
+  return installed;
 }
 
-/** The last answer for `id` (or for either), without asking again; null = not asked yet. */
-export function voiceModelInstalledNow(id?: WhisperModelId): boolean | null {
-  if (id) return installed.has(id) ? installed.get(id)! : null;
-  const answers = [...installed.values()];
-  if (answers.some(Boolean)) return true;
-  return answers.length === Object.keys(WHISPER_MODELS).length ? false : null;
+/** The last answer, without asking again; null = not asked yet. */
+export function voiceModelInstalledNow(): boolean | null {
+  return installed;
 }
 
 /** Be told when a model arrives (the Options row swaps its button for the checkbox). */
@@ -101,11 +93,11 @@ export interface VoiceInstallProgress {
 }
 
 /**
- * Download `id` with a progress bar and load it, ready to listen. Rejects on a network failure
- * or when `signal` aborts (Cancel), which stops the worker and with it the download.
+ * Download the model with a progress bar and load it, ready to listen. Rejects on a network
+ * failure or when `signal` aborts (Cancel), which stops the worker and with it the download.
  */
-export async function installVoiceModel(id: WhisperModelId, onProgress: (p: VoiceInstallProgress) => void, signal: AbortSignal): Promise<void> {
-  const total0 = WHISPER_MODELS[id].bytes;
+export async function installVoiceModel(onProgress: (p: VoiceInstallProgress) => void, signal: AbortSignal): Promise<void> {
+  const total0 = WHISPER_MODEL.bytes;
   onProgress({ fraction: 0, received: 0, total: total0 });
   await new Promise<void>((resolve, reject) => {
     const onAbort = (): void => {
@@ -117,10 +109,10 @@ export async function installVoiceModel(id: WhisperModelId, onProgress: (p: Voic
     onWorkerMessage = (m) => {
       if (m.type === "progress") {
         onProgress({ fraction: Math.min(0.99, m.loaded / m.total), received: m.loaded, total: m.total });
-      } else if (m.type === "ready" && m.model === id) {
+      } else if (m.type === "ready") {
         signal.removeEventListener("abort", onAbort);
         onWorkerMessage = null;
-        loadedModel = id;
+        loaded = true;
         resolve();
       } else if (m.type === "error" && m.id === undefined) {
         signal.removeEventListener("abort", onAbort);
@@ -128,45 +120,58 @@ export async function installVoiceModel(id: WhisperModelId, onProgress: (p: Voic
         reject(new Error(m.error));
       }
     };
-    send({ type: "load", model: id });
+    send({ type: "load" });
   });
-  installed.set(id, true);
+  installed = true;
   onProgress({ fraction: 1, received: total0, total: total0 });
   for (const fn of listeners) fn(true);
 }
 
 // ---- listening ---------------------------------------------------------------------------------
 
-let loadedModel: WhisperModelId | null = null;
+let loaded = false;
 
-/** Load `id` into the worker ahead of the first press (a cold load is seconds). */
-export function preloadVoiceModel(id: WhisperModelId): void {
-  if (loadedModel === id) return;
-  loadedModel = id;
-  send({ type: "load", model: id });
+/** Load the model into the worker ahead of the first press (a cold load is seconds). */
+export function preloadVoiceModel(): void {
+  if (loaded) return;
+  loaded = true;
+  send({ type: "load" });
 }
 
 /** Whisper's own sample rate: every model in the family hears 16 kHz mono. */
 export const WHISPER_RATE = 16_000;
 
 /** What was said, as text. `audio` is 16 kHz mono; `prompt` primes the spelling of names. */
-export function transcribe(id: WhisperModelId, audio: Float32Array, prompt: string): Promise<string> {
+export function transcribe(audio: Float32Array, prompt: string): Promise<string> {
   const reqId = nextId++;
-  loadedModel = id;
+  loaded = true;
   return new Promise((resolve, reject) => {
     waiting.set(reqId, { resolve, reject });
-    send({ type: "transcribe", id: reqId, model: id, audio, prompt }, [audio.buffer]);
+    send({ type: "transcribe", id: reqId, audio, prompt }, [audio.buffer]);
   });
 }
 
 /**
- * The Vosk model the first Voice Control downloaded into IndexedDB (`/vosk`, ~70 MB unpacked) is
- * nothing to anyone now: dropped once, quietly, so a player who had it gets the space back.
+ * The models earlier builds downloaded are nothing to anyone now — the Vosk model the first
+ * Voice Control kept in IndexedDB (`/vosk`, ~70 MB unpacked), and Whisper small.en — dropped on
+ * every boot, quietly, so a player who had them gets the space back.
  */
-export function forgetOldVoskModel(): void {
+export function forgetOldVoiceModels(): void {
   try {
     indexedDB.deleteDatabase("/vosk");
   } catch {
     /* no IndexedDB — nothing to forget */
   }
+  // …and the "Accurate" small.en an earlier build fetched beside base.en (~250 MB): every file
+  // of a dropped repo comes out of transformers.js's cache, configs and tokenizer too.
+  void (async () => {
+    try {
+      const cache = await caches.open("transformers-cache");
+      for (const req of await cache.keys()) {
+        if (DROPPED_MODEL_REPOS.some((repo) => req.url.includes(`/${repo}/`))) await cache.delete(req);
+      }
+    } catch {
+      /* no Cache Storage — nothing kept */
+    }
+  })();
 }

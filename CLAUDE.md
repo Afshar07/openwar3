@@ -936,8 +936,9 @@ data, or asset behaviour, **consult our sources** and cite what you used.
   match with no menu or dialog up.
 - **Voice Control:** read [`docs/voice-control.md`](docs/voice-control.md) before touching
   [`src/voice/`](src/voice/) or `game/voiceActions.ts`. Hold "." and speak; it is OURS end to end
-  and has NO language model in the loop: Whisper (base.en "Fast" / small.en "Accurate", both
-  fetched by the Options row's one download, int8 ONNX in a transformers.js worker) transcribes,
+  and has NO language model in the loop: Whisper (base.en only — a small.en "Accurate"
+  pulldown was tried and removed — fetched by the Options row's download, int8 ONNX in a
+  transformers.js worker) transcribes,
   PRIMED with the names on screen, and a deterministic parser maps the text — tolerating sound-
   alike spellings — onto the click/hotkey paths, so it cannot cheat. The ONNX runtime is bundled,
   never fetched from a CDN, and only runs multithreaded on a cross-origin-ISOLATED page (the dev

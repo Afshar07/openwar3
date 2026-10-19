@@ -4318,7 +4318,7 @@ body.in-game .load-gate { display: none; }
 .voice-hints-foot { margin-top: 0.45em; color: #999; font-size: 0.85em; }
 
 /* Voice Control's name tags (render/worldOverlays.ts syncVoiceLabels): "Fiend 4" over each body
-   of ours, so it can be said — a little dark pill, the number gilded. Tiny, read only when
+   of ours, so it can be said — a little dark square-cornered slab, the number in the name's colour. Tiny, read only when
    wanted, and moved by one transform like the bars. The developer's pick of three looks. */
 .voice-tag {
   position: absolute;
@@ -4331,10 +4331,9 @@ body.in-game .load-gate { display: none; }
   padding: 0 0.4em;
   color: #ddd;
   background: rgba(0, 0, 0, 0.62);
-  border-radius: 0.7em;
 }
 .voice-tag[hidden] { display: none; }
-.voice-tag-num { margin-left: 0.3em; color: #ffcc00; }
+.voice-tag-num { margin-left: 0.3em; }
 .voice-tag-num[hidden] { display: none; }
 /* The one(s) selected: brighter, ringed — "you now hold Fiend 4". */
 .voice-tag.selected { background: rgba(0, 0, 0, 0.8); color: #fff; box-shadow: 0 0 0 1px rgba(255, 204, 0, 0.55); }

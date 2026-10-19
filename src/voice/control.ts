@@ -1,7 +1,6 @@
 import type { Options } from "../data/options";
-import { preloadVoiceModel, transcribe, voiceModelInstalled, voiceModelInstalledNow, WHISPER_RATE } from "./model";
+import { preloadVoiceModel, transcribe, voiceModelInstalled, WHISPER_RATE } from "./model";
 import { describe, Lexicon, parse, type LexEntry, type VoiceIntent } from "./parser";
-import type { WhisperModelId } from "./whisperModels";
 
 // Voice Control's PUSH-TO-TALK: hold ".", speak, let go (Options → Gameplay → "Voice Control").
 //
@@ -69,8 +68,6 @@ const MAX_SECS = 15;
 const SILENCE_RMS = 0.004;
 
 let enabled = false;
-/** Which model the player picked (Options → the dropdown beside the checkbox). */
-let picked: WhisperModelId = "base";
 /** The match, while one is up. */
 let host: VoiceHost | null = null;
 /** The menus — every glue screen, and the in-game panels (F10, quests, allies) — registered
@@ -90,18 +87,14 @@ export function setMenuVoiceHost(h: VoiceHost | null): void {
   warm();
 }
 
-/** Options → Gameplay → "Voice Control" and its model, live. */
+/** Options → Gameplay → "Voice Control", live. */
 export function applyVoiceOptions(opts: Options): void {
   const on = opts.voiceControl === true;
-  const model: WhisperModelId = opts.voiceModel === "accurate" ? "small" : "base";
-  const changed = model !== picked;
-  picked = model;
-  if (on === enabled && !changed) return;
-  const flipped = on !== enabled;
+  if (on === enabled) return;
   enabled = on;
   if (!on) closeMic();
   else warm();
-  if (flipped) for (const fn of onOff) fn(on);
+  for (const fn of onOff) fn(on);
 }
 
 const onOff = new Set<(on: boolean) => void>();
@@ -118,14 +111,6 @@ export function onVoiceControlChange(fn: (on: boolean) => void): () => void {
   return () => onOff.delete(fn);
 }
 
-/** The model a press will use: the one picked, or — while it is not on this machine yet — the
- *  other one, if that is. */
-function modelToUse(): WhisperModelId {
-  if (voiceModelInstalledNow(picked) !== false) return picked;
-  const other: WhisperModelId = picked === "base" ? "small" : "base";
-  return voiceModelInstalledNow(other) ? other : picked;
-}
-
 /**
  * Get ready to listen BEFORE the first press: with Voice Control on and a model installed, the
  * model is loaded into the worker (a cold load is seconds) and the microphone opened, so the
@@ -134,9 +119,9 @@ function modelToUse(): WhisperModelId {
  */
 function warm(): void {
   if (!enabled || (!host && !menuHost)) return;
-  void Promise.all([voiceModelInstalled("base"), voiceModelInstalled("small")]).then(([b, s]) => {
-    if (!(b || s) || !enabled) return;
-    preloadVoiceModel(modelToUse());
+  void voiceModelInstalled().then((installed) => {
+    if (!installed || !enabled) return;
+    preloadVoiceModel();
     void openMic();
   });
 }
@@ -296,7 +281,8 @@ const COMMAND_EXAMPLES =
   "Camera to an orange creep camp, a red camp, the goblin merchant. Place a farm here. Fall back. " +
   "Train three footmen. Attack move here. Select army. Group one. Select worker. Select my main building. " +
   "Build a farm. Build a ziggurat. Build an orc burrow. Build a moon well. Select the altar. Ghouls gather lumber. " +
-  "TP out. Teleport back to the base. Select fiend 4.";
+  "TP out. Teleport back to the base. Select fiend 4. Select an acolyte. Send two acolytes to gold. " +
+  "Acolytes, go to the gold mine. Go to gold. Go to wood.";
 
 async function finish(u: Utterance): Promise<void> {
   if (current !== u) return;
@@ -312,7 +298,7 @@ async function finish(u: Utterance): Promise<void> {
   u.h.status("…");
   let text: string;
   try {
-    text = await transcribe(modelToUse(), audio, promptFor(u.h, u.lexicon));
+    text = await transcribe(audio, promptFor(u.h, u.lexicon));
   } catch (err) {
     if (current === u) current = null;
     u.h.status(null);
@@ -371,14 +357,14 @@ export function voiceSay(text: string): string[] {
 }
 
 /**
- * Transcribe 16 kHz samples with the picked model and run the result — the console probe for the
+ * Transcribe 16 kHz samples and run the result — the console probe for the
  * RECOGNISER (`window.openwar3.voiceHear(samples)`), for testing it with recorded speech.
  */
 export async function voiceHear(audio: Float32Array): Promise<{ heard: string; did: string[] }> {
   const h = active() ?? host ?? menuHost;
   if (!h) return { heard: "", did: [] };
   const lexicon = new Lexicon(h.lexicon());
-  const heard = clean(await transcribe(modelToUse(), audio, promptFor(h, lexicon)));
+  const heard = clean(await transcribe(audio, promptFor(h, lexicon)));
   return { heard, did: run(h, heard, lexicon) };
 }
 

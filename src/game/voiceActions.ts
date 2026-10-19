@@ -602,6 +602,14 @@ export function makeVoiceHost(d: VoiceDriver): VoiceHost {
       case "order": {
         if (i.order === "rally" && i.source) { rallyOf(i.source, i.target); return; }
         if (i.subject && !selectSubject(i.subject)) return;
+        // "Go to gold", "go to the trees": for gatherers a resource is somewhere to WORK, not to
+        // stand — the right-click on a mine or a tree, which is a harvest. Only when everybody it
+        // is said to can gather that resource; an army sent to the gold mine walks there.
+        if ((i.order === "move" || i.order === "smart") && (i.target?.kind === "mine" || i.target?.kind === "trees")) {
+          const res = i.target.kind === "mine" ? "gold" : "lumber";
+          const sel = r.selectedUnitIds().map((id) => r.simView.units.get(id)).filter((u): u is SimUnit => !!u && !u.building);
+          if (!sel.length || sel.every((u) => canGather(u, res))) { run({ kind: "harvest", res, target: i.target }); return; }
+        }
         if (!needSelection()) return;
         if (i.order === "smart") {
           if (!i.target) return;

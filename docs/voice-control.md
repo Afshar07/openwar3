@@ -22,7 +22,7 @@ is carried out through the doors a click and a hotkey already use.
 | [`src/voice/control.ts`](../src/voice/control.ts) | push-to-talk, the microphone, one utterance's life; `applyVoiceOptions` |
 | [`src/voice/menu.ts`](../src/voice/menu.ts) | the menus' host: reads the screen (see below) |
 | [`src/game/voiceActions.ts`](../src/game/voiceActions.ts) | intents → the match's own click/hotkey paths; target resolution; spell assist |
-| [`src/ui/voiceOptions.ts`](../src/ui/voiceOptions.ts), [`src/ui/voiceDownload.ts`](../src/ui/voiceDownload.ts) | the Options row's two faces, the model pulldown, the download dialog |
+| [`src/ui/voiceOptions.ts`](../src/ui/voiceOptions.ts), [`src/ui/voiceDownload.ts`](../src/ui/voiceDownload.ts) | the Options row's two faces, the download dialog |
 
 ## The recogniser: Whisper, and why not Vosk
 
@@ -30,11 +30,13 @@ The first Voice Control ran Vosk's small Kaldi model (41 MB) under a GRAMMAR of 
 command could hold. It was chosen for the slow PC and paid for it in accuracy — "altar" heard as
 "alter", "finish" as "fish" — and a grammar only narrows what a weak listener guesses between.
 It was replaced by **Whisper** (OpenAI, MIT), English-only, as the hub's int8-quantized ONNX
-files (`onnx-community/whisper-*.en`), run by transformers.js in a worker:
+files (`onnx-community/whisper-base.en`, ~80 MB), run by transformers.js in a worker:
 
-- **Fast** = base.en, ~80 MB, the default. **Accurate** = small.en, ~250 MB. The Options row's ONE
-  download fetches both (332 MB, one bar), so the pulldown beside the checkbox is a switch; a pick
-  whose model has gone missing (a cleared cache) fetches just that one.
+- **One model, base.en.** There was a second, "Accurate" small.en (~250 MB) on a Fast/Accurate
+  pulldown beside the checkbox; it was taken out because, on the developer's machine, base.en's
+  "Fast" answered no quicker than it and was the worse listener, so the pulldown bought nothing a
+  player could feel and tripled the download. Its cached files are deleted on boot
+  (`forgetOldVoiceModels`, with the first build's Vosk model).
 - It is **primed, not constrained**: the names the player is likely to say (the lexicon, then the
   host's wider vocabulary) go in as a prompt after `<|startofprev|>`, Whisper's own
   `initial_prompt` mechanism, which makes "Blademaster" and "Altar of Kings" the likely
@@ -131,13 +133,19 @@ files (`onnx-community/whisper-*.en`), run by transformers.js in a worker:
   the sim's own worker profile (`SimUnit.worker` — which resources this unit's harvest ability
   works), never "is it a worker": a Ghoul is nobody's idle worker and an Acolyte never touches a
   tree. Gather / harvest / collect / mine, and wood / lumber / trees, are one each. A gatherer
-  that can only cut wood, told to gather with nothing said, goes to the trees.
+  that can only cut wood, told to gather with nothing said, goes to the trees. **"Go to gold"**,
+  "go to the wood" GATHER — for a worker a mine or a tree is somewhere to work, as the
+  right-click on one is — when everybody it is said to can gather that resource (with nothing
+  selected, an idle worker); an army sent to the gold mine still walks there.
+- **Words the recogniser rarely hears** are put back before the parser reads them (`MISHEARD` in
+  parser.ts): "acolyte" comes out "a collide", "accolade", "acolite". The prompt's example
+  sentences carry the word too, which is what makes it the likely spelling in the first place.
 - **Buildings are selectable by name and by kind**: "select altar", "select my main building"
   (also main hall, main base, base, hq, headquarters, town center, home). A kind means the type
   AND what it has become (`family`: "the town hall" is still the Keep, "the farm" the Spirit
   Tower). With a "main", the OLDEST hall — the one the match started with — not the nearest.
 - **Name tags** (`game/voiceLabels.ts`, drawn by `WorldOverlays.syncVoiceLabels`): while Voice
-  Control is on, every unit and building of ours wears a tiny "Fiend 4" pill, so one of several
+  Control is on, every unit and building of ours wears a tiny square-cornered "Fiend 4" slab, so one of several
   can be SAID — "select fiend 4", "select crypt fiend number four". A number belongs to the
   unit for life (the lowest free one of its type, given back when it dies) and is SHOWN only
   while there are two or more; a tag that renumbered would point the next sentence at a

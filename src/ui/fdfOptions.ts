@@ -233,8 +233,6 @@ export async function mountOptions(
     });
     bindVoiceRow(s, {
       enabled: () => { committed.voiceControl = true; working.voiceControl = true; },
-      // A model the player downloaded is the player's choice already made: kept on Cancel too.
-      setModel: (v) => { committed.voiceModel = v; working.voiceModel = v; },
       container,
       vfs,
     });

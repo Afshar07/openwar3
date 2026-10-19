@@ -123,12 +123,6 @@ const RESOLUTIONS = [
 ];
 
 // Ordered by panel, then by the FDF's own top-to-bottom order.
-/** Voice Control's two models, by what the player chooses between rather than by their names. */
-const VOICE_MODELS = [
-  { value: "fast", label: "VOICE_MODEL_FAST" },
-  { value: "accurate", label: "VOICE_MODEL_ACCURATE" },
-];
-
 export const OPTION_DEFS: readonly OptionDef[] = [
   // --- Gameplay ---
   // The two scroll sliders and the switch between them, live through `applyScrollOptions`
@@ -183,10 +177,6 @@ export const OPTION_DEFS: readonly OptionDef[] = [
   // here the row is a download button instead — ui/voiceOptions.ts). Live through
   // `applyVoiceOptions`.
   { key: "voiceControl", frame: "VoiceControlCheckBox", kind: "bool", panel: "gameplay", def: false },
-  // …and which Whisper model listens (src/voice/whisperModels.ts): FAST is base.en, the default;
-  // ACCURATE is small.en. The row's one download fetches both, so this is a switch. The dropdown
-  // sits on the checkbox's line, right of its label (ours, both panels).
-  { key: "voiceModel", frame: "VoiceModelMenu", escFrame: "EscVoiceModelMenu", kind: "choice", panel: "gameplay", def: "fast", choices: VOICE_MODELS },
 
   // --- Video (applied through render/videoQuality.ts, which documents what each rung does) ---
   { key: "gamma", frame: "GammaSlider", kind: "range", panel: "video", def: 50 },

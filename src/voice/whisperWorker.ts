@@ -3,7 +3,7 @@ import { AutoProcessor, AutoTokenizer, WhisperForConditionalGeneration, env } fr
 import type { PreTrainedTokenizer, Processor } from "@huggingface/transformers";
 import ortWasm from "onnxruntime-web/ort-wasm-simd-threaded.asyncify.wasm?url";
 import ortMjs from "onnxruntime-web/ort-wasm-simd-threaded.asyncify.mjs?url";
-import { WHISPER_MODELS, type WhisperModelId, type WhisperRequest, type WhisperReply } from "./whisperModels";
+import { WHISPER_MODEL, type WhisperRequest, type WhisperReply } from "./whisperModels";
 
 // Voice Control's recogniser: Whisper, run in a WORKER so a second of transcription never stalls
 // a frame of the match (src/voice/model.ts talks to it).
@@ -26,21 +26,18 @@ if (onnx.wasm) {
 }
 
 interface Loaded {
-  id: WhisperModelId;
   model: WhisperForConditionalGeneration;
   processor: Processor;
   tokenizer: PreTrainedTokenizer;
 }
 
 let loaded: Promise<Loaded> | null = null;
-let loadedId: WhisperModelId | null = null;
 
 const post = (m: WhisperReply): void => (self as unknown as DedicatedWorkerGlobalScope).postMessage(m);
 
-function load(id: WhisperModelId): Promise<Loaded> {
-  if (loaded && loadedId === id) return loaded;
-  loadedId = id;
-  const repo = WHISPER_MODELS[id].repo;
+function load(): Promise<Loaded> {
+  if (loaded) return loaded;
+  const repo = WHISPER_MODEL.repo;
   // Every file's bytes, summed, so the dialog's bar is one bar over the whole model.
   const files = new Map<string, { loaded: number; total: number }>();
   const progress_callback = (p: { status: string; file?: string; loaded?: number; total?: number }): void => {
@@ -49,7 +46,7 @@ function load(id: WhisperModelId): Promise<Loaded> {
     let got = 0;
     let all = 0;
     for (const f of files.values()) { got += f.loaded; all += f.total; }
-    post({ type: "progress", loaded: got, total: Math.max(all, WHISPER_MODELS[id].bytes) });
+    post({ type: "progress", loaded: got, total: Math.max(all, WHISPER_MODEL.bytes) });
   };
   loaded = (async () => {
     const [model, processor, tokenizer] = await Promise.all([
@@ -61,9 +58,9 @@ function load(id: WhisperModelId): Promise<Loaded> {
       AutoProcessor.from_pretrained(repo, { progress_callback }),
       AutoTokenizer.from_pretrained(repo, { progress_callback }),
     ]);
-    return { id, model, processor, tokenizer };
+    return { model, processor, tokenizer };
   })();
-  loaded.catch(() => { loaded = null; loadedId = null; });
+  loaded.catch(() => { loaded = null; });
   return loaded;
 }
 
@@ -75,8 +72,8 @@ function load(id: WhisperModelId): Promise<Loaded> {
  * opening tokens are written out here — the model's own default start ([start of transcript,
  * no timestamps]) with the prompt in front of it — and the prompt is cut off the answer again.
  */
-async function transcribe(id: WhisperModelId, audio: Float32Array, prompt: string): Promise<string> {
-  const { model, processor, tokenizer } = await load(id);
+async function transcribe(audio: Float32Array, prompt: string): Promise<string> {
+  const { model, processor, tokenizer } = await load();
   const inputs = await processor(audio);
   const gen = model.generation_config as unknown as {
     decoder_start_token_id: number;
@@ -104,10 +101,10 @@ self.onmessage = async (e: MessageEvent<WhisperRequest>) => {
   const m = e.data;
   try {
     if (m.type === "load") {
-      await load(m.model);
-      post({ type: "ready", model: m.model });
+      await load();
+      post({ type: "ready" });
     } else if (m.type === "transcribe") {
-      const text = await transcribe(m.model, m.audio, m.prompt);
+      const text = await transcribe(m.audio, m.prompt);
       post({ type: "result", id: m.id, text });
     }
   } catch (err) {

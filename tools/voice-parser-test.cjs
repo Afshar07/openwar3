@@ -249,6 +249,13 @@ check("tp back to the base", i?.kind === "useitem" && i.target?.kind === "base",
 i = one2("build a ziggurat");
 check("build a ziggurat", i?.kind === "build" && i.entry.id === "uzig", JSON.stringify(i));
 
+i = one2("select a collide");
+check("'a collide' is heard as acolyte", i?.kind === "select" && i.subject?.worker === true, JSON.stringify(i));
+i = one2("send two accolades to gold");
+check("'accolades' is heard as acolytes", i?.kind === "harvest" && i.subject?.count === 2, JSON.stringify(i));
+i = one2("go to gold");
+check("go to gold (gathering is decided by who hears it)", i?.kind === "order" && i.target?.kind === "mine", JSON.stringify(i));
+
 console.log("not commands");
 check("small talk is nothing", p("hello how are you").length === 0, JSON.stringify(p("hello how are you")));
 check("describe() names every intent", p("train three footmen and group two").map(describe).join(" · ") === "Train 3 × Footman · Group 2", p("train three footmen and group two").map(describe).join(" · "));

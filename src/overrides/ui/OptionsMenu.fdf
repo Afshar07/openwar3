@@ -283,27 +283,3 @@ Frame "TEXT" "VoiceControlLabel" INHERITS "StandardInfoTextTemplate" {
     Text "VOICE_CONTROL",
 }
 
-// The model that listens — "Fast" (Whisper base.en, the default) or "Accurate" (small.en) —
-// on the checkbox's own line, right of its label, once a model is on this machine (the row's
-// download face has no use for it). Built as the "Healthbars:" row's pulldown is: the panel's
-// `OptionsPopupMenuBackdropTemplate` socket holding an `OptionsPopupMenuTemplate`, here narrowed
-// to the two short words it offers.
-//
-// Narrowed by EYE against the two sockets above it, because the socket is neither: its art is
-// part stretched and part fixed (the chained right end), so neither the template's proportions
-// (0.1775 of 0.256 from 0.012) nor its insets carry over to a narrower socket — the first put the
-// arrow on the right rim, the second left a gap there. At 0.17 the pulldown is 0.117 wide from
-// 0.008 in, which leaves it the same rim on both sides that "Healthbars:" and "Hotkeys:" have.
-Frame "BACKDROP" "VoiceModelBackdrop" INHERITS "OptionsPopupMenuBackdropTemplate" {
-    Width 0.17,
-    SetPoint LEFT, "VoiceControlLabel", RIGHT, 0.004, 0.0,
-
-    Frame "POPUPMENU" "VoiceModelMenu" INHERITS WITHCHILDREN "OptionsPopupMenuTemplate" {
-        Width 0.117,
-        SetPoint TOPLEFT, "VoiceModelBackdrop", TOPLEFT, 0.008, -0.013,
-
-        PopupMenuFrame "VoiceModelPopupMenuMenu",
-        Frame "MENU" "VoiceModelPopupMenuMenu" INHERITS WITHCHILDREN "StandardPopupMenuMenuTemplate" {
-        }
-    }
-}

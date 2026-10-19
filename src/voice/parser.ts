@@ -202,10 +202,18 @@ const VERBS1: Record<string, string> = {
   everyone: "army", everybody: "army", army: "army", idle: "idle",
 };
 
+/** What the recogniser writes for a word it has rarely heard spoken, put back before anything
+ *  reads it. "Acolyte" is the standing case: Whisper hears "a collide", "accolade", "acolite". */
+const MISHEARD: Array<[RegExp, string]> = [
+  [/\b(a collides|accolades|acolites|a colites|a collites|acolights)\b/g, "acolytes"],
+  [/\b(a collide|accolade|acolite|a colite|a collite|acolight|a coli?ght|ecolite|acolyt)\b/g, "acolyte"],
+];
+
 /** Lower-case, strip WC3 markup and punctuation, split. */
 export function words(text: string): string[] {
-  return text
-    .toLowerCase()
+  let t = text.toLowerCase();
+  for (const [re, to] of MISHEARD) t = t.replace(re, to);
+  return t
     .replace(/\|c[0-9a-f]{8}|\|r|\|n/gi, " ")
     .replace(/[-_]/g, " ")
     .replace(/[^a-z0-9' ]+/g, " ")

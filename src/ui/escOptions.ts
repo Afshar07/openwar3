@@ -61,7 +61,7 @@ export interface EscOptionsHost {
   gameSpeed(): { speed: GameSpeed; locked: boolean };
   /** Apply a new speed to the running match. */
   setGameSpeed(speed: GameSpeed): void;
-  /** Where a download dialog goes up (Voice Control's Accurate model). */
+  /** Where a download dialog goes up (Voice Control's speech model). */
   dialogDoor(): { container: HTMLElement; vfs: DataSource };
 }
 
@@ -209,7 +209,6 @@ export class EscOptions {
     // moment the model arrives.
     bindVoiceRow(screen, {
       enabled: () => { this.committed.voiceControl = true; this.working.voiceControl = true; },
-      setModel: (v) => { this.committed.voiceModel = v; this.working.voiceModel = v; },
       ...this.host.dialogDoor(),
     });
     const { locked } = this.host.gameSpeed();

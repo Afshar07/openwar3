@@ -38,7 +38,7 @@ import { applyHealthBarOptions } from "./render/worldOverlays";
 import { applyHotkeyOptions } from "./data/hotkeys";
 import { applyScrollOptions } from "./render/scrollOptions";
 import { applyVoiceOptions, setMenuVoiceHost, voiceHear, voicePrerollState, voiceSay } from "./voice/control";
-import { forgetOldVoskModel } from "./voice/model";
+import { forgetOldVoiceModels } from "./voice/model";
 import { makeMenuVoiceHost } from "./voice/menu";
 import { GlueManager, type GlueScreenDef } from "./ui/glue";
 import { mountLoadingScreen, type LoadingScreen } from "./ui/loadingScreen";
@@ -110,7 +110,7 @@ applyVoiceOptions(bootOptions);
 // held (src/voice/menu.ts).
 setMenuVoiceHost(makeMenuVoiceHost());
 // The first Voice Control's Vosk model (~70 MB in IndexedDB) is replaced by Whisper's: freed.
-forgetOldVoskModel();
+forgetOldVoiceModels();
 
 const resolver = new AssetResolver(null);
 

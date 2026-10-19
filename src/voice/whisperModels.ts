@@ -1,33 +1,33 @@
-// The two Whisper models Voice Control offers, and the messages between the page and the
+// The Whisper model Voice Control listens with, and the messages between the page and the
 // recogniser's worker (src/voice/whisperWorker.ts). Shared, so both ends agree on one shape.
 //
-// Options → Gameplay → "Voice Control" → the dropdown beside it: FAST is Whisper base.en (the
-// default — real-time on a weak CPU) and ACCURATE is small.en (about three times the work, a
-// clearly lower error rate). Both English-only, both the hub's int8-quantized ONNX files
-// (`onnx-community/whisper-*.en`, MIT, the format transformers.js runs), measured off the hub:
-// base.en's encoder 23.2 MB + merged decoder 53.7 MB, small.en's 92.3 MB + 156.8 MB — plus a few
-// MB of tokenizer and configs each.
+// Whisper base.en: English-only, the hub's int8-quantized ONNX files (`onnx-community/
+// whisper-base.en`, MIT, the format transformers.js runs) — encoder 23.2 MB + merged decoder
+// 53.7 MB, plus a few MB of tokenizer and configs, measured off the hub.
+//
+// There used to be a second, "Accurate" small.en (~250 MB) beside it on a Fast/Accurate pulldown.
+// It was taken out: on the developer's machine it answered no faster than base.en's "Fast" was
+// supposed to and the pulldown bought nothing a player could feel, while it tripled the download.
+// Its cached files are deleted on boot (`DROPPED_MODEL_REPOS`, model.ts `forgetOldVoiceModels`).
 
-export type WhisperModelId = "base" | "small";
+export const WHISPER_MODEL = { repo: "onnx-community/whisper-base.en", bytes: 80_000_000 };
 
-export const WHISPER_MODELS: Record<WhisperModelId, { repo: string; bytes: number; label: string }> = {
-  base: { repo: "onnx-community/whisper-base.en", bytes: 80_000_000, label: "Fast" },
-  small: { repo: "onnx-community/whisper-small.en", bytes: 252_000_000, label: "Accurate" },
-};
+/** Models an earlier build downloaded and this one no longer uses. */
+export const DROPPED_MODEL_REPOS = ["onnx-community/whisper-small.en"];
 
-/** The ONNX files a model is loaded from (`dtype: "q8"` names them `*_quantized.onnx`) — what
+/** The ONNX files the model is loaded from (`dtype: "q8"` names them `*_quantized.onnx`) — what
  *  "is it installed?" looks for in the browser's cache. */
-export function whisperFiles(id: WhisperModelId): string[] {
-  const base = `https://huggingface.co/${WHISPER_MODELS[id].repo}/resolve/main/`;
+export function whisperFiles(repo: string = WHISPER_MODEL.repo): string[] {
+  const base = `https://huggingface.co/${repo}/resolve/main/`;
   return [`${base}onnx/encoder_model_quantized.onnx`, `${base}onnx/decoder_model_merged_quantized.onnx`];
 }
 
 export type WhisperRequest =
-  | { type: "load"; model: WhisperModelId }
-  | { type: "transcribe"; id: number; model: WhisperModelId; audio: Float32Array; prompt: string };
+  | { type: "load" }
+  | { type: "transcribe"; id: number; audio: Float32Array; prompt: string };
 
 export type WhisperReply =
   | { type: "progress"; loaded: number; total: number }
-  | { type: "ready"; model: WhisperModelId }
+  | { type: "ready" }
   | { type: "result"; id: number; text: string }
   | { type: "error"; id?: number; error: string };
