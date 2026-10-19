@@ -10,9 +10,11 @@ import { grammarFor } from "./vocabulary";
 // while the option is ticked, only in a match, and never while the player is typing.
 //
 // What happens between the press and the release:
-//   1. the microphone is opened (once; it stays open while Voice Control is on, so the second
-//      command does not pay the permission round trip) and its samples go into a fresh Vosk
-//      recogniser whose GRAMMAR is the words this match can mean right now (vocabulary.ts);
+//   1. a fresh Vosk recogniser is made whose GRAMMAR is the words this match can mean right
+//      now (vocabulary.ts), and fed the PRE-ROLL — the last 0.6 s of microphone from before the
+//      key went down, as voice chat's "/" does — then the live samples. The microphone is opened
+//      as soon as Voice Control is on in a match (`warm`), so even the first press has a
+//      pre-roll; while the key is up nothing but those 0.6 s is ever kept;
 //   2. on release, a short tail is let through (people let go of a key as the last syllable
 //      ends), then the recogniser is asked for its final text;
 //   3. the text is parsed (parser.ts) and the intents are handed to the match (`VoiceHost`),
@@ -45,6 +47,18 @@ export const VOICE_CONTROL_KEY_CODE = "Period";
 /** How long the microphone keeps feeding the recogniser after the key comes up. */
 const TAIL_MS = 250;
 
+/**
+ * Seconds of microphone kept, in memory only, while the key is UP — and fed to the recogniser
+ * ahead of the live audio when it goes down. People start speaking as they press, and the key
+ * event, the processor's buffer and the recogniser's start all lag that, so without it the first
+ * syllable ("TRAIN three footmen") was cut off. Voice chat's own pre-roll (audio/voiceChat.ts
+ * `PREROLL_SECS`, 0.4) is the same idea; this one is a little longer, because a command's first
+ * word is the verb and losing it loses the command.
+ */
+const PREROLL_SECS = 0.6;
+/** Samples per processor callback: ~43 ms at 48 kHz, so the pre-roll is kept in fine slices. */
+const TAP_SAMPLES = 2048;
+
 let enabled = false;
 let host: VoiceHost | null = null;
 
@@ -54,7 +68,23 @@ export function applyVoiceOptions(opts: Options): void {
   if (on === enabled) return;
   enabled = on;
   if (!on) closeMic();
-  else void voiceModelInstalled().then((ok) => { if (ok && enabled) void loadVoiceModel().catch(() => {}); });
+  else warm();
+}
+
+/**
+ * Get ready to listen BEFORE the first press: with Voice Control on, a match up and the model
+ * installed, the recogniser is loaded and the microphone opened, so the pre-roll is already
+ * filling when "." goes down — the first command of a match is not the one that loses its start
+ * to a permission prompt and a model load. The microphone is closed again when the option is
+ * turned off or the match ends (`setVoiceHost(null)`).
+ */
+function warm(): void {
+  if (!enabled || !host) return;
+  void voiceModelInstalled().then((ok) => {
+    if (!ok || !enabled || !host) return;
+    void loadVoiceModel().catch(() => {});
+    void openMic();
+  });
 }
 
 /** The match registers itself while it is up; null when it ends. */
@@ -63,7 +93,7 @@ export function setVoiceHost(h: VoiceHost | null): void {
   if (!h) {
     cancelUtterance();
     closeMic();
-  }
+  } else warm();
 }
 
 // ---- the microphone --------------------------------------------------------------------
@@ -90,7 +120,7 @@ function openMic(): Promise<boolean> {
     source = ctx.createMediaStreamSource(stream);
     // ScriptProcessor, as voice chat's tap (audio/voiceChat.ts): the one tap every Chromium the
     // game ships in has, needing no module file.
-    tap = ctx.createScriptProcessor(4096, 1, 1);
+    tap = ctx.createScriptProcessor(TAP_SAMPLES, 1, 1);
     tap.onaudioprocess = (e) => feed(e.inputBuffer.getChannelData(0));
     source.connect(tap);
     tap.connect(ctx.destination); // a ScriptProcessor only runs while it reaches the output
@@ -100,6 +130,7 @@ function openMic(): Promise<boolean> {
 }
 
 function closeMic(): void {
+  preroll = [];
   tap?.disconnect();
   source?.disconnect();
   for (const t of stream?.getTracks() ?? []) t.stop();
@@ -128,10 +159,20 @@ interface Utterance {
 
 let current: Utterance | null = null;
 
+/** The last `PREROLL_SECS` of microphone, oldest first, while no utterance is listening. */
+let preroll: Float32Array[] = [];
+
 function feed(samples: Float32Array): void {
   const u = current;
-  if (!u || !u.listening || !ctx) return;
+  if (!ctx) return;
   const copy = new Float32Array(samples);
+  if (!u || !u.listening) {
+    // Key up: keep the last moments, in memory, and nothing else.
+    preroll.push(copy);
+    const keep = Math.ceil((PREROLL_SECS * ctx.sampleRate) / TAP_SAMPLES);
+    while (preroll.length > keep) preroll.shift();
+    return;
+  }
   if (u.rec) u.rec.acceptWaveformFloat(copy, ctx.sampleRate);
   else u.pending.push(copy);
 }
@@ -139,7 +180,9 @@ function feed(samples: Float32Array): void {
 async function begin(): Promise<void> {
   if (!host || current) return;
   const lexicon = new Lexicon(host.lexicon());
-  const u: Utterance = { rec: null, lexicon, pending: [], text: [], listening: true, finishing: false };
+  // The utterance starts with the pre-roll — the audio from just BEFORE the key went down.
+  const u: Utterance = { rec: null, lexicon, pending: preroll, text: [], listening: true, finishing: false };
+  preroll = [];
   current = u;
   host.status("Listening…");
   const [model, mic] = await Promise.all([loadVoiceModel().catch(() => null), openMic()]);
@@ -211,6 +254,13 @@ export function voiceSay(text: string): string[] {
   const intents = parse(text, { lexicon: new Lexicon(host.lexicon()) });
   if (intents.length) host.perform(intents, text);
   return intents.map(describe);
+}
+
+/** Whether the microphone is open and how many seconds of pre-roll it holds — a console probe
+ *  (`window.openwar3.voicePreroll()`) for checking the pre-roll in a live match. */
+export function voicePrerollState(): { micOpen: boolean; seconds: number } {
+  const n = preroll.reduce((sum, p) => sum + p.length, 0);
+  return { micOpen: !!stream, seconds: ctx ? n / ctx.sampleRate : 0 };
 }
 
 function cancelUtterance(): void {

@@ -20,9 +20,10 @@
 //     closed vocabulary does not need a model to understand it.
 //
 // Nothing leaves the machine. The model is downloaded once, from the vosk-browser project's own
-// published copy (the one host that serves it with the CORS header a browser tab needs), and the
-// microphone is only ever read while the push-to-talk key is held; the audio goes into a worker
-// on this page and nowhere else.
+// published copy (the one host that serves it with the CORS header a browser tab needs). The
+// microphone is open while Voice Control is on in a match, but only the last 0.6 s of it is ever
+// kept (the pre-roll, src/voice/control.ts) until the push-to-talk key is held; the audio goes into
+// a worker on this page and nowhere else.
 //
 // WHERE IT IS KEPT. vosk-browser keeps a model in Emscripten's IDBFS — an IndexedDB database named
 // after its mount point (`/vosk`), one row per file, keyed by path — under a folder named after

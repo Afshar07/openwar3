@@ -37,7 +37,7 @@ import { applyVideoOptions } from "./render/videoQuality";
 import { applyHealthBarOptions } from "./render/worldOverlays";
 import { applyHotkeyOptions } from "./data/hotkeys";
 import { applyScrollOptions } from "./render/scrollOptions";
-import { applyVoiceOptions, voiceSay } from "./voice/control";
+import { applyVoiceOptions, voicePrerollState, voiceSay } from "./voice/control";
 import { GlueManager, type GlueScreenDef } from "./ui/glue";
 import { mountLoadingScreen, type LoadingScreen } from "./ui/loadingScreen";
 import { mountScoreScreen, scoreScreenMusic } from "./ui/scoreScreen";
@@ -1284,4 +1284,5 @@ if (import.meta.env.DEV && new URLSearchParams(location.search).has("dev")) {
   lastScores: () => lastScores,
   // Voice Control's mapping without a microphone (src/voice/control.ts).
   voiceSay,
+  voicePreroll: voicePrerollState,
 };

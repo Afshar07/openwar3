@@ -54,8 +54,10 @@ onto commands is the same cost again. Instead:
    model does not know is silently dropped by Vosk.
 3. **The download host.** The model comes from the vosk-browser project's own published copy, the
    one host that sends `Access-Control-Allow-Origin` (alphacephei.com does not, so a browser tab
-   could never fetch it there). Nothing else ever leaves the machine: the microphone is read only
-   while the key is held, into a worker on this page.
+   could never fetch it there). Nothing else ever leaves the machine. The microphone is open
+   while Voice Control is on in a match, so a PRE-ROLL (the last 0.6 s, in memory only) can be
+   fed ahead of the live audio when "." goes down — without it the first word, which is the
+   verb, was cut off — and the audio goes into a worker on this page.
 
 ## What a phrase means (the developer's rules)
 
