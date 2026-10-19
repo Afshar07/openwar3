@@ -86,7 +86,13 @@ const FOG_BLUR_RADIUS = 2;
 // glPolygonOffset biases depth in screen space, scaled by the surface's screen-space
 // depth slope AND the local depth resolution — so it compensates MORE where precision
 // is worse (far field), exactly where a fixed world lift failed.
-const LIFT = 4; // tiny world lift as belt-and-suspenders for ramp/diagonal residue
+// No world lift any more. It was 4 units, "belt-and-suspenders for ramp/diagonal residue" —
+// and the ramps are no longer veiled at all (skipCells). A lift is not free: raising the veil
+// shifts its edge UP the screen, so the near edge of every plateau tile above a cliff was left
+// three pixels short of its own veil, a bright unfogged strip that only the (now dropped)
+// cliff-tile quad hanging below it used to hide. Measured without it: no speckle anywhere in
+// unexplored fog at any zoom, which the polygon offset alone wins.
+const LIFT = 0;
 const POLYGON_OFFSET_FACTOR = -2; // pull fog toward the camera in depth (slope-scaled)
 const POLYGON_OFFSET_UNITS = -4;
 
@@ -98,6 +104,8 @@ export class FogOverlay {
   private posBuf: WebGLBuffer;
   private darkBuf: WebGLBuffer;
   private idxBuf: WebGLBuffer;
+  private idx: Uint16Array | Uint32Array; // CPU copy of idxBuf, for skipCells
+  private idxDirty = false; // idx changed since the last upload (skipCells → render)
   private aPos: number;
   private aDark: number;
   private uViewProj: WebGLUniformLocation;
@@ -189,6 +197,7 @@ export class FogOverlay {
     this.uViewProj = gl.getUniformLocation(this.program, "uViewProj")!;
     this.posBuf = createBuffer(gl, gl.ARRAY_BUFFER, pos, gl.STATIC_DRAW);
     this.darkBuf = createBuffer(gl, gl.ARRAY_BUFFER, this.dark, gl.DYNAMIC_DRAW);
+    this.idx = idx;
     this.idxBuf = createBuffer(gl, gl.ELEMENT_ARRAY_BUFFER, idx, gl.STATIC_DRAW);
 
     // Per-corner brightness texture for the cliff shader (see field comment). Corner
@@ -218,6 +227,32 @@ export class FogOverlay {
       lit: rgbOf(FOG_OF_WAR.BoundaryObject),
       fogged: rgbOf(FOG_OF_WAR.FoggedBoundaryObject),
     };
+  }
+
+  /**
+   * Stop veiling the cells that have NO GROUND — the cliff and ramp tiles, where the viewer
+   * draws a model in place of the ground (`noGround`: one byte per cell, row-major).
+   *
+   * The veil was laid over them anyway, as a plane slanting from the tile's low corners to its
+   * high ones, and the cliff shader ALSO dims those models by this mask. So wherever the plane
+   * landed on the rock it was dimmed twice — a ramp in explored fog drew at a quarter of the
+   * grass beside it rather than at half, a hard-edged dark rectangle — and wherever it cut
+   * through a curved cliff face it painted a jagged black wedge. The cliff shader alone is the
+   * right owner of those tiles (it is the only one that can follow their overhang).
+   *
+   * Each skipped cell keeps its six indices, collapsed onto one vertex, so a run of cells is
+   * still a run of indices for the terrain cull (render()). Only the CPU copy changes here;
+   * render() uploads it, with its own index buffer bound under its own state discipline.
+   */
+  skipCells(noGround: Uint8Array): void {
+    const cellsX = this.gridW - 1;
+    if (noGround.length !== cellsX * (this.gridH - 1)) return;
+    const idx = this.idx;
+    for (let c = 0; c < noGround.length; c++) {
+      if (!noGround[c]) continue;
+      idx.fill(Math.floor(c / cellsX) * this.gridW + (c % cellsX), c * 6, c * 6 + 6);
+    }
+    this.idxDirty = true;
   }
 
   /** The per-corner fog brightness texture, for the viewer's patched cliff shader. */
@@ -354,6 +389,10 @@ export class FogOverlay {
     gl.enableVertexAttribArray(this.aDark);
     gl.vertexAttribPointer(this.aDark, 1, gl.FLOAT, false, 0, 0);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.idxBuf);
+    if (this.idxDirty) {
+      gl.bufferSubData(gl.ELEMENT_ARRAY_BUFFER, 0, this.idx);
+      this.idxDirty = false;
+    }
     // Camera culling (docs/terrain-culling.md). The veil is a second mesh the size of the
     // terrain — one quad per cell over the WHOLE map — so it was the biggest full-map sweep
     // left after the ground itself, and it is the same mesh in the same order: the index

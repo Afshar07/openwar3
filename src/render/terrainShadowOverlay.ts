@@ -53,9 +53,11 @@ void main() {
   gl_FragColor = vec4(0.0, 0.0, 0.0, a);
 }`;
 
-// Same coplanar-decal biases as UberSplatOverlay/ShadowOverlay — proven to win LEQUAL
-// against the terrain without z-fighting.
-const LIFT = 2;
+// The polygon offset of UberSplatOverlay/ShadowOverlay — proven to win LEQUAL against the
+// terrain without z-fighting — but no world LIFT: this layer now stops at the cliff tiles
+// (skipCells), and a lifted edge rides up the screen and leaves the last pixels of a plateau
+// above a cliff unshaded (FogOverlay's LIFT has the measurement).
+const LIFT = 0;
 const POLYGON_OFFSET_FACTOR = -2;
 const POLYGON_OFFSET_UNITS = -4;
 
@@ -107,7 +109,12 @@ export class TerrainShadowOverlay {
   private uvBuf: WebGLBuffer;
   private tex: WebGLTexture;
   private vertexCount = 0;
+  private terrain: TerrainData;
+  private mask: TerrainShadowMask;
   strength = DEFAULT_STRENGTH;
+  /** World XY → mask UV (originX, originY, invSpanX, invSpanY), for the viewer's cliff shader:
+   *  the mask spans the cell grid exactly, as buildMesh's corner UVs say. */
+  readonly params: Float32Array;
 
   constructor(gl: GL, terrain: TerrainData, mask: TerrainShadowMask) {
     this.gl = gl;
@@ -135,10 +142,43 @@ export class TerrainShadowOverlay {
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, prevAlign);
     gl.bindTexture(gl.TEXTURE_2D, prevTex);
 
-    const { pos, uv, count } = buildMesh(terrain, mask);
-    this.vertexCount = count;
+    this.terrain = terrain;
+    this.mask = mask;
     this.posBuf = gl.createBuffer()!;
     this.uvBuf = gl.createBuffer()!;
+    this.upload(buildMesh(terrain, mask, null));
+    const cellsX = terrain.width - 1;
+    const cellsY = terrain.height - 1;
+    this.params = new Float32Array([
+      terrain.centerOffset[0], terrain.centerOffset[1], 1 / (cellsX * CELL), 1 / (cellsY * CELL),
+    ]);
+  }
+
+  /** The mask texture, for the viewer's cliff shader (see skipCells). */
+  get texture(): WebGLTexture {
+    return this.tex;
+  }
+
+  /**
+   * Leave the cells that have NO GROUND to the cliff shader — the cliff and ramp tiles, where
+   * the viewer draws a model in place of the ground (`noGround`: one byte per cell, row-major).
+   *
+   * This layer is a decal seated on the ground's corner grid. On a cliff tile that grid is a
+   * plane slanting from the low corners to the high ones, which cuts THROUGH the cliff model:
+   * whatever part of the rock happened to stand behind the plane was shaded and the rest was
+   * not, a hard dark wedge along the cliff wherever the editor baked a shadow near one. The
+   * viewer's cliff shader samples this same mask at each fragment's world XY instead
+   * (cliffs.frag `u_shdTexture`), which is what WC3's baked shadow is: a property of the
+   * ground PLAN, falling on rock and grass alike.
+   */
+  skipCells(noGround: Uint8Array): void {
+    if (noGround.length !== (this.terrain.width - 1) * (this.terrain.height - 1)) return;
+    this.upload(buildMesh(this.terrain, this.mask, noGround));
+  }
+
+  private upload({ pos, uv, count }: { pos: Float32Array; uv: Float32Array; count: number }): void {
+    const gl = this.gl;
+    this.vertexCount = count;
     const prevArrayBuf = gl.getParameter(gl.ARRAY_BUFFER_BINDING) as WebGLBuffer | null;
     gl.bindBuffer(gl.ARRAY_BUFFER, this.posBuf);
     gl.bufferData(gl.ARRAY_BUFFER, pos.subarray(0, count * 3), gl.STATIC_DRAW);
@@ -217,8 +257,13 @@ export class TerrainShadowOverlay {
   }
 }
 
-/** One quad per shadowed cell, seated on the terrain's own corners. */
-function buildMesh(terrain: TerrainData, mask: TerrainShadowMask): { pos: Float32Array; uv: Float32Array; count: number } {
+/** One quad per shadowed cell, seated on the terrain's own corners — except the cells in
+ *  `noGround`, which the cliff shader shades itself (TerrainShadowOverlay.skipCells). */
+function buildMesh(
+  terrain: TerrainData,
+  mask: TerrainShadowMask,
+  noGround: Uint8Array | null,
+): { pos: Float32Array; uv: Float32Array; count: number } {
   const { width, height, centerOffset, corners } = terrain;
   const ox = centerOffset[0];
   const oy = centerOffset[1];
@@ -251,6 +296,7 @@ function buildMesh(terrain: TerrainData, mask: TerrainShadowMask): { pos: Float3
       }
     }
   }
+  if (noGround) for (let i = 0; i < keep.length; i++) if (noGround[i]) keep[i] = 0;
 
   let cells = 0;
   for (let i = 0; i < keep.length; i++) if (keep[i]) cells++;

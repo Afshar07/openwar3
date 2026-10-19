@@ -43,6 +43,45 @@ sitting in open ground with nothing above them, that assumption is what broke.
 Unshadowed cells are dropped from the mesh — most of them are — with a one-cell dilation so
 the bilinear filter still has real texels to blend toward at a shadow's edge.
 
+## Cliffs and ramps: who shades a tile with no ground
+
+A cliff or ramp tile has **no ground** — the viewer draws a `Cliffs\`/`CliffTrans\` model in
+its place and leaves the tile's four texture slots at zero. Three things went wrong at those
+tiles, and together they were the "seams where slopes meet the ground" and the "sharp black
+lines on cliffs" (Lost Temple shows all three at once):
+
+1. **Two layers drew a plane through the rock.** The fog-of-war veil and the `war3map.shd`
+   layer are meshes on the ground's corner grid; on a cliff tile that grid is a plane slanting
+   from the low corners to the high ones. The cliff shader ALREADY dims itself by the fog mask,
+   so wherever that plane landed on a ramp or a cliff top it was dimmed twice — a ramp in
+   explored fog drew at a quarter of the grass beside it, a hard-edged dark rectangle with the
+   ramp's outline — and wherever it cut a curved cliff face it painted a jagged black wedge.
+   Now both layers skip those cells (`FogOverlay.skipCells`, `TerrainShadowOverlay.skipCells`,
+   driven by `MapViewerScene.syncGroundless` off the viewer's own `cornerTextures`), and the
+   cliff shader samples the shadow mask itself (`cliffs.frag` `u_shdTexture`), as it already
+   samples the fog. Neither layer is LIFTED any more either: a lifted edge rides up the screen
+   and left the last three pixels of every plateau tile above a cliff unfogged once the quad
+   hanging below it was gone. The polygon offset alone wins (no speckle in unexplored fog at
+   any zoom).
+2. **The ground lit itself by the cliff layers.** `ground.vert` took its normal from the FINAL
+   corner height (ground + cliff layer + a ramp's half layer), so every tile beside a cliff or
+   ramp was lit as a 27° hill. Under Lordaeron's low south-west sun (terrain light direction
+   −0.68, −0.41, 0.62) that is about half brightness — a band along every cliff edge and an
+   outline round every ramp, near-black at night. HiveWE and Warsmash both light from the RAW
+   ground height and position from the final one; the height map now carries both (luminance =
+   raw, alpha = final).
+3. **A cliff model's normals are smoothed.** Where the mesh meets the grass its vertex leans
+   toward its own slope or wall (a ramp's flat border sits ~25° off vertical), so the two sides
+   of the seam were lit differently. A cliff vertex on a cell edge at a ground level (x or y on
+   the 128 grid, z on a half layer) now takes the ground's own normal there — Warsmash's idea,
+   studied not lifted. The `nz > 0.6` guard comes from a census of all 253 stock cliff/ramp
+   models: every vertex where a natural cliff or a ramp meets the ground is at nz ≥ 0.6 and
+   every wall vertex on those lines under 0.3, while City cliffs split vertices on purpose
+   (walls at 0, bevels at 0.45) and keep their creases.
+
+A trap when testing any of this: `MapViewerScene.ensureFog` rebuilds the veil whenever
+`fog` is null, so setting `mapScene().fog = null` from the page does NOT turn the fog off.
+
 ## Glue-screen lighting (issue #105)
 
 The main menu and the campaign backdrops are 3D scenes, and **every glue model carries its own

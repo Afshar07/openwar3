@@ -1967,6 +1967,7 @@ export class MapViewerScene {
     this.buildingShadows = null;
     this.terrainShadows?.dispose();
     this.terrainShadows = null;
+    this.groundless = null; // the next map has its own cliffs (syncGroundless)
     this.terrainCull = null; // plain arrays; none of the GL context is in it
     this.simBuildingSplats.clear();
     this.liftedSplats.clear();
@@ -9296,6 +9297,10 @@ export class MapViewerScene {
   /** What the TERRAIN is wearing, corner by corner — see syncBlight. Not the sim's grid: the
    *  two differ by exactly what has happened out of sight. */
   private blightShown: Uint8Array | null = null;
+  /** One byte per terrain cell, 1 where the viewer draws a cliff/ramp model instead of
+   *  ground — and the overlays already told so (syncGroundless). */
+  private groundless: Uint8Array | null = null;
+  private groundlessDone = new WeakSet<object>();
   /** Corners whose blight changed while the local player was not looking, waiting for the
    *  vision that lets them be drawn. Lattice indices, the same `row * columns + col`. */
   private readonly blightPending = new Set<number>();
@@ -14868,6 +14873,7 @@ export class MapViewerScene {
         fogScene.startFrame();
         this.sky?.renderBehind(); // FIRST: a sky neither tests nor writes depth (render/sky.ts)
         this.syncBlight(map); // the Undead's rot, painted onto the ground before it is drawn
+        this.syncGroundless(map); // cliff/ramp tiles: shaded by the cliff pass, not the overlays
         map.renderGround();
         map.renderCliffs();
         // Unit shadows draw BEFORE the opaque units: the top-right cast falls north (away
@@ -15002,6 +15008,7 @@ export class MapViewerScene {
     this.buildingShadows = null;
     this.terrainShadows?.dispose();
     this.terrainShadows = null;
+    this.groundless = null; // the next map has its own cliffs (syncGroundless)
     this.terrainCull = null; // plain arrays; none of the GL context is in it
     this.simBuildingSplats.clear();
     this.liftedSplats.clear();
@@ -15176,6 +15183,44 @@ export class MapViewerScene {
     const cliffFog = this.viewer.map as unknown as { fogTexture?: WebGLTexture; fogParams?: Float32Array };
     cliffFog.fogTexture = this.fog.fogTexture;
     cliffFog.fogParams = this.fog.fogParams;
+  }
+
+  /**
+   * The cliff and ramp tiles belong to the viewer's cliff shader alone. Both ground-plan
+   * layers — the fog veil and the map's baked `war3map.shd` — are meshes on the ground's
+   * corner grid, and a tile with a cliff or ramp model on it has no ground: their quad there
+   * is a plane slanting through the rock. The veil on top of the cliff shader's own fog
+   * dimming drew a ramp in explored fog at a QUARTER of the grass beside it (a hard dark
+   * rectangle with the ramp's outline), and either layer cutting a curved cliff face drew a
+   * jagged black wedge. So once the viewer has textured its ground, the cells it left
+   * untextured — the ones it draws a model in — are dropped from both meshes, and the cliff
+   * shader is given the shadow mask to apply itself, as it already applies the fog.
+   *
+   * Every frame because both are cheap and either layer may arrive late (the fog waits for
+   * the sim); `groundlessDone` keeps each overlay to one rebuild.
+   */
+  private syncGroundless(map: W3xMap): void {
+    const m = map as unknown as {
+      terrainReady?: boolean;
+      cornerTextures?: Uint8Array;
+      shdTexture?: WebGLTexture;
+      shdParams?: Float32Array;
+      shdStrength?: number;
+    };
+    const shd = this.terrainShadows;
+    m.shdTexture = shd?.texture;
+    m.shdParams = shd?.params;
+    m.shdStrength = shd?.strength;
+    const tex = m.terrainReady ? m.cornerTextures : undefined;
+    if (!tex) return;
+    for (const layer of [this.fog, shd]) {
+      if (!layer || this.groundlessDone.has(layer)) continue;
+      // A drawn ground tile always has a base texture in its first slot (writeTileTextures
+      // stores texture + 1); a cliff or ramp tile leaves all four at zero.
+      this.groundless ??= Uint8Array.from({ length: tex.length >> 2 }, (_, i) => (tex[i * 4] === 0 ? 1 : 0));
+      layer.skipCells(this.groundless);
+      this.groundlessDone.add(layer);
+    }
   }
 
   /** Resample the fog mask and re-fog the map's widgets. */

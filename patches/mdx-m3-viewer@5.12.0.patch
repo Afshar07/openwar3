@@ -2425,7 +2425,7 @@ index 49733805785c0ef269901d8928e47a953ada93a9..f15149f33f353822f4cb73eaf85eb727
    gl_Position = u_VP * vec4(position, 1.0);
  }
 diff --git a/dist/cjs/viewer/handlers/w3x/map.js b/dist/cjs/viewer/handlers/w3x/map.js
-index e4c8ea760e92653ef6423bd34f9111d0b062a901..205e1f1d8971735c75b168669d44cb634ebb64fe 100644
+index e4c8ea760e92653ef6423bd34f9111d0b062a901..aca20db2d9ec1c0e3546c002f49bfea2909dd5ef 100644
 --- a/dist/cjs/viewer/handlers/w3x/map.js
 +++ b/dist/cjs/viewer/handlers/w3x/map.js
 @@ -16,6 +16,41 @@ const file_3 = require("../../../parsers/w3x/doo/file");
@@ -2758,7 +2758,34 @@ index e4c8ea760e92653ef6423bd34f9111d0b062a901..205e1f1d8971735c75b168669d44cb63
          const gl = this.viewer.gl;
          const webgl = this.viewer.webgl;
          this.vertexBuffer = gl.createBuffer();
-@@ -291,10 +468,17 @@ class War3MapViewerMap {
+@@ -278,10 +455,25 @@ class War3MapViewerMap {
+         gl.bindTexture(gl.TEXTURE_2D, this.cliffHeightMap);
+         webgl.setTextureMode(gl.CLAMP_TO_EDGE, gl.CLAMP_TO_EDGE, gl.NEAREST, gl.NEAREST);
+         gl.texImage2D(gl.TEXTURE_2D, 0, gl.ALPHA, columns, rows, 0, gl.ALPHA, gl.FLOAT, cliffHeights);
++        // OpenWar3: the ground's height map carries TWO heights per corner. Alpha is where the
++        // corner IS (ground + cliff layer + the ramp's half layer) and positions the mesh, as
++        // stock. Luminance is the raw ground height alone, and is what the ground LIGHTS by:
++        // a slope taken across the cliff layers tilts every tile beside a cliff or a ramp as
++        // though it were a 27-degree hill, and under Lordaeron's low south-west sun that drew a
++        // dark band along every cliff edge and an outline round every ramp. Both references
++        // that light terrain take the normal from the raw ground height and position from the
++        // final one (HiveWE terrain.vert `ground_heights` vs `cliff_levels`; Warsmash
++        // TerrainShaders.Terrain `height_texture` vs `height_cliff_texture`). One texture
++        // rather than a second sampler because the ground pass already holds units 0-15.
++        const groundAndCornerHeights = new Float32Array(columns * rows * 2);
++        for (let i = 0, l = columns * rows; i < l; i++) {
++            groundAndCornerHeights[i * 2] = cliffHeights[i];
++            groundAndCornerHeights[i * 2 + 1] = cornerHeights[i];
++        }
+         this.heightMap = gl.createTexture();
+         gl.bindTexture(gl.TEXTURE_2D, this.heightMap);
+         webgl.setTextureMode(gl.CLAMP_TO_EDGE, gl.CLAMP_TO_EDGE, gl.NEAREST, gl.NEAREST);
+-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.ALPHA, columns, rows, 0, gl.ALPHA, gl.FLOAT, cornerHeights);
++        gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE_ALPHA, columns, rows, 0, gl.LUMINANCE_ALPHA, gl.FLOAT, groundAndCornerHeights);
+         this.waterHeightMap = gl.createTexture();
+         gl.bindTexture(gl.TEXTURE_2D, this.waterHeightMap);
+         webgl.setTextureMode(gl.CLAMP_TO_EDGE, gl.CLAMP_TO_EDGE, gl.NEAREST, gl.NEAREST);
+@@ -291,10 +483,17 @@ class War3MapViewerMap {
          gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(instanceCount).map((currentValue, index) => index), gl.STATIC_DRAW);
          this.textureBuffer = gl.createBuffer();
          gl.bindBuffer(gl.ARRAY_BUFFER, this.textureBuffer);
@@ -2778,7 +2805,7 @@ index e4c8ea760e92653ef6423bd34f9111d0b062a901..205e1f1d8971735c75b168669d44cb63
          this.waterBuffer = gl.createBuffer();
          gl.bindBuffer(gl.ARRAY_BUFFER, this.waterBuffer);
          gl.bufferData(gl.ARRAY_BUFFER, waterFlags, gl.STATIC_DRAW);
-@@ -358,7 +542,25 @@ class War3MapViewerMap {
+@@ -358,7 +557,25 @@ class War3MapViewerMap {
                          }
                          promise.then((model) => {
                              if (model) {
@@ -2805,7 +2832,7 @@ index e4c8ea760e92653ef6423bd34f9111d0b062a901..205e1f1d8971735c75b168669d44cb63
                              }
                          });
                      }
-@@ -485,6 +687,31 @@ class War3MapViewerMap {
+@@ -485,6 +702,31 @@ class War3MapViewerMap {
              worldScene.renderTranslucent();
          }
      }
@@ -2837,7 +2864,7 @@ index e4c8ea760e92653ef6423bd34f9111d0b062a901..205e1f1d8971735c75b168669d44cb63
      renderGround() {
          if (this.terrainReady) {
              const gl = this.viewer.gl;
-@@ -503,6 +730,8 @@ class War3MapViewerMap {
+@@ -503,6 +745,8 @@ class War3MapViewerMap {
              gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
              webgl.useShader(shader);
              gl.uniformMatrix4fv(uniforms['u_VP'], false, this.worldScene.camera.viewProjectionMatrix);
@@ -2846,7 +2873,7 @@ index e4c8ea760e92653ef6423bd34f9111d0b062a901..205e1f1d8971735c75b168669d44cb63
              gl.uniform2fv(uniforms['u_offset'], this.centerOffset);
              gl.uniform2f(uniforms['u_size'], this.columns, this.rows);
              gl.uniform1i(uniforms['u_heightMap'], 15);
-@@ -527,7 +756,19 @@ class War3MapViewerMap {
+@@ -527,7 +771,19 @@ class War3MapViewerMap {
                  gl.uniform1i(uniforms[`u_tilesets[${i}]`], i);
                  webgl.bindTexture(tilesetTextures[i], i);
              }
@@ -2867,7 +2894,7 @@ index e4c8ea760e92653ef6423bd34f9111d0b062a901..205e1f1d8971735c75b168669d44cb63
              if (tilesetCount > 15) {
                  gl.uniform1f(uniforms['u_baseTileset'], 15);
                  for (let i = 0, l = tilesetCount - 15; i < l; i++) {
-@@ -535,7 +776,7 @@ class War3MapViewerMap {
+@@ -535,7 +791,7 @@ class War3MapViewerMap {
                      gl.uniform1f(uniforms[`u_extended[${i}]`], isExtended);
                      webgl.bindTexture(tilesetTextures[i + 15], i);
                  }
@@ -2876,7 +2903,7 @@ index e4c8ea760e92653ef6423bd34f9111d0b062a901..205e1f1d8971735c75b168669d44cb63
              }
              instancedArrays.vertexAttribDivisorANGLE(texturesAttrib, 0);
              instancedArrays.vertexAttribDivisorANGLE(variationsAttrib, 0);
-@@ -558,11 +799,17 @@ class War3MapViewerMap {
+@@ -558,11 +814,17 @@ class War3MapViewerMap {
              gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
              webgl.useShader(shader);
              gl.uniformMatrix4fv(uniforms['u_VP'], false, this.worldScene.camera.viewProjectionMatrix);
@@ -2894,7 +2921,7 @@ index e4c8ea760e92653ef6423bd34f9111d0b062a901..205e1f1d8971735c75b168669d44cb63
              gl.uniform1f(uniforms['u_offsetHeight'], this.waterHeightOffset);
              gl.uniform4fv(uniforms['u_maxDeepColor'], this.maxDeepColor);
              gl.uniform4fv(uniforms['u_minDeepColor'], this.minDeepColor);
-@@ -582,7 +829,14 @@ class War3MapViewerMap {
+@@ -582,7 +844,14 @@ class War3MapViewerMap {
              gl.vertexAttribPointer(isWaterAttrib, 1, gl.UNSIGNED_BYTE, false, 1, 0);
              instancedArrays.vertexAttribDivisorANGLE(isWaterAttrib, 1);
              gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.faceBuffer);
@@ -2910,7 +2937,7 @@ index e4c8ea760e92653ef6423bd34f9111d0b062a901..205e1f1d8971735c75b168669d44cb63
              instancedArrays.vertexAttribDivisorANGLE(isWaterAttrib, 0);
              instancedArrays.vertexAttribDivisorANGLE(instanceAttrib, 0);
          }
-@@ -599,6 +853,8 @@ class War3MapViewerMap {
+@@ -599,6 +868,8 @@ class War3MapViewerMap {
              gl.disable(gl.BLEND);
              shader.use();
              gl.uniformMatrix4fv(uniforms['u_VP'], false, this.worldScene.camera.viewProjectionMatrix);
@@ -2919,17 +2946,31 @@ index e4c8ea760e92653ef6423bd34f9111d0b062a901..205e1f1d8971735c75b168669d44cb63
              gl.uniform1i(uniforms['u_heightMap'], 0);
              gl.uniform2f(uniforms['u_pixel'], 1 / (this.columns + 1), 1 / (this.rows + 1));
              gl.uniform2fv(uniforms['u_centerOffset'], this.centerOffset);
-@@ -612,6 +868,9 @@ class War3MapViewerMap {
+@@ -612,6 +883,23 @@ class War3MapViewerMap {
                  gl.activeTexture(gl.TEXTURE2);
                  gl.bindTexture(gl.TEXTURE_2D, this.cliffTextures[1].webglResource);
              }
 +            // OpenWar3: fog of war — dim cliff faces by the fog mask (set by FogOverlay
 +            // via mapViewer); the ground veil cannot cover their overhang.
 +            this.setFogOfWarUniforms(uniforms, 3);
++            // OpenWar3: …and by the map's baked shadow layer, which cannot lie on a cliff
++            // either (see cliffs.frag). Installed by mapViewer as `shdTexture`/`shdParams`/
++            // `shdStrength`; off until it exists, or on a map with no war3map.shd.
++            if (this.shdTexture) {
++                gl.uniform1f(uniforms['u_shdEnabled'], 1);
++                gl.uniform4fv(uniforms['u_shdParams'], this.shdParams);
++                gl.uniform1f(uniforms['u_shdStrength'], this.shdStrength);
++                gl.uniform1i(uniforms['u_shdTexture'], 4);
++                gl.activeTexture(gl.TEXTURE4);
++                gl.bindTexture(gl.TEXTURE_2D, this.shdTexture);
++            }
++            else {
++                gl.uniform1f(uniforms['u_shdEnabled'], 0);
++            }
              // Set instanced attributes.
              if (!vertexArrayObject) {
                  instancedArrays.vertexAttribDivisorANGLE(attribs['a_instancePosition'], 1);
-@@ -671,6 +930,86 @@ class War3MapViewerMap {
+@@ -671,6 +959,86 @@ class War3MapViewerMap {
          const topRight = corners[row + 1][column + 1].layerHeight;
          return bottomLeft !== bottomRight || bottomLeft !== topLeft || bottomLeft !== topRight;
      }
@@ -3016,7 +3057,7 @@ index e4c8ea760e92653ef6423bd34f9111d0b062a901..205e1f1d8971735c75b168669d44cb63
      /**
       * Is the tile at the given column and row water?
       */
-@@ -692,6 +1031,108 @@ class War3MapViewerMap {
+@@ -692,6 +1060,108 @@ class War3MapViewerMap {
          }
          return 0;
      }
@@ -3125,7 +3166,7 @@ index e4c8ea760e92653ef6423bd34f9111d0b062a901..205e1f1d8971735c75b168669d44cb63
      /**
       * Get the ground texture of a corner, whether it's normal ground, a cliff, or a blighted corner.
       */
-@@ -730,17 +1171,37 @@ class War3MapViewerMap {
+@@ -730,17 +1200,37 @@ class War3MapViewerMap {
      applyModificationTable(dataMap, metadataMap, modificationTable) {
          for (const modificationObject of modificationTable.objects) {
              let row;
@@ -3168,10 +3209,10 @@ index e4c8ea760e92653ef6423bd34f9111d0b062a901..205e1f1d8971735c75b168669d44cb63
                  const metadata = metadataMap.getRow(modification.id);
                  if (metadata) {
 diff --git a/dist/cjs/viewer/handlers/w3x/shaders/cliffs.frag.js b/dist/cjs/viewer/handlers/w3x/shaders/cliffs.frag.js
-index c2a27060799ff26b5c86ccedd0bedda2d6a54746..989091fe2afb0a3f2aeb2700f92009cf1843d87a 100644
+index c2a27060799ff26b5c86ccedd0bedda2d6a54746..30d514402b5e0504e9b71ae7ea61f902aac45c22 100644
 --- a/dist/cjs/viewer/handlers/w3x/shaders/cliffs.frag.js
 +++ b/dist/cjs/viewer/handlers/w3x/shaders/cliffs.frag.js
-@@ -9,6 +9,33 @@ ${precision_glsl_1.default}
+@@ -9,6 +9,45 @@ ${precision_glsl_1.default}
  uniform sampler2D u_texture1;
  uniform sampler2D u_texture2;
  
@@ -3183,6 +3224,18 @@ index c2a27060799ff26b5c86ccedd0bedda2d6a54746..989091fe2afb0a3f2aeb2700f92009cf
 +uniform sampler2D u_fogTexture;
 +uniform vec4 u_fogParams;
 +uniform float u_fogEnabled;
++
++// OpenWar3: the map's baked shadow layer (war3map.shd; src/render/terrainShadowOverlay.ts)
++// for the same reason as the fog above. That layer is a decal laid on the GROUND's corner
++// grid, and a cliff or ramp tile has no ground: its quad is a plane slanting from the low
++// corners to the high ones, which slices through the cliff model and paints whatever part of
++// the rock happens to be behind it — the hard dark wedges along cliffs. The overlay now skips
++// those cells and the cliff darkens itself here: u_shdParams maps world XY to mask UV
++// (originX, originY, invSpanX, invSpanY), u_shdStrength is the overlay's own strength.
++uniform sampler2D u_shdTexture;
++uniform vec4 u_shdParams;
++uniform float u_shdStrength;
++uniform float u_shdEnabled;
 +
 +// OpenWar3: day/night cycle, from the tileset's Environment\DNC\*Terrain.mdx light —
 +// the same values the ground pass gets, so a cliff face and the grass on top of it
@@ -3205,7 +3258,7 @@ index c2a27060799ff26b5c86ccedd0bedda2d6a54746..989091fe2afb0a3f2aeb2700f92009cf
  varying vec3 v_normal;
  varying vec2 v_uv;
  varying float v_texture;
-@@ -35,6 +62,24 @@ void main() {
+@@ -35,6 +74,31 @@ void main() {
  
    // color *= clamp(dot(normal, lightDirection) + 0.45, 0.1, 1.0);
  
@@ -3221,6 +3274,13 @@ index c2a27060799ff26b5c86ccedd0bedda2d6a54746..989091fe2afb0a3f2aeb2700f92009cf
 +    color.rgb = mix(u_distFogColor, color.rgb, f);
 +  }
 +
++  // OpenWar3: the baked shadow, the way the overlay blends it over the ground (black at
++  // mask * strength) — after the haze, as the overlay is drawn after the ground's haze.
++  if (u_shdEnabled > 0.5) {
++    vec2 shdUv = (v_position.xy - u_shdParams.xy) * u_shdParams.zw;
++    color.rgb *= 1.0 - texture2D(u_shdTexture, shdUv).a * u_shdStrength;
++  }
++
 +  // OpenWar3: dim the cliff by the fog-of-war brightness at this fragment's world XY.
 +  if (u_fogEnabled > 0.5) {
 +    vec2 fogUv = (v_position.xy - u_fogParams.xy) * u_fogParams.zw;
@@ -3230,6 +3290,83 @@ index c2a27060799ff26b5c86ccedd0bedda2d6a54746..989091fe2afb0a3f2aeb2700f92009cf
    gl_FragColor = color;
  }
  `;
+diff --git a/dist/cjs/viewer/handlers/w3x/shaders/cliffs.vert.js b/dist/cjs/viewer/handlers/w3x/shaders/cliffs.vert.js
+index 797d91b4335ebc7297fff0e109c98443bd35487c..66ee7f84ff8738975cd9397a03854f1807f834a6 100644
+--- a/dist/cjs/viewer/handlers/w3x/shaders/cliffs.vert.js
++++ b/dist/cjs/viewer/handlers/w3x/shaders/cliffs.vert.js
+@@ -17,25 +17,55 @@ varying vec2 v_uv;
+ varying float v_texture;
+ varying vec3 v_position;
+ 
+-void main() {
+-  // Half of a pixel in the cliff height map.
++// OpenWar3: the RAW ground height (no cliff layers) at a point in corner coordinates,
++// bilinear between the four corners around it. The stock shader blended the four corners of
++// the ONE tile the instance is anchored on by the vertex's offset from it, which extrapolates
++// for a ramp: CliffTrans models span two tiles (x down to -256, y up to 256), so their far
++// half was lifted along the near tile's slope instead of reading the tile it stands on.
++float groundAt(vec2 c) {
+   vec2 halfPixel = u_pixel * 0.5;
++  vec2 f = floor(c);
++  vec2 t = c - f;
++  float bottomLeft = texture2D(u_heightMap, f * u_pixel + halfPixel).a;
++  float bottomRight = texture2D(u_heightMap, (f + vec2(1.0, 0.0)) * u_pixel + halfPixel).a;
++  float topLeft = texture2D(u_heightMap, (f + vec2(0.0, 1.0)) * u_pixel + halfPixel).a;
++  float topRight = texture2D(u_heightMap, (f + vec2(1.0, 1.0)) * u_pixel + halfPixel).a;
++  return mix(mix(bottomLeft, bottomRight, t.x), mix(topLeft, topRight, t.x), t.y);
++}
++
++// OpenWar3: is this model-space coordinate on a multiple of step (within a world unit)?
++bool onGrid(float v, float step) {
++  return abs(v - floor(v / step + 0.5) * step) < 1.0;
++}
++
++void main() {
++  // The vertex in corner coordinates (one unit per terrain cell). Cliff and ramp instances
++  // are translation-only and anchored on a cell corner, so this is exact on the grid.
++  vec2 cell = (a_instancePosition.xy + a_position.xy - u_centerOffset.xy) / 128.0;
++  float height = groundAt(cell);
++
++  // OpenWar3: where the mesh MEETS the ground, light it as the ground. A cliff or ramp model
++  // carries smoothed normals, so the vertex it shares with the grass leans towards its own
++  // slope or wall (a ramp's flat border sits ~25 degrees off vertical), while the ground beside
++  // it is lit straight up — under a low sun that is half the brightness, a hard line along every
++  // ramp and a dark lip along every cliff. A vertex on a cell edge (model x or y on the 128
++  // grid) at a ground level (z on a half layer: the ramp entrance is +0.5) takes the normal
++  // the ground pass computes there, from the same raw heights. The idea is Warsmash's
++  // (TerrainShaders.Cliffs swaps in the terrain slope on edge vertices) — studied, not lifted.
++  // nz > 0.6 keeps the CREASES: a census of all 253 stock cliff/ramp models puts every vertex
++  // where a natural cliff or a ramp meets the ground at nz >= 0.6 and every wall vertex on
++  // those lines under 0.3, while City cliffs split their vertices on purpose (walls at 0,
++  // bevels at 0.45) and must keep their hard edges.
++  vec3 normal = a_normal;
++  if (normal.z > 0.6 && (onGrid(a_position.x, 128.0) || onGrid(a_position.y, 128.0)) && onGrid(a_position.z, 64.0)) {
++    float hL = groundAt(cell - vec2(1.0, 0.0));
++    float hR = groundAt(cell + vec2(1.0, 0.0));
++    float hD = groundAt(cell - vec2(0.0, 1.0));
++    float hU = groundAt(cell + vec2(0.0, 1.0));
++    normal = vec3(hL - hR, hD - hU, 2.0);
++  }
+ 
+-  // The bottom left corner of the map tile this vertex is on.
+-  vec2 corner = floor((a_instancePosition.xy - vec2(1.0, 0.0) - u_centerOffset.xy) / 128.0);
+-
+-  // Get the 4 closest heights in the height map.
+-  float bottomLeft = texture2D(u_heightMap, corner * u_pixel + halfPixel).a;
+-  float bottomRight = texture2D(u_heightMap, (corner + vec2(1.0, 0.0)) * u_pixel + halfPixel).a;
+-  float topLeft = texture2D(u_heightMap, (corner + vec2(0.0, 1.0)) * u_pixel + halfPixel).a;
+-  float topRight = texture2D(u_heightMap, (corner + vec2(1.0, 1.0)) * u_pixel + halfPixel).a;
+-  
+-  // Do a bilinear interpolation between the heights to get the final value.
+-  float bottom = mix(bottomRight, bottomLeft, -a_position.x / 128.0);
+-  float top = mix(topRight, topLeft, -a_position.x / 128.0);
+-  float height = mix(bottom, top, a_position.y / 128.0);
+-
+-  v_normal = a_normal;
++  v_normal = normal;
+   v_uv = a_uv;
+   v_texture = a_instanceTexture;
+   v_position = a_position + vec3(a_instancePosition.xy, a_instancePosition.z + height * 128.0);
 diff --git a/dist/cjs/viewer/handlers/w3x/shaders/ground.frag.js b/dist/cjs/viewer/handlers/w3x/shaders/ground.frag.js
 index 70449d8d52f46ac83662d302c94dcee8e29147e7..2937a00fba90d58c7ddbc23bda774d13327aef38 100644
 --- a/dist/cjs/viewer/handlers/w3x/shaders/ground.frag.js
@@ -3292,7 +3429,7 @@ index 70449d8d52f46ac83662d302c94dcee8e29147e7..2937a00fba90d58c7ddbc23bda774d13
  `;
  exports.default = shader;
 diff --git a/dist/cjs/viewer/handlers/w3x/shaders/ground.vert.js b/dist/cjs/viewer/handlers/w3x/shaders/ground.vert.js
-index 26a5b4c8758bfb80c62f458fbc4a85293c18060b..a611f04f49f48bf98e308e50653c6f7cb33cd877 100644
+index 26a5b4c8758bfb80c62f458fbc4a85293c18060b..04cc367537276e961570be1c828496246a7f53db 100644
 --- a/dist/cjs/viewer/handlers/w3x/shaders/ground.vert.js
 +++ b/dist/cjs/viewer/handlers/w3x/shaders/ground.vert.js
 @@ -16,6 +16,7 @@ attribute vec4 a_variations;
@@ -3303,7 +3440,21 @@ index 26a5b4c8758bfb80c62f458fbc4a85293c18060b..a611f04f49f48bf98e308e50653c6f7c
  
  vec2 getCell(float variation) {
    if (variation < 16.0) {
-@@ -58,9 +59,11 @@ void main() {
+@@ -51,16 +52,21 @@ void main() {
+     vec2 base = corner + a_position;
+     float height = texture2D(u_heightMap, base / u_size).a;
+ 
+-    float hL = texture2D(u_heightMap, vec2(base - vec2(1.0, 0.0)) / (u_size)).a;
+-    float hR = texture2D(u_heightMap, vec2(base + vec2(1.0, 0.0)) / (u_size)).a;
+-    float hD = texture2D(u_heightMap, vec2(base - vec2(0.0, 1.0)) / (u_size)).a;
+-    float hU = texture2D(u_heightMap, vec2(base + vec2(0.0, 1.0)) / (u_size)).a;
++    // OpenWar3: the slope is taken off the RAW ground height (.r), not the final one (.a) —
++    // the cliff layers and a ramp's half layer are not a hill the light should see. See the
++    // height map's upload in map.js.
++    float hL = texture2D(u_heightMap, vec2(base - vec2(1.0, 0.0)) / (u_size)).r;
++    float hR = texture2D(u_heightMap, vec2(base + vec2(1.0, 0.0)) / (u_size)).r;
++    float hD = texture2D(u_heightMap, vec2(base - vec2(0.0, 1.0)) / (u_size)).r;
++    float hU = texture2D(u_heightMap, vec2(base + vec2(0.0, 1.0)) / (u_size)).r;
  
      v_normal = normalize(vec3(hL - hR, hD - hU, 2.0));
  
