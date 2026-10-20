@@ -5,7 +5,7 @@ import type { AbilityRegistry } from "../data/abilities";
 import type { TechRegistry } from "../data/techtree";
 import type { UpgradeRegistry } from "../data/upgrades";
 import type { ItemRegistry } from "../data/items";
-import type { SimUnit } from "../sim/world";
+import { isOffField, type SimUnit } from "../sim/world";
 import { FogState } from "../sim/vision";
 import { describe, type LexEntry, type Pick, type Region, type Subject, type VoiceIntent, type VoiceTarget } from "../voice/parser";
 import type { VoiceHost } from "../voice/control";
@@ -186,6 +186,13 @@ export function makeVoiceHost(d: VoiceDriver): VoiceHost {
   /** A target, read from the local player's eyes. `prefer` is the side a bare "the hero" means
    *  for this verb (an attack means theirs, a camera jump means ours). `from` is where "nearest"
    *  is measured: the selection for an order, the screen for the camera. */
+  /** How far "move up" walks: about half a screen at the default zoom — far enough to be a
+   *  move, short enough to stay in sight. Ours (WC3 had no such command). */
+  const STEP_DISTANCE = 800;
+  /** How far from a camp's minimap marker its creeps stand (the marker is the camp's centre). */
+  const CAMP_RADIUS = 600;
+  /** How far short of a fogged camp the walk there stops before the attack-move takes over. */
+  const CAMP_APPROACH = 450;
   type Spot = { cursor: true } | { unit: SimUnit } | { point: [number, number] } | { fail: string };
   const resolve = (t: VoiceTarget, prefer: "enemy" | "mine", from: [number, number] = anchor(), friendly = false): Spot => {
     const r = rts();
@@ -193,6 +200,16 @@ export function makeVoiceHost(d: VoiceDriver): VoiceHost {
     const sideOk = (u: SimUnit, side: string): boolean => side === "any" || sideOf(u) === side;
     const known = (u: SimUnit): boolean => r.getVision().stateAt(u.x, u.y) !== FogState.Unexplored;
     switch (t.kind) {
+      case "step": {
+        // "move up": a walk of STEP_DISTANCE from where they stand (the camera's centre for a
+        // camera step), screen-up being north — clamped onto the playable map.
+        const len = Math.hypot(t.dx, t.dy) || 1;
+        const reach = STEP_DISTANCE * t.scale;
+        const [x0, y0, w, h] = d.mapBounds();
+        const x = Math.max(x0 + 64, Math.min(x0 + w - 64, from[0] + (t.dx / len) * reach));
+        const y = Math.max(y0 + 64, Math.min(y0 + h - 64, from[1] + (t.dy / len) * reach));
+        return { point: [x, y] };
+      }
       case "cursor": return { cursor: true };
       case "screen": {
         const c = d.screenCentre();
@@ -440,7 +457,9 @@ export function makeVoiceHost(d: VoiceDriver): VoiceHost {
    *  It finishes what it is building: no spoken order takes it off the job (`shield`). */
   const busyBuilding = (u: SimUnit): boolean => u.constructing !== 0 || !!u.buildPending;
   /** The idle-worker button's own test (rts.ts isIdleWorker): no order, no construction job. */
-  const idleWorker = (u: SimUnit): boolean => u.isPeon && u.order === "idle" && !u.building && !busyBuilding(u);
+  // …and ON THE FIELD: a Wisp inside an Entangled Gold Mine (or a Peon in a Burrow, a Peasant in
+  // a mine) holds no order and is nobody's idle worker — rts.ts isIdleWorker asks `isOffField` too.
+  const idleWorker = (u: SimUnit): boolean => u.isPeon && u.order === "idle" && !u.building && !busyBuilding(u) && !isOffField(u) && !u.garrisonHost;
 
   /**
    * The units a SUBJECT names, best first: idle ones first (a worker said with no number means an
@@ -461,20 +480,25 @@ export function makeVoiceHost(d: VoiceDriver): VoiceHost {
       return sub.count === "all" ? blds : blds.slice(0, sub.count);
     }
     const matches = mine().filter((u) =>
-      !u.building && !busyBuilding(u) && (sub.worker ? isWorker(u) : u.typeId === sub.entry?.id) &&
+      !u.building && !busyBuilding(u) && !isOffField(u) && !u.garrisonHost && (sub.worker ? isWorker(u) : u.typeId === sub.entry?.id) &&
       (!sub.from || gathering(u, sub.from)) &&
       (!sub.idle || idleWorker(u)));
     // "Fiend 4": the one wearing that label.
     if (sub.index !== undefined) return matches.filter((u) => d.labelNumber(u.id) === sub.index).sort((a, b) => Number(b.isPeon) - Number(a.isPeon)).slice(0, 1);
     matches.sort((a, b) => Number(idleWorker(b)) - Number(idleWorker(a)) || near(a, b));
-    // "select peasant" / "select worker" — no number said — is the idle-worker button's job.
-    if (sub.worker && !sub.counted && sub.count === 1 && !sub.from) return matches.filter(idleWorker).slice(0, 1);
+    // "select peasant" / "select worker" — no number said — is the idle-worker button's job; with
+    // nobody idle, the one cheapest to take off a job: a lumberjack (a Wisp in the trees, never
+    // one of the five inside the mine), then anybody standing out on the field.
+    if (sub.worker && !sub.counted && sub.count === 1 && !sub.from) {
+      const pick = matches.find(idleWorker) ?? matches.find((u) => gathering(u, "lumber")) ?? matches[0];
+      return pick ? [pick] : [];
+    }
     return sub.count === "all" ? matches : matches.slice(0, sub.count);
   };
 
   /** What to call a subject in an error ("No idle worker.", "No Footman."). */
   const subjectName = (sub: Subject): string =>
-    `${sub.idle || (sub.worker && !sub.counted && sub.count === 1 && !sub.from) ? "idle " : ""}${sub.worker ? "worker" : sub.entry?.phrase ?? "unit"}${sub.index !== undefined ? ` ${sub.index}` : ""}${sub.from ? ` on ${sub.from}` : ""}`;
+    `${sub.idle ? "idle " : ""}${sub.worker ? "worker" : sub.entry?.phrase ?? "unit"}${sub.index !== undefined ? ` ${sub.index}` : ""}${sub.from ? ` on ${sub.from}` : ""}`;
 
   /** Select a subject's units (a selection holds 12); false, with the reason said, if none. */
   const selectSubject = (sub: Subject): SimUnit[] | null => {
@@ -502,6 +526,20 @@ export function makeVoiceHost(d: VoiceDriver): VoiceHost {
     const heroes = r.heroBar().map((h) => h.simId).filter((id) => sel.has(id));
     const rest = [...sel].filter((id) => !heroes.includes(id));
     if (heroes.length + rest.length) d.rideCamera([...heroes, ...rest]);
+  };
+
+  /** The creep of the camp at `at` nearest our army — what "attack the green camp" goes for. */
+  const campCreep = (at: [number, number]): SimUnit | null => {
+    const r = rts();
+    if (!r) return null;
+    const from = anchor();
+    let best: SimUnit | null = null;
+    for (const u of r.simView.units.values()) {
+      if (u.owner >= 0 || u.neutralPassive || u.hp <= 0 || u.building || !visible(u)) continue;
+      if (Math.hypot(u.x - at[0], u.y - at[1]) > CAMP_RADIUS) continue;
+      if (!best || Math.hypot(u.x - from[0], u.y - from[1]) < Math.hypot(best.x - from[0], best.y - from[1])) best = u;
+    }
+    return best;
   };
 
   const needSelection = (): boolean => {
@@ -611,8 +649,55 @@ export function makeVoiceHost(d: VoiceDriver): VoiceHost {
           if (!sel.length || sel.every((u) => canGather(u, res))) { run({ kind: "harvest", res, target: i.target }); return; }
         }
         if (!needSelection()) return;
+        // A creep camp is ATTACKED, not attack-moved to: an attack-move fights everything it
+        // walks past, so an army sent to a green camp took on the red one beside its path. The
+        // order goes on one creep of THAT camp, which walks there without stopping; when it falls
+        // the rest of the camp is already fighting back and is taken next.
+        if ((i.order === "attackmove" || i.order === "attack") && i.target?.kind === "creeps") {
+          const spot = resolve(i.target, "enemy");
+          if ("fail" in spot) { d.error(spot.fail); return; }
+          const creep = "point" in spot ? campCreep(spot.point) : null;
+          if (creep) {
+            d.press("attack");
+            if (click({ unit: creep })) ride();
+            return;
+          }
+          // A camp in the fog has no creep to aim at: WALK (a move fights nothing on the way) to
+          // just short of it, then a QUEUED attack-move covers the last stretch into it.
+          if ("point" in spot) {
+            const [cx, cy] = spot.point;
+            const [ax, ay] = anchor();
+            const len = Math.hypot(cx - ax, cy - ay) || 1;
+            const short = Math.min(CAMP_APPROACH, len);
+            d.press("move");
+            if (!click({ point: [cx - ((cx - ax) / len) * short, cy - ((cy - ay) / len) * short] })) return;
+            d.press("attack");
+            const at = screenOf(spot);
+            if (at) r.orderClickAt(at.x, at.y, true);
+            else r.minimapClick(cx, cy, false, true);
+            ride();
+            return;
+          }
+        }
         if (i.order === "smart") {
           if (!i.target) return;
+          // "Follow the archmage": a MOVE onto a friendly unit is a follow, wherever it stands on
+          // the map (a right-click only reaches what is on screen). Never on itself.
+          if (i.target.kind === "unit" || i.target.kind === "hero") {
+            const sel = new Set(r.selectedUnitIds());
+            const spot = resolve(i.target, "mine", anchor(), true);
+            if ("unit" in spot && !sel.has(spot.unit.id) && sideOf(spot.unit) !== "enemy") {
+              // The right-click's own order on a friend (rts.ts moveAt): FOLLOW, which keeps
+              // walking after it — a move to where it stands now would stop there.
+              const leader = spot.unit.id;
+              let any = false;
+              for (const id of sel) {
+                if (r.execute(me(), { c: "order", unitId: id, order: { kind: "follow", targetId: leader }, queued: false })) any = true;
+              }
+              if (!any) d.error(`They cannot follow the ${i.target.kind === "unit" ? i.target.entry.phrase : "hero"}.`);
+              return;
+            }
+          }
           const spot = resolve(i.target, "mine");
           if ("fail" in spot) { d.error(spot.fail); return; }
           const at = screenOf(spot);
@@ -863,7 +948,7 @@ export function makeVoiceHost(d: VoiceDriver): VoiceHost {
       }
       case "camera": {
         if (i.target.kind === "screen") return;
-        const spot = resolve(i.target, "mine", d.screenCentre() ?? anchor());
+        const spot = resolve(i.target, "mine", i.target.kind === "step" ? d.cameraFocus() : d.screenCentre() ?? anchor());
         if ("fail" in spot) { d.error(spot.fail); return; }
         if ("unit" in spot) d.panTo(spot.unit.x, spot.unit.y);
         else if ("point" in spot) d.panTo(spot.point[0], spot.point[1]);

@@ -162,6 +162,29 @@ files (`onnx-community/whisper-small.en`, ~250 MB), run by transformers.js in a 
 - **The hint box** (`ui/voiceHints.ts`): a short list of things worth saying on the right of the
   screen, worded with this race's own worker, soldier and farm, while Voice Control is on.
   **","** hides and shows it (remembered for the browser). The developer's pick of three looks.
+- **A creep camp is ATTACKED, never attack-moved to.** An attack-move fights everything it walks
+  past, so "attack the green camp" took on the red camp beside the path. The order goes on the
+  creep of THAT camp nearest the army (an attack on a unit walks there without stopping); a camp
+  in the fog has no creep to aim at, so the army WALKS to `CAMP_APPROACH` short of it and a
+  QUEUED attack-move covers the last stretch.
+- **Retreat has many phrasings** — "fall back" (Whisper also writes "fallback"), "go back", "get
+  back", "move back", "run away", "pull out" — and "back" alone is still Cancel. "TP" arrives as
+  "T.P.", "teepee", "tipi"; those are put back (`MISHEARD`) before anything reads them.
+- **Directions**: "move up", "go north west", "attack move left", "move up and to the left",
+  "move right a bit" (half) / "a lot" (double) walk `STEP_DISTANCE` (800, ours) from where the
+  units stand, screen-up being north; "pan the camera left" steps the camera. "Move TO the north"
+  is still the map's northern third. "Up and to the left" is one direction — the clause splitter
+  would otherwise read the "and" as a second command.
+- **"Follow the archmage"** is the right-click's FOLLOW order on a friendly unit (never on one of
+  the followers), wherever it is on the map.
+- **"Select worker"** is an idle one, else a LUMBER worker, else anyone on the field — never a
+  body inside a building: a Wisp in an Entangled Gold Mine holds no order and read as idle
+  (`isOffField`/`garrisonHost`, the idle-worker button's own test).
+- **The prompt has a BUDGET.** Whisper hears ~224 tokens of prompt and the worker keeps its END,
+  so `promptFor` spends ~850 characters: the developer's list of hard words (`PROMPT_BIAS`; those
+  this match can use first, none repeated from the names), the example sentences, and the
+  likeliest names LAST. Before the budget, the examples alone filled the window and the names
+  were the part cut off.
 - Everything is fog-honest: "the enemy hero" is the nearest one this player can SEE.
 
 `window.openwar3.voiceSay("train three footmen")` runs a sentence through the same path with no

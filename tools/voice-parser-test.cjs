@@ -256,6 +256,35 @@ check("'accolades' is heard as acolytes", i?.kind === "harvest" && i.subject?.co
 i = one2("go to gold");
 check("go to gold (gathering is decided by who hears it)", i?.kind === "order" && i.target?.kind === "mine", JSON.stringify(i));
 
+console.log("retreat, directions, follow, mishearings");
+const lex3 = new Lexicon([
+  { kind: "hero", id: "Hamg", phrase: "Archmage" },
+  { kind: "hero", id: "Emoo", phrase: "Priestess of the Moon" },
+  { kind: "item", id: "stwp", phrase: "tp" },
+]);
+const one3 = (t) => { const r = parse(t, { lexicon: lex3 }); return r.length === 1 ? r[0] : null; };
+for (const t of ["go back", "Fallback!", "get back", "move back", "fall back"]) check(`${t} = retreat`, one3(t)?.kind === "retreat", JSON.stringify(p(t)));
+check("T.P. out = Town Portal", one3("T.P. out")?.kind === "useitem", JSON.stringify(one3("T.P. out")));
+check("teepee out = Town Portal", one3("teepee out")?.kind === "useitem", JSON.stringify(one3("teepee out")));
+i = one3("move up");
+check("move up = a step north", i?.kind === "order" && i.target?.kind === "step" && i.target.dy === 1 && i.target.dx === 0, JSON.stringify(i));
+i = one3("go north west");
+check("go north west", i?.target?.kind === "step" && i.target.dx === -1 && i.target.dy === 1, JSON.stringify(i));
+i = one3("move up and to the left");
+check("up and to the left is ONE direction", i?.target?.kind === "step" && i.target.dx === -1 && i.target.dy === 1, JSON.stringify(p("move up and to the left")));
+i = one3("move left a bit");
+check("left a bit = half a step", i?.target?.kind === "step" && i.target.scale === 0.5, JSON.stringify(i));
+i = one3("move to the north");
+check("move TO the north is still the map's north", i?.target?.kind === "region", JSON.stringify(i));
+i = one3("pan the camera left");
+check("pan the camera left = a camera step", i?.kind === "camera" && i.target.kind === "step" && i.target.dx === -1, JSON.stringify(i));
+i = one3("follow the archmage");
+check("follow the archmage", i?.kind === "order" && i.order === "smart" && i.target?.kind === "unit" && i.target.entry.id === "Hamg", JSON.stringify(i));
+i = one3("train priest is of the moon");
+check("'priest is of the moon' is the Priestess", i?.kind === "train" && i.entry.id === "Emoo", JSON.stringify(i));
+i = one3("train the priestess of moon");
+check("'the priestess of moon'", i?.kind === "train" && i.entry.id === "Emoo", JSON.stringify(i));
+
 console.log("not commands");
 check("small talk is nothing", p("hello how are you").length === 0, JSON.stringify(p("hello how are you")));
 check("describe() names every intent", p("train three footmen and group two").map(describe).join(" · ") === "Train 3 × Footman · Group 2", p("train three footmen and group two").map(describe).join(" · "));

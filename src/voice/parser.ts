@@ -63,7 +63,10 @@ export type VoiceTarget =
   /** "the creep camp", "another camp", "a green camp" — `tier` is the minimap's own colour for
    *  the camp's combined level (game/minimapView.ts: green 1–9, orange 10–19, red 20+). */
   | { kind: "creeps"; region?: Region; pick?: Pick; tier?: "green" | "orange" | "red" }
-  | { kind: "region"; region: Region }; // "the top left", "the middle of the map"
+  | { kind: "region"; region: Region } // "the top left", "the middle of the map"
+  /** "move up", "go north west", "move left a bit": a WALK in a direction from where the units
+   *  stand (screen up is north — the camera never turns), `scale` times the usual distance. */
+  | { kind: "step"; dx: number; dy: number; scale: number };
 
 /**
  * WHO an order is for, when the player names them instead of selecting them: "ALL PEASANTS on
@@ -145,6 +148,40 @@ const REGION_WORDS: Record<string, Partial<Region>> = {
   bottom: { y: -1 }, south: { y: -1 }, southern: { y: -1 }, lower: { y: -1 },
   middle: { x: 0, y: 0 }, center: { x: 0, y: 0 }, centre: { x: 0, y: 0 },
 };
+/** A DIRECTION said right after the verb, with no "to the" before it ("move up", "go north"):
+ *  a walk from where the units are, not a part of the map ("move to the north" is a region). */
+const DIRECTION_WORDS: Record<string, [number, number]> = {
+  up: [0, 1], upward: [0, 1], upwards: [0, 1], north: [0, 1], northward: [0, 1], northwards: [0, 1], forward: [0, 1], forwards: [0, 1],
+  down: [0, -1], downward: [0, -1], downwards: [0, -1], south: [0, -1], southward: [0, -1], southwards: [0, -1],
+  left: [-1, 0], leftward: [-1, 0], leftwards: [-1, 0], west: [-1, 0], westward: [-1, 0], westwards: [-1, 0],
+  right: [1, 0], rightward: [1, 0], rightwards: [1, 0], east: [1, 0], eastward: [1, 0], eastwards: [1, 0],
+  northeast: [1, 1], northwest: [-1, 1], southeast: [1, -1], southwest: [-1, -1],
+};
+
+/** A direction at `at` ("up", "north east", "up and to the left", "left a bit"), or null. */
+export function readDirection(ws: readonly string[], at: number): { dx: number; dy: number; scale: number; end: number } | null {
+  let i = at;
+  const first = DIRECTION_WORDS[ws[i] ?? ""];
+  if (!first) return null;
+  let [dx, dy] = first;
+  i++;
+  // A second direction on the other axis: "north east", "up and left", "up and to the right".
+  let j = i;
+  while (ws[j] === "and" || ws[j] === "to" || ws[j] === "the") j++;
+  const second = DIRECTION_WORDS[ws[j] ?? ""];
+  if (second && (second[0] === 0) !== (dx === 0)) {
+    dx += second[0];
+    dy += second[1];
+    i = j + 1;
+  }
+  // "a bit", "a little", "slightly" — half; "a lot", "far", "more" — double.
+  let scale = 1;
+  const rest = ws.slice(i).join(" ");
+  if (/^(a )?(bit|little|tad|touch)\b|^slightly\b/.test(rest)) scale = 0.5;
+  else if (/^(a lot|far|much|more|further|way)\b/.test(rest)) scale = 2;
+  return { dx, dy, scale, end: i };
+}
+
 const ENEMY_WORDS = new Set(["enemy", "enemies", "their", "hostile", "opponent", "opponents", "his"]);
 const MINE_WORDS = new Set(["my", "our", "mine"]);
 const ALLY_WORDS = new Set(["ally", "allied", "friendly"]);
@@ -175,13 +212,17 @@ const VERBS2: Array<[string, string]> = [
   ["select army", "army"], ["rally point", "rally"],
   ["fall back", "retreat"], ["pull back", "retreat"], ["go home", "retreat"], ["run home", "retreat"],
   ["back off", "retreat"], ["head home", "retreat"], ["come home", "retreat"], ["get out", "retreat"],
+  ["go back", "retreat"], ["get back", "retreat"], ["move back", "retreat"], ["run back", "retreat"],
+  ["head back", "retreat"], ["come back", "retreat"], ["pull out", "retreat"], ["run away", "retreat"],
+  ["back up", "retreat"], ["fall out", "retreat"],
   ["town portal", "teleport"], ["port out", "teleport"], ["port home", "teleport"], ["port back", "teleport"],
   ["go collect", "harvest"], ["go gather", "harvest"], ["go harvest", "harvest"], ["go mine", "harvest"],
 ];
 const VERBS1: Record<string, string> = {
   move: "move", walk: "move", run: "move", retreat: "retreat", withdraw: "retreat", regroup: "retreat", come: "move",
   attack: "attack", hit: "attack", kill: "attack", fight: "attack", charge: "attack",
-  amove: "attackmove", patrol: "patrol", rally: "rally", follow: "smart",
+  amove: "attackmove", patrol: "patrol", rally: "rally", follow: "follow", escort: "follow", accompany: "follow",
+  head: "move", march: "move", step: "move",
   // "put all peasants on gold", "send two footmen there", "put the rally point of the barracks
   // on my hero", "put a farm here": one verb whose meaning is read off the rest of the clause.
   put: "put", send: "put", set: "put", assign: "put", order: "put", tell: "put", have: "put",
@@ -203,23 +244,33 @@ const VERBS1: Record<string, string> = {
 };
 
 /** What the recogniser writes for a word it has rarely heard spoken, put back before anything
- *  reads it. "Acolyte" is the standing case: Whisper hears "a collide", "accolade", "acolite". */
+ *  reads it — matched on the CLEANED text (lower case, no punctuation, single spaces), so
+ *  "T.P." arrives as "t p". "Acolyte" is the standing case: Whisper hears "a collide",
+ *  "accolade", "acolite"; "tp" comes out "teepee"; "Priestess of the Moon" "priest is of the
+ *  moon". */
 const MISHEARD: Array<[RegExp, string]> = [
   [/\b(a collides|accolades|acolites|a colites|a collites|acolights)\b/g, "acolytes"],
   [/\b(a collide|accolade|acolite|a colite|a collite|acolight|a coli?ght|ecolite|acolyt)\b/g, "acolyte"],
+  [/\b(t p|tee pee|teepee|tepee|tea pee|tipi|t pee|tee p)\b/g, "tp"],
+  [/\bfallback\b/g, "fall back"],
+  [/\b(priest is|priestess is|priests of|priest of|pristess|priestesses) (of )?(the )?moon\b/g, "priestess of the moon"],
+  [/\bpriestess of (the )?(moon|mood|mon|moan|mun)\b/g, "priestess of the moon"],
 ];
 
-/** Lower-case, strip WC3 markup and punctuation, split. */
+/** Lower-case, strip WC3 markup and punctuation, put the known mishearings back, split. */
 export function words(text: string): string[] {
-  let t = text.toLowerCase();
-  for (const [re, to] of MISHEARD) t = t.replace(re, to);
-  return t
+  let t = ` ${text
+    .toLowerCase()
     .replace(/\|c[0-9a-f]{8}|\|r|\|n/gi, " ")
     .replace(/[-_]/g, " ")
     .replace(/[^a-z0-9' ]+/g, " ")
     .replace(/'/g, "")
-    .split(/\s+/)
-    .filter(Boolean);
+    .replace(/\s+/g, " ")} `;
+  for (const [re, to] of MISHEARD) t = t.replace(re, to);
+  // "up and to the left" is ONE direction; the clause splitter would read the "and" as a second
+  // command.
+  t = t.replace(/\b(up|upward|upwards|down|downward|downwards|north|south|forward|forwards) and (to the )?(left|right|east|west)\b/g, "$1 $3");
+  return t.split(/\s+/).filter(Boolean);
 }
 
 /** One word's DICTIONARY form, so "footmen" says "footman" and "wolves" "wolf". Applied to both
@@ -505,9 +556,14 @@ function parseClause(ws: string[], ctx: ParseContext, inherited: string | null):
   // above all, which would otherwise order the army there.
   const cam = ws.indexOf("camera");
   if (cam >= 0) {
+    // "move the camera up", "pan the camera left a bit": a step from where it looks now.
+    const dir = readDirection(ws, cam + 1);
+    if (dir) return { intent: { kind: "camera", target: { kind: "step", dx: dir.dx, dy: dir.dy, scale: dir.scale } }, verb: "camera" };
     const t = readTarget(ws, cam + 1, lex);
     return t ? { intent: { kind: "camera", target: t }, verb: "camera" } : null;
   }
+  // "go north", "go up and left": "go" is filler everywhere else ("go ahead"), a MOVE here.
+  if (ws[0] === "go" && DIRECTION_WORDS[ws[1] ?? ""]) ws = ["move", ...ws.slice(1)];
   const head = readVerb(ws);
   const verb = head?.[0] ?? null;
   let i = head?.[1] ?? 0;
@@ -522,7 +578,16 @@ function parseClause(ws: string[], ctx: ParseContext, inherited: string | null):
       while (ws[i] === "with") i++;
       const sub = readSubject(ws, i, lex, false);
       if (sub && (sub.subject.counted || sub.subject.worker || sub.plural)) i = sub.end;
-      return done({ kind: "order", order: verb, target: rest(), subject: sub && i === sub.end ? sub.subject : undefined });
+      const subject = sub && i === sub.end ? sub.subject : undefined;
+      // "move up", "attack move north west", "move left a bit".
+      const dir = readDirection(ws, i);
+      if (dir) return done({ kind: "order", order: verb, target: { kind: "step", dx: dir.dx, dy: dir.dy, scale: dir.scale }, subject });
+      return done({ kind: "order", order: verb, target: rest(), subject });
+    }
+    case "follow": {
+      // "follow the archmage", "follow my hero": a MOVE onto a friendly unit, which is a follow.
+      const t = rest();
+      return t ? done({ kind: "order", order: "smart", target: t }, "smart") : null;
     }
     case "put": {
       // The rally point: "put the rally point of the barracks on my hero".
@@ -594,6 +659,7 @@ function parseClause(ws: string[], ctx: ParseContext, inherited: string | null):
       return sub ? done({ kind: "select", what: "subject", subject: sub.subject }) : null;
     }
     case "train": {
+      while (ws[i] === "the") i++;
       const [count, j] = readCount(ws, i);
       i = j;
       const m = lex.match(ws, i, ["unit", "hero"]);
@@ -791,6 +857,7 @@ export function describe(i: VoiceIntent): string {
       case "screen": return " → here";
       case "cursor": return " → cursor";
       case "region": return ` → ${regionWords(x.region)}`;
+      case "step": return ` → ${[x.dy > 0 ? "north" : x.dy < 0 ? "south" : "", x.dx > 0 ? "east" : x.dx < 0 ? "west" : ""].join("")}${x.scale < 1 ? " a bit" : x.scale > 1 ? " far" : ""}`;
       case "unit": return ` → ${x.side === "enemy" ? "enemy " : x.side === "mine" ? "my " : ""}${x.entry.phrase}`;
       case "hero": return ` → ${x.side === "enemy" ? "enemy " : x.side === "mine" ? "my " : ""}hero`;
       case "base": return ` → ${x.side === "enemy" ? "enemy" : "my"} base`;
@@ -836,5 +903,5 @@ function who(sub?: Subject): string {
   const name = sub.worker ? "worker" : sub.entry?.phrase ?? "unit";
   if (sub.index !== undefined) return `${name} ${sub.index}`;
   const n = sub.count === "all" ? "all" : String(sub.count);
-  return `${n}${sub.idle || (!sub.counted && sub.worker && sub.count === 1) ? " idle" : ""} ${name}${sub.from ? ` from ${sub.from}` : ""}`;
+  return `${n}${sub.idle ? " idle" : ""} ${name}${sub.from ? ` from ${sub.from}` : ""}`;
 }

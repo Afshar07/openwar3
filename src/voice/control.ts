@@ -266,23 +266,63 @@ function promptFor(h: VoiceHost, lexicon: Lexicon): string {
     names.push(p);
   };
   for (const { entry } of lexicon.entries) if (!entry.misheard) add(entry.phrase);
+  const said = names.join(" ").toLowerCase();
   for (const w of h.vocabulary()) add(w);
-  const likely = names.slice(0, 80).reverse();
-  // The sentences a player SAYS, beside the names: Whisper is primed by context, and words like
-  // "pan", "camp", "fall back" are spelled right far more often after an example of them than
-  // after a list of unit names.
-  return `Warcraft III voice commands: ${likely.join(", ")}. ${COMMAND_EXAMPLES}`;
+  // The names this match is likeliest to hear — the card first, then the tech tree and what is
+  // on screen — LAST, where the prompt weighs most; as many as fit their share of the budget.
+  const likely = take(names, PROMPT_NAMES_CHARS).reverse();
+  // The words the developer has heard it get wrong, those this match can use first (a word of
+  // one of its own names), and none already among the names.
+  const bias = PROMPT_BIAS.filter((w) => !likely.some((n) => n.toLowerCase().includes(w)));
+  bias.sort((a, b) => Number(said.includes(b)) - Number(said.includes(a)));
+  const room = PROMPT_CHARS - COMMAND_EXAMPLES.length - likely.join(", ").length;
+  const words = take(bias, Math.max(0, room)).reverse();
+  return `Warcraft III: ${words.join(", ")}. ${COMMAND_EXAMPLES} ${likely.join(", ")}.`;
 }
 
-/** Example commands for the prompt (see `promptFor`) — the developer's list of words the
- *  recogniser must hear right: pan, move, place, camp, goblin, tavern, the camp colours, fall back. */
+/** The first of `list` that fit in `chars` characters, comma-joined. */
+function take(list: readonly string[], chars: number): string[] {
+  const out: string[] = [];
+  let used = 0;
+  for (const w of list) {
+    if (used + w.length + 2 > chars) break;
+    out.push(w);
+    used += w.length + 2;
+  }
+  return out;
+}
+
+/**
+ * The prompt's size. Whisper takes at most ~224 tokens of prompt and the worker keeps the END of
+ * a longer one (whisperWorker.ts); English runs about four characters a token, so ~850
+ * characters is what is actually heard — beyond it the FRONT is dropped, which is why the least
+ * likely words go first. The names get a fixed share of it so the examples cannot crowd them out.
+ */
+const PROMPT_CHARS = 850;
+const PROMPT_NAMES_CHARS = 240;
+
+/** Example commands for the prompt (see `promptFor`): the sentences a player SAYS, beside the
+ *  names — Whisper is primed by context, and "pan", "camp", "fall back", "tp" are spelled right
+ *  far more often after an example of them than after a list of names. The developer's list of
+ *  words it must hear right, in as few sentences as hold them. */
 const COMMAND_EXAMPLES =
-  "Move the camera to a green camp. Pan the camera back to my base. Move the camera to the tavern. " +
-  "Camera to an orange creep camp, a red camp, the goblin merchant. Place a farm here. Fall back. " +
-  "Train three footmen. Attack move here. Select army. Group one. Select worker. Select my main building. " +
-  "Build a farm. Build a ziggurat. Build an orc burrow. Build a moon well. Select the altar. Ghouls gather lumber. " +
-  "TP out. Teleport back to the base. Select fiend 4. Select an acolyte. Send two acolytes to gold. " +
-  "Acolytes, go to the gold mine. Go to gold. Go to wood.";
+  "Fall back. Go back. TP out. Select army, worker, my main building, the altar. Attack move to a green camp. " +
+  "Pan the camera to the red camp, the goblin merchant, the tavern. Build a ziggurat, an orc burrow, a moon well, " +
+  "a farm here. Send two acolytes to gold. Move up. Follow the archmage. Select fiend 4.";
+
+/** The words the developer has heard the recogniser miss (lower case, as said), offered to it in
+ *  the prompt when there is room (`promptFor`). */
+const PROMPT_BIAS = [
+  "blood mage", "troll", "headhunter", "shaman", "tauren", "spirit walker", "obsidian statue", "arcane",
+  "mortar", "siege", "demolisher", "ballista", "glaive", "huntress", "warden", "grove", "entangle",
+  "spirit", "slaughterhouse", "shop", "altar", "salve", "potion", "clarity", "scroll", "speed",
+  "berserk", "brute", "grunt", "rifleman", "knight", "gryphon", "hippogryph", "faerie fire", "dragon",
+  "claws", "roar", "rejuvenation", "bear", "dispel", "abolish magic", "heal", "restore", "necromancer",
+  "banshee", "necromancy", "rod", "dagger", "ritual", "lich", "dreadlord", "crypt lord", "beetle",
+  "swarm", "carrion", "shockwave", "stomp", "clap", "storm bolt", "bash", "avatar", "fan of knives",
+  "blink", "poison", "vengeance", "water elemental", "brilliance", "blizzard", "lava spawn", "curse",
+  "divine shield", "holy light", "regeneration", "priestess of the moon", "acolyte", "wisp",
+];
 
 async function finish(u: Utterance): Promise<void> {
   if (current !== u) return;
