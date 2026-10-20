@@ -9916,7 +9916,6 @@ export class MapViewerScene {
       set: (other, type, value) => this.rts?.setPlayerAlliance(this.localPlayer, other, type, value),
       stash: () => this.rts?.stashFor(this.localPlayer) ?? { gold: 0, lumber: 0 },
       trade: (other, gold, lumber) => this.giveResources(other, gold, lumber),
-      // Issue #218 requests Click.wav for resource fields, not BigButtonClick.wav.
       resourceClick: () => this.sounds?.playUiVariants("InterfaceClick", ["Sound\\Interface\\Click.wav"]),
       // A LAN client cannot write: see AllianceModel.writable.
       writable: !(this.rts?.frozenClient ?? false),
