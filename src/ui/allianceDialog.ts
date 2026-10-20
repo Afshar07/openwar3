@@ -287,25 +287,26 @@ export class AllianceDialogOverlay {
     const style = getComputedStyle(el);
     button.style.fontSize = style.fontSize;
     el.replaceChildren(button);
+    /** Match HUD buttons: mouse interaction must not leave Enter/Space activating the field. */
+    button.addEventListener("mousedown", (e) => e.preventDefault());
     /** WC3 trading controls: ±100, capped at the current treasury (issue #218) */
     const adjust = (delta: number) => {
       if (!this.model.writable) return;
       const gift = this.gifts.get(player) ?? { gold: 0, lumber: 0 };
       const max = this.model.stash()[resource];
-      gift[resource] = Math.max(0, Math.min(max, gift[resource] + delta));
+      const amount = Math.max(0, Math.min(max, gift[resource] + delta));
+      if (amount === gift[resource]) return;
+      gift[resource] = amount;
 
       this.gifts.set(player, gift);
       button.textContent = String(gift[resource]);
+      this.model.resourceClick();
     };
     button.addEventListener("click", () => {
-      if (!this.model.writable) return;
-      this.model.resourceClick();
       adjust(100);
     });
     button.addEventListener("contextmenu", (e) => {
       e.preventDefault();
-      if (!this.model.writable) return;
-      this.model.resourceClick();
       adjust(-100);
     });
     button.addEventListener("wheel", (e) => {
