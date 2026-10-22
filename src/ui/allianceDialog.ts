@@ -293,9 +293,16 @@ export class AllianceDialogOverlay {
     const adjust = (delta: number) => {
       if (!this.model.writable) return;
       const gift = this.gifts.get(player) ?? { gold: 0, lumber: 0 };
-      const max = this.model.stash()[resource];
-      const amount = Math.max(0, Math.min(max, gift[resource] + delta));
-      if (amount === gift[resource]) return;
+      // One treasury feeds every row: what the other allies' rows already hold is spoken
+      // for, or 500 gold could be pledged to two players at once and Accept would quietly
+      // drop the second gift.
+      let pledged = 0;
+      for (const [other, g] of this.gifts) if (other !== player) pledged += g[resource];
+      const max = Math.max(0, this.model.stash()[resource] - pledged);
+      // The cap only ever stops a raise: if the bank shrank while the dialog was open, a
+      // left-click must not be what pulls a row down to it.
+      const amount = delta > 0 ? Math.min(max, gift[resource] + delta) : Math.max(0, gift[resource] + delta);
+      if (delta > 0 ? amount <= gift[resource] : amount === gift[resource]) return;
       gift[resource] = amount;
 
       this.gifts.set(player, gift);
@@ -323,8 +330,9 @@ export class AllianceDialogOverlay {
       const [player, type] = k.split(":").map(Number);
       this.model.set(player, type as AllianceType, value);
     }
-    // Gifts are capped at what is actually in the bank, and spent in row order — the same
-    // first-come rule the game applies when two gifts together exceed the treasury.
+    // The fields already share one treasury between them, but the bank can shrink while the
+    // dialog is open, so gifts are still capped at what is actually in it and spent in row
+    // order — the same first-come rule the game applies when two gifts exceed the treasury.
     for (const [player, gift] of this.gifts) {
       const have = this.model.stash();
       const gold = Math.min(gift.gold, have.gold);
